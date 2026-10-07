@@ -21,6 +21,11 @@ services:
       DB_URL: jdbc:postgresql://postgres:5432/${DB_NAME:-clothes_advisor}
       DB_USER: ${DB_USER:-clothes_advisor}
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
+      JWT_SECRET_BASE64: ${JWT_SECRET_BASE64:?JWT_SECRET_BASE64 must be set}
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
+      LOCAL_USER_PASSWORD: ${LOCAL_USER_PASSWORD:-}
+      LOCAL_STYLIST_PASSWORD: ${LOCAL_STYLIST_PASSWORD:-}
+      LOCAL_ADMIN_PASSWORD: ${LOCAL_ADMIN_PASSWORD:-}
     ports:
       - "127.0.0.1:${APP_PORT:-8080}:8080"
     depends_on:
