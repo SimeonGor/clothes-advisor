@@ -6,6 +6,10 @@ spring:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/clothes_advisor}
     username: ${DB_USER:clothes_advisor}
     password: ${DB_PASSWORD}
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
 
 management:
   endpoints:
