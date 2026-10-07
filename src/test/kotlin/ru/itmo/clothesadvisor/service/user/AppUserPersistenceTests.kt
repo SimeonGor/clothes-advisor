@@ -55,8 +55,8 @@ class AppUserPersistenceTests {
     private lateinit var transactionManager: PlatformTransactionManager
 
     @BeforeEach
-    fun clearUsers() {
-        jdbc.execute("TRUNCATE TABLE app_user_history, app_user RESTART IDENTITY")
+    fun clearUserAndItemData() {
+        jdbc.execute("TRUNCATE TABLE garment_history, garment, app_user_history, app_user RESTART IDENTITY")
     }
 
     @Test
