@@ -1,4 +1,4 @@
-package ru.itmo.clothesadvisor.model.reference
+package ru.itmo.clothesadvisor.model.wardrobe
 
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
@@ -9,8 +9,8 @@ import jakarta.persistence.Table
 import jakarta.validation.constraints.NotBlank
 
 @Entity
-@Table(name = "precipitation_type")
-internal class PrecipitationType(code: String, name: String) {
+@Table(name = "garment_category")
+internal class WardrobeCategory(code: String, name: String) {
     @field:Id
     @field:GeneratedValue(strategy = GenerationType.IDENTITY)
     var id: Long? = null

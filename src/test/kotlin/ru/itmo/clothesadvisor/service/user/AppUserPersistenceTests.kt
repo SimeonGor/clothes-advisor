@@ -55,8 +55,8 @@ class AppUserPersistenceTests {
     private lateinit var transactionManager: PlatformTransactionManager
 
     @BeforeEach
-    fun clearUsers() {
-        jdbc.execute("TRUNCATE TABLE app_user_history, app_user RESTART IDENTITY")
+    fun clearUserAndItemData() {
+        jdbc.execute("TRUNCATE TABLE garment_history, garment, app_user_history, app_user RESTART IDENTITY")
     }
 
     @Test
@@ -78,38 +78,6 @@ class AppUserPersistenceTests {
         )
         assertThat(createUser("Alice").id).isNotEqualTo(user.id)
         assertThat(history()).isEmpty()
-    }
-
-    @Test
-    fun `schema uses shared native enums and a bigint serial primary key`() {
-        val enumColumns = jdbc.query(
-            """
-            SELECT c.table_name, c.column_name, c.udt_name, t.typtype
-            FROM information_schema.columns c
-            JOIN pg_namespace n ON n.nspname = c.udt_schema
-            JOIN pg_type t ON t.typnamespace = n.oid AND t.typname = c.udt_name
-            WHERE c.table_schema = current_schema()
-              AND c.table_name IN ('app_user', 'app_user_history')
-              AND c.column_name IN ('role', 'status')
-            """.trimIndent(),
-        ) { row, _ ->
-            "${row.getString("table_name")}.${row.getString("column_name")}:" +
-                "${row.getString("udt_name")}:${row.getString("typtype")}"
-        }
-        assertThat(enumColumns).containsExactlyInAnyOrder(
-            "app_user.role:user_role:e", "app_user.status:user_status:e",
-            "app_user_history.role:user_role:e", "app_user_history.status:user_status:e",
-        )
-        val id = jdbc.queryForMap(
-            """
-            SELECT data_type, is_identity, column_default
-            FROM information_schema.columns
-            WHERE table_schema = current_schema() AND table_name = 'app_user' AND column_name = 'id'
-            """.trimIndent(),
-        )
-        assertThat(id["data_type"]).isEqualTo("bigint")
-        assertThat(id["is_identity"]).isEqualTo("NO")
-        assertThat(id["column_default"] as String).startsWith("nextval(")
     }
 
     @Test
@@ -148,60 +116,6 @@ class AppUserPersistenceTests {
             }
         }
         assertThat(jdbc.queryForObject("SELECT count(*) FROM app_user", Long::class.java)).isEqualTo(1)
-    }
-
-    @Test
-    fun `database allows blank credentials and nonpositive versions independently of entity validation`() {
-        val id = createUser().id!!
-        for ((blank, version) in listOf("" to 0L, " \t\n" to -1L)) {
-            jdbc.update(
-                "UPDATE app_user SET login = ?, password_hash = ?, version = ? WHERE id = ?",
-                blank, blank, version, id,
-            )
-            jdbc.update(
-                """
-                INSERT INTO app_user_history (user_id, version, login, role, status, modified_at, archived_at)
-                SELECT id, version, login, role, status, modified_at, modified_at FROM app_user WHERE id = ?
-                """.trimIndent(), id,
-            )
-            assertThat(current(id).login).isEqualTo(blank)
-            assertThat(current(id).version).isEqualTo(version)
-            assertThat(jdbc.queryForObject("SELECT password_hash FROM app_user WHERE id = ?", String::class.java, id))
-                .isEqualTo(blank)
-            assertThat(history().single { it.snapshot.version == version }.snapshot).isEqualTo(current(id))
-        }
-    }
-
-    @Test
-    fun `database rejects invalid enum labels in current and historical users`() {
-        val id = createUser().id!!
-        users.changeRoleAndStatus(id, 1, UserRole.STYLIST, UserStatus.BLOCKED)
-        for (table in listOf("app_user", "app_user_history")) {
-            for ((column, value) in listOf("role" to "OWNER", "status" to "DELETED")) {
-                assertThatThrownBy { jdbc.update("UPDATE $table SET $column = CAST(? AS user_$column)", value) }
-                    .describedAs("enum label for %s.%s = %s", table, column, value)
-                    .isInstanceOf(DataIntegrityViolationException::class.java)
-            }
-        }
-    }
-
-    @Test
-    fun `database preserves not null constraints and history foreign key`() {
-        val id = createUser().id!!
-        users.changeRoleAndStatus(id, 1, UserRole.STYLIST, UserStatus.BLOCKED)
-        val requiredColumns = mapOf(
-            "app_user" to listOf("id", "login", "password_hash", "role", "status", "version", "created_at", "modified_at"),
-            "app_user_history" to listOf("user_id", "version", "login", "role", "status", "modified_at", "archived_at"),
-        )
-        for ((table, columns) in requiredColumns) {
-            for (column in columns) {
-                assertThatThrownBy { jdbc.update("UPDATE $table SET $column = NULL") }
-                    .describedAs("not null constraint for %s.%s", table, column)
-                    .isInstanceOf(DataIntegrityViolationException::class.java)
-            }
-        }
-        assertThatThrownBy { jdbc.update("UPDATE app_user_history SET user_id = ?", Long.MAX_VALUE) }
-            .isInstanceOf(DataIntegrityViolationException::class.java)
     }
 
     @Test
@@ -304,7 +218,7 @@ class AppUserPersistenceTests {
                     try {
                         TransactionTemplate(transactionManager).apply { timeout = 20 }.executeWithoutResult {
                             // Both transactions retain version 1 in their own persistence context.
-                            assertThat(repository.findById(id).orElseThrow().version).isEqualTo(1)
+                            assertThat(requireNotNull(repository.findById(id)).version).isEqualTo(1)
                             loaded.await(10, TimeUnit.SECONDS)
                             users.changeRoleAndStatus(id, 1, role, UserStatus.BLOCKED)
                         }

@@ -11,9 +11,7 @@ internal class LoginRequest(
 internal data class AccessTokenResponse(
     val accessToken: String,
     val tokenType: String = "Bearer",
-    val expiresIn: Long = 1800,
+    val expiresIn: Long,
 )
 
 internal data class CurrentUser(val id: Long, val login: String, val role: UserRole)
-
-internal data class AuthError(val error: String)

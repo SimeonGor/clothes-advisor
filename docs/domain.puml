@@ -52,7 +52,8 @@ entity "garment" as garment {
   owner_id <<FK>>
   name
   category_id <<FK>>
-  characteristics
+  color
+  material
   version
   created_at
   modified_at
@@ -63,7 +64,8 @@ entity "garment_history" as garment_history {
   --
   name
   category_id <<FK>>
-  characteristics
+  color
+  material
   modified_at
   archived_at
 }

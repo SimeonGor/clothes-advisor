@@ -1,0 +1,31 @@
+package ru.itmo.clothesadvisor.dto.wardrobe
+
+import jakarta.validation.constraints.NotBlank
+import jakarta.validation.constraints.Positive
+import java.time.Instant
+
+internal class CreateWardrobeItemRequest(
+    @field:NotBlank val name: String,
+    @field:Positive val categoryId: Long,
+    @field:NotBlank val color: String,
+    @field:NotBlank val material: String,
+)
+
+internal class UpdateWardrobeItemRequest(
+    @field:Positive val version: Long,
+    @field:NotBlank val name: String,
+    @field:Positive val categoryId: Long,
+    @field:NotBlank val color: String,
+    @field:NotBlank val material: String,
+)
+
+internal data class WardrobeItemResponse(
+    val id: Long,
+    val name: String,
+    val categoryId: Long,
+    val color: String,
+    val material: String,
+    val version: Long,
+    val createdAt: Instant,
+    val modifiedAt: Instant,
+)

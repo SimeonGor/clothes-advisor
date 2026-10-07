@@ -177,8 +177,8 @@ class ReferenceDataIntegrationTests {
     companion object {
         private const val PASSWORD = "reference-test-password"
         private val ENDPOINTS = mapOf(
-            "/api/reference/garment-categories" to "garment_category",
-            "/api/reference/precipitation-types" to "precipitation_type",
+            "/api/wardrobe/categories" to "garment_category",
+            "/api/weather/precipitation-types" to "precipitation_type",
         )
         private val SEEDS = mapOf(
             "garment_category" to listOf(
