@@ -1,6 +1,11 @@
 server:
   port: ${APP_PORT:8080}
 
+app:
+  security:
+    jwt:
+      secret-base64: ${JWT_SECRET_BASE64:}
+
 spring:
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/clothes_advisor}
