@@ -1,0 +1,213 @@
+package ru.itmo.clothesadvisor.controller.reference
+
+import com.jayway.jsonpath.JsonPath
+import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
+import java.util.UUID
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.parallel.Execution
+import org.junit.jupiter.api.parallel.ExecutionMode
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.Arguments
+import org.junit.jupiter.params.provider.EnumSource
+import org.junit.jupiter.params.provider.MethodSource
+import org.junit.jupiter.params.provider.ValueSource
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.boot.test.web.server.LocalServerPort
+import org.springframework.context.annotation.Import
+import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.security.crypto.password.PasswordEncoder
+import org.springframework.test.context.DynamicPropertyRegistry
+import org.springframework.test.context.DynamicPropertySource
+import org.testcontainers.junit.jupiter.Container
+import org.testcontainers.junit.jupiter.Testcontainers
+import org.testcontainers.postgresql.PostgreSQLContainer
+import ru.itmo.clothesadvisor.config.TestTimeConfiguration
+import ru.itmo.clothesadvisor.model.user.AppUser
+import ru.itmo.clothesadvisor.model.user.UserRole
+import ru.itmo.clothesadvisor.model.user.UserStatus
+import ru.itmo.clothesadvisor.service.user.AppUserService
+
+@Testcontainers
+@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@Import(TestTimeConfiguration::class)
+@Execution(ExecutionMode.SAME_THREAD)
+class ReferenceDataIntegrationTests {
+    @LocalServerPort
+    private var port: Int = 0
+
+    @Autowired
+    private lateinit var users: AppUserService
+
+    @Autowired
+    private lateinit var passwords: PasswordEncoder
+
+    @Autowired
+    private lateinit var jdbc: JdbcTemplate
+
+    private val client = HttpClient.newHttpClient()
+
+    @AfterEach
+    fun closeHttpClient() {
+        client.close()
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @EnumSource(UserRole::class)
+    internal fun `every active role reads exact seeded DTOs in ID order`(role: UserRole) {
+        val token = login(createUser(role))
+        for ((path, table) in ENDPOINTS) {
+            val response = request(path, token)
+            assertThat(rows(response)).isEqualTo(expectedSeeds(table))
+            assertThat(response.headers().allValues("X-Total-Count")).isEmpty()
+        }
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("referenceEndpoints")
+    fun `paging returns the requested part of a dictionary`(path: String, table: String) {
+        val token = login(createUser())
+        val seeds = expectedSeeds(table)
+        assertThat(rows(request("$path?size=1", token))).containsExactly(seeds[0])
+        assertThat(rows(request("$path?page=1&size=1", token))).containsExactly(seeds[1])
+        assertThat(rows(request("$path?page=${seeds.size - 1}&size=1", token))).containsExactly(seeds.last())
+        assertThat(rows(request("$path?page=${seeds.size}&size=1", token))).isEmpty()
+        assertThat(rows(request("$path?page=${Int.MAX_VALUE}&size=1", token))).isEmpty()
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = [
+        "page=-1", "size=0", "size=-1", "size=51", "page=abc", "size=abc",
+        "page=1.5", "size=1.5", "page=2147483648", "size=2147483648",
+        "page=42949673&size=50", "page=2147483647&size=2",
+    ])
+    fun `invalid paging and overflowing offsets return bad request`(query: String) {
+        val token = login(createUser())
+        for (path in ENDPOINTS.keys) {
+            assertThat(request("$path?$query", token).statusCode()).describedAs(path).isEqualTo(400)
+        }
+    }
+
+    @ParameterizedTest(name = "{0}")
+    @MethodSource("referenceEndpoints")
+    fun `pages stay bounded with more than fifty records`(path: String, table: String) {
+        val token = login(createUser())
+        val prefix = "TEST${UUID.randomUUID().toString().replace("-", "")}"
+        try {
+            jdbc.update(
+                "INSERT INTO $table (code, name) SELECT ? || n, 'Test ' || n FROM generate_series(1, 55) AS n",
+                prefix,
+            )
+            val expected = databaseRows(table)
+            val first = rows(request(path, token))
+            val second = rows(request("$path?page=1&size=50", token))
+            assertThat(first).hasSize(50)
+            assertThat(second).hasSize(expected.size - 50)
+            assertThat(first + second).isEqualTo(expected)
+            assertThat(rows(request("$path?page=2&size=50", token))).isEmpty()
+        } finally {
+            jdbc.update("DELETE FROM $table WHERE code LIKE ?", "$prefix%")
+        }
+    }
+
+    @Test
+    fun `anonymous and blocked users cannot read dictionaries`() {
+        val user = createUser()
+        val token = login(user)
+        for (path in ENDPOINTS.keys) {
+            assertThat(request(path).statusCode()).isEqualTo(401)
+            assertThat(request(path, token).statusCode()).isEqualTo(200)
+        }
+        users.changeRoleAndStatus(user.id!!, user.version, user.role, UserStatus.BLOCKED)
+        for (path in ENDPOINTS.keys) assertThat(request(path, token).statusCode()).isEqualTo(401)
+    }
+
+    @ParameterizedTest(name = "{0}: {1}")
+    @MethodSource("unsupportedMethods")
+    internal fun `write methods are unavailable for every role`(role: UserRole, method: String) {
+        val token = login(createUser(role))
+        for (path in ENDPOINTS.keys) {
+            assertThat(request(path, token, method).statusCode()).describedAs(path).isEqualTo(405)
+        }
+    }
+
+    private fun createUser(role: UserRole = UserRole.USER): AppUser =
+        users.create(UUID.randomUUID().toString(), requireNotNull(passwords.encode(PASSWORD)), role)
+
+    private fun login(user: AppUser): String {
+        val request = HttpRequest.newBuilder(URI("http://localhost:$port/api/auth/login"))
+            .header("Content-Type", "application/json")
+            .POST(HttpRequest.BodyPublishers.ofString("{\"login\":\"${user.login}\",\"password\":\"$PASSWORD\"}"))
+            .build()
+        val response = client.send(request, HttpResponse.BodyHandlers.ofString())
+        assertThat(response.statusCode()).isEqualTo(200)
+        return JsonPath.read(response.body(), "$.accessToken")
+    }
+
+    private fun request(path: String, token: String? = null, method: String = "GET"): HttpResponse<String> {
+        val request = HttpRequest.newBuilder(URI("http://localhost:$port$path"))
+            .method(method, HttpRequest.BodyPublishers.noBody())
+        if (token != null) request.header("Authorization", "Bearer $token")
+        return client.send(request.build(), HttpResponse.BodyHandlers.ofString())
+    }
+
+    private fun rows(response: HttpResponse<String>): List<ReferenceRow> {
+        assertThat(response.statusCode()).isEqualTo(200)
+        return JsonPath.read<List<Map<String, Any>>>(response.body(), "$").map {
+            assertThat(it.keys).containsExactlyInAnyOrder("id", "code", "name")
+            ReferenceRow((it.getValue("id") as Number).toLong(), it.getValue("code") as String, it.getValue("name") as String)
+        }
+    }
+
+    private fun databaseRows(table: String): List<ReferenceRow> = jdbc.query("SELECT id, code, name FROM $table ORDER BY id") {
+        row, _ -> ReferenceRow(row.getLong("id"), row.getString("code"), row.getString("name"))
+    }
+
+    private fun expectedSeeds(table: String): List<ReferenceRow> = SEEDS.getValue(table).mapIndexed { index, (code, name) ->
+        ReferenceRow(index + 1L, code, name)
+    }
+
+    private data class ReferenceRow(val id: Long, val code: String, val name: String)
+
+    companion object {
+        private const val PASSWORD = "reference-test-password"
+        private val ENDPOINTS = mapOf(
+            "/api/reference/garment-categories" to "garment_category",
+            "/api/reference/precipitation-types" to "precipitation_type",
+        )
+        private val SEEDS = mapOf(
+            "garment_category" to listOf(
+                "TOP" to "Верх", "BOTTOM" to "Низ", "ONE_PIECE" to "Платья и комбинезоны",
+                "OUTERWEAR" to "Верхняя одежда", "FOOTWEAR" to "Обувь", "ACCESSORIES" to "Аксессуары",
+            ),
+            "precipitation_type" to listOf(
+                "NONE" to "Нет", "RAIN" to "Дождь", "SNOW" to "Снег", "SLEET" to "Дождь со снегом",
+            ),
+        )
+
+        @JvmStatic
+        fun referenceEndpoints(): List<Arguments> = ENDPOINTS.map { (path, table) -> Arguments.of(path, table) }
+
+        @JvmStatic
+        fun unsupportedMethods(): List<Arguments> = UserRole.entries.flatMap { role ->
+            listOf("POST", "PUT", "PATCH", "DELETE").map { method -> Arguments.of(role, method) }
+        }
+
+        @Container
+        @JvmStatic
+        val postgres = PostgreSQLContainer("postgres:18-alpine")
+
+        @JvmStatic
+        @DynamicPropertySource
+        fun postgresProperties(registry: DynamicPropertyRegistry) {
+            registry.add("spring.datasource.url", postgres::getJdbcUrl)
+            registry.add("spring.datasource.username", postgres::getUsername)
+            registry.add("spring.datasource.password", postgres::getPassword)
+        }
+    }
+}
