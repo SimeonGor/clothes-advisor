@@ -1,0 +1,52 @@
+@startuml architecture
+!pragma layout smetana
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName SansSerif
+skinparam defaultFontSize 15
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam packageStyle rectangle
+skinparam ArrowColor #52677F
+skinparam nodesep 30
+skinparam ranksep 40
+skinparam padding 8
+skinparam componentBackgroundColor #F0F6FC
+skinparam componentBorderColor #6485AD
+
+title Сервис подбора одежды · монолит
+
+component "USER / STYLIST / ADMIN\nКлиент REST API / Swagger" as client #FFF5DF
+
+rectangle "Docker Compose" {
+  node "Kotlin / Spring Boot · один процесс" {
+    component "REST API / Swagger\nDTO · валидация · ошибки" as api
+    component "Пользователи и безопасность\nВход · JWT · роли · блокировки" as identity
+    component "Гардероб и фотографии\nВещи · характеристики · фото" as wardrobe
+    component "Образы\nСостав · автор · владелец · погода" as outfits
+    component "Доступ и оценки\nРазрешения · история · счётчики" as ratings
+    component "AI-подбор\nВызов модели · проверка результата" as recommendations
+    component "Доступ к данным\nSpring Data · транзакции" as persistence #E8F5EF
+
+    api --> identity
+    api --> wardrobe
+    api --> outfits
+    api --> ratings
+    api --> recommendations
+    identity --> persistence
+    wardrobe --> persistence
+    outfits --> persistence
+    ratings --> persistence
+    recommendations --> wardrobe : вещи и фото
+    recommendations --> outfits : сохранить образ
+  }
+  database "PostgreSQL\nДанные · история оценок\nРазрешения · S3-ключи" as db #E8F5EF
+  persistence --> db : SQL
+}
+
+cloud "Yandex Object Storage\nПриватные фотографии" as s3 #E8F5EF
+cloud "OpenAI API\nВнешний подбор" as openai #F2EDFB
+client -right-> api : вход / JWT
+wardrobe --> s3 : HTTPS / S3
+recommendations --> openai : HTTPS
+
+@enduml

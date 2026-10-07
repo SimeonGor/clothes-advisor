@@ -1,0 +1,142 @@
+@startuml domain
+!pragma layout smetana
+top to bottom direction
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName SansSerif
+skinparam defaultFontSize 14
+skinparam shadowing false
+skinparam linetype ortho
+skinparam ArrowColor #52677F
+skinparam nodesep 40
+skinparam ranksep 80
+skinparam classBackgroundColor #F0F6FC
+skinparam classBorderColor #6485AD
+skinparam classAttributeIconSize 0
+hide methods
+hide circle
+
+entity "app_user" as user #FFF5DF {
+  id <<PK>>
+  --
+  login
+  password_hash
+  role: USER | STYLIST | ADMIN
+  status: ACTIVE | BLOCKED
+  version
+  created_at
+  modified_at
+}
+entity "app_user_history" as user_history #FFF5DF {
+  user_id <<PK, FK>>
+  version <<PK>>
+  --
+  login
+  role: USER | STYLIST | ADMIN
+  status: ACTIVE | BLOCKED
+  modified_at
+  archived_at
+}
+entity "access_grant" as access #FFF5DF {
+  owner_id <<PK, FK>>
+  stylist_id <<PK, FK>>
+}
+entity "garment_category · справочник" as category #E8F5EF {
+  id <<PK>>
+  --
+  code <<UK>>
+  name
+}
+entity "garment" as garment {
+  id <<PK>>
+  --
+  owner_id <<FK>>
+  name
+  category_id <<FK>>
+  characteristics
+  version
+  created_at
+  modified_at
+}
+entity "garment_history" as garment_history {
+  garment_id <<PK>>
+  version <<PK>>
+  --
+  name
+  category_id <<FK>>
+  characteristics
+  modified_at
+  archived_at
+}
+entity "garment_photo" as photo #E8F5EF {
+  id <<PK>>
+  --
+  garment_id <<FK>>
+  s3_key
+  metadata
+  created_at
+}
+entity "outfit · неизменяемый" as outfit {
+  id <<PK>>
+  --
+  owner_id <<FK>>
+  author_id <<FK>>
+  source: USER | STYLIST | AI
+  name
+  created_at
+}
+entity "outfit_weather · неизменяемый" as weather {
+  outfit_id <<PK, FK>>
+  --
+  temperature_c
+  precipitation_type_id <<FK>>
+  wind_speed_mps
+}
+entity "precipitation_type · справочник" as precipitation #E8F5EF {
+  id <<PK>>
+  --
+  code <<UK>>
+  name
+}
+entity "outfit_item · неизменяемый" as item #E8F5EF {
+  outfit_id <<PK, FK>>
+  garment_id <<PK, FK>>
+  --
+  position
+}
+entity "outfit_rating · текущая оценка" as rating #F2EDFB {
+  outfit_id <<PK, FK>>
+  stylist_id <<PK, FK>>
+  --
+  vote: LIKE | DISLIKE
+  version
+  created_at
+  modified_at
+}
+entity "outfit_rating_history" as rating_history #F2EDFB {
+  outfit_id <<PK>>
+  stylist_id <<PK, FK>>
+  version <<PK>>
+  --
+  vote: LIKE | DISLIKE
+  modified_at
+  archived_at
+}
+
+user ||--o{ user_history : user_id
+user ||--o{ access : owner_id
+user ||--o{ access : stylist_id
+user ||..o{ garment : owner_id
+user ||..o{ outfit : owner_id
+user ||..o{ outfit : author_id
+user ||--o{ rating : stylist_id
+user ||--o{ rating_history : stylist_id
+category ||..o{ garment : category_id
+category ||..o{ garment_history : category_id
+garment ||..o{ photo : garment_id · CASCADE
+outfit ||--|| weather : outfit_id · CASCADE
+precipitation ||..o{ weather : precipitation_type_id
+outfit ||--|{ item : outfit_id · CASCADE
+garment ||--o{ item : garment_id · RESTRICT
+outfit ||--o{ rating : outfit_id · CASCADE
+
+@enduml
