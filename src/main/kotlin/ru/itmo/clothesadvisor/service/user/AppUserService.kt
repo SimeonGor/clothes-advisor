@@ -27,7 +27,7 @@ internal class AppUserService(
         status: UserStatus = UserStatus.ACTIVE,
     ): AppUser = users.save(AppUser(login, passwordHash, role, status, clock.instant()))
 
-    fun findById(id: Long): AppUser? = users.findById(id).orElse(null)
+    fun findById(id: Long): AppUser? = users.findById(id)
 
     fun findByLogin(login: String): AppUser? = users.findByLogin(login)
 
@@ -38,7 +38,7 @@ internal class AppUserService(
         role: UserRole,
         status: UserStatus,
     ): AppUser {
-        val user = users.findById(id).orElseThrow { EntityNotFoundException("User $id not found") }
+        val user = users.findById(id) ?: throw EntityNotFoundException("User $id not found")
         if (user.version != expectedVersion) {
             throw ObjectOptimisticLockingFailureException(AppUser::class.java, id)
         }
