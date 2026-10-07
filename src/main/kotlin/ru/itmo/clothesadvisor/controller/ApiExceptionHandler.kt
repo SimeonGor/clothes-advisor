@@ -1,4 +1,4 @@
-package ru.itmo.clothesadvisor.controller.auth
+package ru.itmo.clothesadvisor.controller
 
 import jakarta.servlet.http.HttpServletResponse
 import org.springframework.http.ResponseEntity
@@ -8,11 +8,12 @@ import org.springframework.security.core.AuthenticationException
 import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
+import ru.itmo.clothesadvisor.controller.auth.InvalidLoginRequestException
+import ru.itmo.clothesadvisor.dto.ApiErrorResponse
 import ru.itmo.clothesadvisor.security.auth.ApiSecurityErrors
-import ru.itmo.clothesadvisor.dto.auth.AuthError
 
 @RestControllerAdvice
-internal class AuthExceptionHandler {
+internal class ApiExceptionHandler {
     @ExceptionHandler(AuthenticationException::class)
     fun unauthorized(response: HttpServletResponse) = ApiSecurityErrors.unauthorized(response)
 
@@ -24,5 +25,5 @@ internal class AuthExceptionHandler {
         HttpMessageNotReadableException::class,
         InvalidLoginRequestException::class,
     )
-    fun invalidRequest(): ResponseEntity<AuthError> = ResponseEntity.badRequest().body(AuthError("invalid_request"))
+    fun invalidRequest(): ResponseEntity<ApiErrorResponse> = ResponseEntity.badRequest().body(ApiErrorResponse("invalid_request"))
 }

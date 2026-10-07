@@ -26,7 +26,7 @@ import ru.itmo.clothesadvisor.dto.auth.LoginRequest
 @RequestMapping("/api/auth")
 internal class AuthController(
     private val authenticationManager: AuthenticationManager,
-    private val encoder: JwtEncoder,
+    private val jwtEncoder: JwtEncoder,
     private val clock: Clock,
 ) {
     @PostMapping("/login")
@@ -42,14 +42,18 @@ internal class AuthController(
             .subject(authentication.name)
             .issuedAt(issuedAt)
             .notBefore(issuedAt)
-            .expiresAt(issuedAt.plusSeconds(1800))
+            .expiresAt(issuedAt.plusSeconds(ACCESS_TOKEN_LIFETIME_SECONDS))
             .build()
-        val token = encoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims))
-        return AccessTokenResponse(token.tokenValue)
+        val token = jwtEncoder.encode(JwtEncoderParameters.from(JwsHeader.with(MacAlgorithm.HS256).build(), claims))
+        return AccessTokenResponse(token.tokenValue, expiresIn = ACCESS_TOKEN_LIFETIME_SECONDS)
     }
 
     @GetMapping("/me")
     fun me(@AuthenticationPrincipal user: CurrentUser): CurrentUser = user
+
+    private companion object {
+        const val ACCESS_TOKEN_LIFETIME_SECONDS = 1800L
+    }
 }
 
 internal class InvalidLoginRequestException : RuntimeException()

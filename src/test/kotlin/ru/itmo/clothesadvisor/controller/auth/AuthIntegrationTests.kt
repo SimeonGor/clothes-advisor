@@ -12,12 +12,15 @@ import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.time.Clock
 import java.time.Instant
+import java.time.ZoneOffset
 import java.time.temporal.ChronoUnit
 import java.util.Date
 import java.util.UUID
 import javax.crypto.SecretKey
 import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
@@ -27,6 +30,7 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Import
 import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.security.crypto.password.PasswordEncoder
+import org.springframework.security.oauth2.jwt.JwtValidationException
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
 import org.springframework.web.bind.annotation.GetMapping
@@ -154,7 +158,7 @@ class AuthIntegrationTests {
     }
 
     @Test
-    fun `expiry is rejected at and after its boundary and accepted one second before`() {
+    fun `expiry is rejected at and after its boundary and accepted before it`() {
         val id = createUser().id.toString()
         val second = TestTimeConfiguration.FIXED_TIME.truncatedTo(ChronoUnit.SECONDS)
         listOf(-1L to 401, 0L to 401, 1L to 200).forEach { (offset, status) ->
@@ -163,6 +167,9 @@ class AuthIntegrationTests {
             assertThat(response.statusCode()).isEqualTo(status)
             if (status == 401) assertError(response, 401, "unauthorized")
         }
+        val decoder = SecurityConfiguration().jwtDecoder(key, Clock.fixed(second, ZoneOffset.UTC))
+        assertThatThrownBy { decoder.decode(signed(claims(id, second))) }
+            .isInstanceOf(JwtValidationException::class.java)
     }
 
     @Test
