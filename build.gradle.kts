@@ -1,6 +1,7 @@
 plugins {
     kotlin("jvm") version "2.3.21"
     kotlin("plugin.spring") version "2.3.21"
+    kotlin("plugin.jpa") version "2.3.21"
     id("org.springframework.boot") version "4.1.1"
 }
 
@@ -11,9 +12,12 @@ dependencies {
     implementation(platform("org.springframework.boot:spring-boot-dependencies:4.1.1"))
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
-    implementation("org.springframework.boot:spring-boot-starter-jdbc")
+    implementation("org.springframework.boot:spring-boot-starter-data-jpa")
+    implementation("org.springframework.boot:spring-boot-starter-flyway")
+    implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     runtimeOnly("org.postgresql:postgresql")
+    runtimeOnly("org.flywaydb:flyway-database-postgresql")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.testcontainers:testcontainers-junit-jupiter")
@@ -23,6 +27,11 @@ dependencies {
 
 kotlin {
     jvmToolchain(25)
+}
+
+allOpen {
+    annotation("jakarta.persistence.Entity")
+    annotation("jakarta.persistence.Embeddable")
 }
 
 tasks.withType<Test> {
