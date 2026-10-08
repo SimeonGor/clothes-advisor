@@ -68,8 +68,9 @@ class WardrobeItemIntegrationTests {
         assertThat(number(original, "version")).isEqualTo(1)
         assertThat(original["createdAt"]).isEqualTo(TestTimeConfiguration.FIXED_TIME.toString())
         assertThat(original["modifiedAt"]).isEqualTo(original["createdAt"])
-        assertThat(request("GET", path, token).statusCode()).isEqualTo(200)
-        assertThat(dto(request("GET", path, token))).isEqualTo(original)
+        val fetched = request("GET", path, token)
+        assertThat(fetched.statusCode()).isEqualTo(200)
+        assertThat(dto(fetched)).isEqualTo(original)
         assertThat(rows(request("GET", token = token))).containsExactly(original)
         assertThat(history(id)).isEmpty()
 

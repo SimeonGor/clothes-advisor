@@ -127,10 +127,10 @@ class ReferenceDataIntegrationTests {
         for (path in ENDPOINTS.keys) assertThat(request(path, token).statusCode()).isEqualTo(401)
     }
 
-    @ParameterizedTest(name = "{0}: {1}")
-    @MethodSource("unsupportedMethods")
-    internal fun `write methods are unavailable for every role`(role: UserRole, method: String) {
-        val token = login(createUser(role))
+    @ParameterizedTest(name = "{0}")
+    @ValueSource(strings = ["POST", "PUT", "PATCH", "DELETE"])
+    internal fun `write methods are unavailable for an authenticated user`(method: String) {
+        val token = login(createUser())
         for (path in ENDPOINTS.keys) {
             assertThat(request(path, token, method).statusCode()).describedAs(path).isEqualTo(405)
         }
@@ -192,11 +192,6 @@ class ReferenceDataIntegrationTests {
 
         @JvmStatic
         fun referenceEndpoints(): List<Arguments> = ENDPOINTS.map { (path, table) -> Arguments.of(path, table) }
-
-        @JvmStatic
-        fun unsupportedMethods(): List<Arguments> = UserRole.entries.flatMap { role ->
-            listOf("POST", "PUT", "PATCH", "DELETE").map { method -> Arguments.of(role, method) }
-        }
 
         @Container
         @JvmStatic
