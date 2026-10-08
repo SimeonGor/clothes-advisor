@@ -11,6 +11,7 @@ import org.springframework.transaction.annotation.Transactional
 import ru.itmo.clothesadvisor.dto.outfit.CreateOutfitRequest
 import ru.itmo.clothesadvisor.dto.outfit.OutfitResponse
 import ru.itmo.clothesadvisor.dto.outfit.OutfitWeatherDto
+import ru.itmo.clothesadvisor.dto.outfit.StylistOutfitResponse
 import ru.itmo.clothesadvisor.model.outfit.Outfit
 import ru.itmo.clothesadvisor.model.outfit.OutfitItem
 import ru.itmo.clothesadvisor.model.outfit.OutfitItemId
@@ -22,6 +23,7 @@ import ru.itmo.clothesadvisor.repository.outfit.OutfitWeatherRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.repository.weather.PrecipitationTypeRepository
 import ru.itmo.clothesadvisor.service.access.AccessGrantService
+import ru.itmo.clothesadvisor.service.rating.OutfitRatingService
 
 internal class InvalidOutfitRequestException : RuntimeException()
 
@@ -34,6 +36,7 @@ internal class OutfitService(
     private val wardrobe: WardrobeItemRepository,
     private val precipitation: PrecipitationTypeRepository,
     private val access: AccessGrantService,
+    private val ratings: OutfitRatingService,
     private val clock: Clock,
 ) {
     @Transactional
@@ -41,9 +44,9 @@ internal class OutfitService(
         create(ownerId, ownerId, OutfitSource.USER, request)
 
     @Transactional
-    fun createForClient(stylistId: Long, ownerId: Long, request: CreateOutfitRequest): OutfitResponse {
+    fun createForClient(stylistId: Long, ownerId: Long, request: CreateOutfitRequest): StylistOutfitResponse {
         access.requireAccess(stylistId, ownerId)
-        return create(ownerId, stylistId, OutfitSource.STYLIST, request)
+        return StylistOutfitResponse(create(ownerId, stylistId, OutfitSource.STYLIST, request), null)
     }
 
     fun list(ownerId: Long, pageable: Pageable): Page<OutfitResponse> {
@@ -51,21 +54,25 @@ internal class OutfitService(
         return PageImpl(responses(page.content), page.pageable, page.totalElements)
     }
 
-    fun listForClient(stylistId: Long, ownerId: Long, pageable: Pageable): Page<OutfitResponse> {
+    fun listForClient(stylistId: Long, ownerId: Long, pageable: Pageable): Page<StylistOutfitResponse> {
         access.requireAccess(stylistId, ownerId)
-        return list(ownerId, pageable)
+        val page = list(ownerId, pageable)
+        val ownRatings = ratings.ownRatings(stylistId, page.content.map { it.id })
+        return page.map { StylistOutfitResponse(it, ownRatings[it.id]) }
     }
 
     fun get(ownerId: Long, id: Long): OutfitResponse = responses(listOf(owned(ownerId, id))).single()
 
-    fun getForClient(stylistId: Long, ownerId: Long, id: Long): OutfitResponse {
+    fun getForClient(stylistId: Long, ownerId: Long, id: Long): StylistOutfitResponse {
         access.requireAccess(stylistId, ownerId)
-        return get(ownerId, id)
+        return StylistOutfitResponse(get(ownerId, id), ratings.ownRatings(stylistId, listOf(id))[id])
     }
 
     @Transactional
     fun delete(ownerId: Long, id: Long) {
-        outfits.delete(owned(ownerId, id))
+        val outfit = outfits.findLockedByIdAndOwnerId(id, ownerId) ?: throw EntityNotFoundException()
+        ratings.archiveForDeletion(id)
+        outfits.delete(outfit)
         outfits.flush()
     }
 
@@ -93,12 +100,14 @@ internal class OutfitService(
         val ids = rows.map { requireNotNull(it.id) }
         val itemsByOutfit = composition.findAllByKeyOutfitIdInOrderByPositionAsc(ids).groupBy { it.id.outfitId }
         val weatherByOutfit = weather.findAllByOutfitIdIn(ids).associateBy { it.id }
+        val counts = ratings.counts(ids)
         return rows.map {
             val id = requireNotNull(it.id)
             val conditions = weatherByOutfit.getValue(id)
             OutfitResponse(id, it.ownerId, it.authorId, it.source, it.name,
                 itemsByOutfit.getValue(id).map { item -> item.id.wardrobeItemId },
-                OutfitWeatherDto(conditions.temperatureC, conditions.precipitationTypeId, conditions.windSpeedMps), it.createdAt)
+                OutfitWeatherDto(conditions.temperatureC, conditions.precipitationTypeId, conditions.windSpeedMps), it.createdAt,
+                counts[id]?.likes ?: 0, counts[id]?.dislikes ?: 0)
         }
     }
 }

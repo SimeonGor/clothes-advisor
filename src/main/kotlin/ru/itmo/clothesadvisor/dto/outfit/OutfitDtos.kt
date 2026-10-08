@@ -1,5 +1,6 @@
 package ru.itmo.clothesadvisor.dto.outfit
 
+import com.fasterxml.jackson.annotation.JsonUnwrapped
 import jakarta.validation.Valid
 import jakarta.validation.constraints.DecimalMin
 import jakarta.validation.constraints.NotBlank
@@ -7,6 +8,7 @@ import jakarta.validation.constraints.Size
 import java.math.BigDecimal
 import java.time.Instant
 import ru.itmo.clothesadvisor.model.outfit.OutfitSource
+import ru.itmo.clothesadvisor.dto.rating.RatingResponse
 
 internal class CreateOutfitRequest(
     @field:NotBlank @field:Size(max = 300) val name: String,
@@ -29,4 +31,11 @@ internal data class OutfitResponse(
     val itemIds: List<Long>,
     val weather: OutfitWeatherDto,
     val createdAt: Instant,
+    val likes: Long = 0,
+    val dislikes: Long = 0,
+)
+
+internal data class StylistOutfitResponse(
+    @get:JsonUnwrapped val outfit: OutfitResponse,
+    val myRating: RatingResponse?,
 )

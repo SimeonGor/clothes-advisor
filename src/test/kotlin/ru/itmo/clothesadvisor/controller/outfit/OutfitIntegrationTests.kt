@@ -86,12 +86,14 @@ class OutfitIntegrationTests {
         val original = dto(created)
         val id = number(original, "id")
         assertThat(created.headers().firstValue("Location")).hasValue("$OUTFITS/$id")
-        assertThat(original.keys).containsExactlyInAnyOrder("id", "ownerId", "authorId", "source", "name", "itemIds", "weather", "createdAt")
+        assertThat(original.keys).containsExactlyInAnyOrder("id", "ownerId", "authorId", "source", "name", "itemIds", "weather", "createdAt", "likes", "dislikes")
         assertThat(number(original, "ownerId")).isEqualTo(owner.id)
         assertThat(number(original, "authorId")).isEqualTo(owner.id)
         assertThat(original["source"]).isEqualTo("USER")
         assertThat(original["name"]).isEqualTo(name)
         assertThat(original["createdAt"]).isEqualTo(TestTimeConfiguration.FIXED_TIME.toString())
+        assertThat(number(original, "likes")).isZero()
+        assertThat(number(original, "dislikes")).isZero()
         assertThat(created.body()).contains("\"temperatureC\":$TEMPERATURE", "\"windSpeedMps\":$WIND")
         assertThat((original["itemIds"] as List<*>).map { (it as Number).toLong() }).isEqualTo(ids)
         val expectedWeather = OutfitWeatherDto(BigDecimal(TEMPERATURE), 1, BigDecimal(WIND))
@@ -134,12 +136,15 @@ class OutfitIntegrationTests {
         assertThat(number(original, "ownerId")).isEqualTo(owner.id)
         assertThat(number(original, "authorId")).isEqualTo(stylist.id)
         assertThat(original["source"]).isEqualTo("STYLIST")
+        assertThat(original).containsEntry("myRating", null)
+        assertThat(number(original, "likes")).isZero()
+        assertThat(number(original, "dislikes")).isZero()
         assertThat(dto(request("GET", "$path/$id", token))).isEqualTo(original)
         assertThat(rows(request("GET", path, token))).containsExactly(original)
         assertThat(request("DELETE", "$path/$id", token).statusCode()).isEqualTo(405)
         assertThat(request("PUT", "$path/$id", token, body(listOf(item))).statusCode()).isEqualTo(405)
         val ownerToken = login(owner)
-        assertThat(dto(request("GET", "$OUTFITS/$id", ownerToken))).isEqualTo(original)
+        assertThat(dto(request("GET", "$OUTFITS/$id", ownerToken))).isEqualTo(original - "myRating")
         users.changeRoleAndStatus(stylist.id!!, stylist.version, UserRole.USER, UserStatus.ACTIVE)
         assertThat(dto(request("GET", "$OUTFITS/$id", ownerToken))["source"]).isEqualTo("STYLIST")
         assertThat(request("GET", "$path/$id", token).statusCode()).isEqualTo(403)
@@ -325,30 +330,36 @@ class OutfitIntegrationTests {
     }
 
     @Test
-    fun `concurrent outfit delete returns conflict for already loaded loser and preserves wardrobe items`() {
+    fun `concurrent outfit deletes serialize with one not found and preserve wardrobe items`() {
         val owner = user()
         val token = login(owner)
         val ids = List(2) { item(owner) }
         val outfit = outfits.create(owner.id!!, input(ids))
         val loaded = CountDownLatch(1)
-        val deleted = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val secondLock = CountDownLatch(1)
         val firstRead = AtomicBoolean(true)
         doAnswer { call ->
+            val first = firstRead.compareAndSet(true, false)
+            if (!first) secondLock.countDown()
             val entity = mockingDetails(outfitRepository).mockCreationSettings.defaultAnswer.answer(call)
-            if (firstRead.compareAndSet(true, false)) {
+            if (first) {
                 assertThat(entity).isNotNull()
                 loaded.countDown()
-                assertThat(deleted.await(10, TimeUnit.SECONDS)).isTrue()
+                assertThat(release.await(10, TimeUnit.SECONDS)).isTrue()
             }
             entity
-        }.`when`(outfitRepository).findByIdAndOwnerId(outfit.id, owner.id!!)
-        Executors.newSingleThreadExecutor().use { executor ->
-            val losingDelete = executor.submit(Callable { request("DELETE", "$OUTFITS/${outfit.id}", token) })
+        }.`when`(outfitRepository).findLockedByIdAndOwnerId(outfit.id, owner.id!!)
+        Executors.newFixedThreadPool(2).use { executor ->
+            val firstDelete = executor.submit(Callable { request("DELETE", "$OUTFITS/${outfit.id}", token) })
             try {
                 assertThat(loaded.await(10, TimeUnit.SECONDS)).isTrue()
-                assertEmpty(request("DELETE", "$OUTFITS/${outfit.id}", token), 204)
-            } finally { deleted.countDown() }
-            assertEmpty(losingDelete.get(30, TimeUnit.SECONDS), 409)
+                val secondDelete = executor.submit(Callable { request("DELETE", "$OUTFITS/${outfit.id}", token) })
+                assertThat(secondLock.await(10, TimeUnit.SECONDS)).isTrue()
+                release.countDown()
+                assertEmpty(firstDelete.get(30, TimeUnit.SECONDS), 204)
+                assertEmpty(secondDelete.get(30, TimeUnit.SECONDS), 404)
+            } finally { release.countDown() }
         }
         assertThat(count("outfit", "id", outfit.id)).isZero()
         assertThat(count("outfit_item", "outfit_id", outfit.id)).isZero()
