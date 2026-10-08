@@ -2,6 +2,11 @@ server:
   port: ${APP_PORT:8080}
 
 app:
+  openai:
+    credentials-directory: ${CHATGPT_CREDENTIALS_DIR:}
+    owner-login: user
+    model: ${OPENAI_MODEL:}
+    trust-store: ${CHATGPT_TRUST_STORE:}
   s3:
     endpoint: ${S3_ENDPOINT:https://storage.yandexcloud.net}
     region: ${S3_REGION:ru-central1}
