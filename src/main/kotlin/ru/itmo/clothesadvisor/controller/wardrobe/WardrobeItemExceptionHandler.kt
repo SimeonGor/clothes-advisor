@@ -1,6 +1,5 @@
 package ru.itmo.clothesadvisor.controller.wardrobe
 
-import jakarta.persistence.EntityNotFoundException
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.dao.OptimisticLockingFailureException
 import org.springframework.http.HttpStatus
@@ -11,16 +10,15 @@ import ru.itmo.clothesadvisor.service.wardrobe.UnknownWardrobeCategoryException
 import ru.itmo.clothesadvisor.service.wardrobe.PhotoRequestException
 import ru.itmo.clothesadvisor.storage.wardrobe.PhotoStorageUnavailableException
 
-@RestControllerAdvice(assignableTypes = [WardrobeItemController::class, WardrobeItemPhotoController::class])
+@RestControllerAdvice(assignableTypes = [
+    WardrobeItemController::class, WardrobeItemPhotoController::class, StylistWardrobeController::class,
+])
 internal class WardrobeItemExceptionHandler {
     @ExceptionHandler(PhotoRequestException::class)
     fun invalidPhoto(error: PhotoRequestException): ResponseEntity<Void> = ResponseEntity.status(error.status).build()
 
     @ExceptionHandler(PhotoStorageUnavailableException::class)
     fun storageUnavailable(): ResponseEntity<Void> = ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build()
-
-    @ExceptionHandler(EntityNotFoundException::class)
-    fun notFound(): ResponseEntity<Void> = ResponseEntity.notFound().build()
 
     @ExceptionHandler(UnknownWardrobeCategoryException::class)
     fun invalidCategory(): ResponseEntity<Void> = ResponseEntity.badRequest().build()

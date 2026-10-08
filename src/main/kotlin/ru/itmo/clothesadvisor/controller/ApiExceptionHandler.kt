@@ -1,5 +1,6 @@
 package ru.itmo.clothesadvisor.controller
 
+import jakarta.persistence.EntityNotFoundException
 import jakarta.servlet.http.HttpServletResponse
 import org.springframework.http.ResponseEntity
 import org.springframework.http.converter.HttpMessageNotReadableException
@@ -15,6 +16,9 @@ import ru.itmo.clothesadvisor.security.auth.ApiSecurityErrors
 
 @RestControllerAdvice
 internal class ApiExceptionHandler {
+    @ExceptionHandler(EntityNotFoundException::class)
+    fun notFound(): ResponseEntity<Void> = ResponseEntity.notFound().build()
+
     @ExceptionHandler(MaxUploadSizeExceededException::class)
     fun uploadTooLarge(): ResponseEntity<Void> = ResponseEntity.status(413).build()
 
