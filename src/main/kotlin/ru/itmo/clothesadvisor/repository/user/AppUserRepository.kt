@@ -4,12 +4,15 @@ import jakarta.persistence.LockModeType
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.Lock
+import org.springframework.data.jpa.repository.Query
 import org.springframework.data.repository.Repository
 import ru.itmo.clothesadvisor.model.user.AppUser
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
 
 internal interface AppUserRepository : Repository<AppUser, Long> {
+    @Query(value = "SELECT id FROM app_user WHERE id = :id AND role = 'USER' AND status = 'ACTIVE' FOR SHARE", nativeQuery = true)
+    fun lockActiveUserForShare(id: Long): Long?
     fun existsById(id: Long): Boolean
     fun existsByIdAndRoleAndStatus(id: Long, role: UserRole, status: UserStatus): Boolean
     fun findById(id: Long): AppUser?
@@ -17,7 +20,7 @@ internal interface AppUserRepository : Repository<AppUser, Long> {
     fun findAll(pageable: Pageable): Page<AppUser>
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)
-    fun findAllByIdInOrderByIdAsc(ids: Collection<Long>): List<AppUser>
+    fun findAllLockedByIdInOrderByIdAsc(ids: Collection<Long>): List<AppUser>
 
     fun save(user: AppUser): AppUser
     fun flush()

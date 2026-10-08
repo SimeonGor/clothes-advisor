@@ -44,6 +44,10 @@ internal class OutfitService(
         create(ownerId, ownerId, OutfitSource.USER, request)
 
     @Transactional
+    fun createAi(ownerId: Long, request: CreateOutfitRequest): OutfitResponse =
+        create(ownerId, ownerId, OutfitSource.AI, request)
+
+    @Transactional
     fun createForClient(stylistId: Long, ownerId: Long, request: CreateOutfitRequest): StylistOutfitResponse {
         access.requireAccess(stylistId, ownerId)
         return StylistOutfitResponse(create(ownerId, stylistId, OutfitSource.STYLIST, request), null)

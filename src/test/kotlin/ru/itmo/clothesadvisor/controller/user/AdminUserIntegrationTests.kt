@@ -234,7 +234,7 @@ class AdminUserIntegrationTests {
                 assertThat(release.await(10, TimeUnit.SECONDS)).isTrue()
             }
             result
-        }.`when`(repository).findAllByIdInOrderByIdAsc(anyList())
+        }.`when`(repository).findAllLockedByIdInOrderByIdAsc(anyList())
         Executors.newFixedThreadPool(2).use { executor ->
             val winner = executor.submit(Callable { request("PUT", "$PATH/${waitingAdmin.id}", winnerToken, update(role, status)) })
             try {
