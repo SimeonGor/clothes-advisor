@@ -1,6 +1,6 @@
 package ru.itmo.clothesadvisor.service.wardrobe
 
-import jakarta.persistence.EntityNotFoundException
+import ru.itmo.clothesadvisor.model.EntityNotFoundException
 import org.springframework.data.domain.Pageable
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional

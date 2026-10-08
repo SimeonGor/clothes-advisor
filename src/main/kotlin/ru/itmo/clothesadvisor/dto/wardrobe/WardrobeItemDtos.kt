@@ -8,16 +8,16 @@ import java.time.Instant
 internal class CreateWardrobeItemRequest(
     @field:NotBlank @field:Size(max = 300) val name: String,
     @field:Positive val categoryId: Long,
-    @field:NotBlank val color: String,
-    @field:NotBlank val material: String,
+    @field:NotBlank @field:Size(max = 100) val color: String,
+    @field:NotBlank @field:Size(max = 100) val material: String,
 )
 
 internal class UpdateWardrobeItemRequest(
     @field:Positive val version: Long,
     @field:NotBlank @field:Size(max = 300) val name: String,
     @field:Positive val categoryId: Long,
-    @field:NotBlank val color: String,
-    @field:NotBlank val material: String,
+    @field:NotBlank @field:Size(max = 100) val color: String,
+    @field:NotBlank @field:Size(max = 100) val material: String,
 )
 
 internal data class WardrobeItemResponse(

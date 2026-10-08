@@ -1,52 +1,54 @@
 package ru.itmo.clothesadvisor.repository.rating
 
+import java.sql.Timestamp
 import java.time.Instant
 import org.springframework.data.domain.Page
+import org.springframework.data.domain.PageImpl
 import org.springframework.data.domain.Pageable
-import org.springframework.data.jpa.repository.Modifying
-import org.springframework.data.jpa.repository.Query
-import org.springframework.data.repository.Repository
+import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.stereotype.Repository
 import ru.itmo.clothesadvisor.model.rating.OutfitRatingHistory
-import ru.itmo.clothesadvisor.model.rating.OutfitRatingHistoryId
 
-internal interface RatingHistoryRow {
-    val stylistId: Long
-    val vote: String
-    val version: Long
-    val modifiedAt: Instant
-    val archivedAt: Instant?
-}
+internal data class RatingHistoryRow(
+    val stylistId: Long, val vote: String, val version: Long, val modifiedAt: Instant, val archivedAt: Instant?,
+)
 
-internal interface OutfitRatingHistoryRepository : Repository<OutfitRatingHistory, OutfitRatingHistoryId> {
-    fun save(history: OutfitRatingHistory): OutfitRatingHistory
-    fun flush()
+@Repository
+internal class OutfitRatingHistoryRepository(private val jdbc: JdbcTemplate) {
+    fun save(history: OutfitRatingHistory) {
+        jdbc.update("""
+            INSERT INTO outfit_rating_history (outfit_id, stylist_id, version, vote, modified_at)
+            VALUES (?, ?, ?, ?::rating_vote, ?)
+        """, history.id.outfitId, history.id.stylistId, history.id.version, history.vote.name,
+            Timestamp.from(history.modifiedAt))
+    }
 
-    @Query(value = """
-        SELECT max(version) FROM outfit_rating_history WHERE outfit_id = :outfitId AND stylist_id = :stylistId
-    """, nativeQuery = true)
-    fun maxVersion(outfitId: Long, stylistId: Long): Long?
+    fun maxVersion(outfitId: Long, stylistId: Long): Long? =
+        jdbc.queryForObject("SELECT max(version) FROM outfit_rating_history WHERE outfit_id = ? AND stylist_id = ?",
+            Long::class.java, outfitId, stylistId)
 
-    @Modifying
-    @Query(value = """
-        INSERT INTO outfit_rating_history (outfit_id, stylist_id, version, vote, modified_at, archived_at)
-        SELECT outfit_id, stylist_id, version, vote, modified_at, :archivedAt
-        FROM outfit_rating WHERE outfit_id = :outfitId
-    """, nativeQuery = true)
-    fun archiveCurrent(outfitId: Long, archivedAt: Instant): Int
+    fun archiveCurrent(outfitId: Long): Int = jdbc.update("""
+        INSERT INTO outfit_rating_history (outfit_id, stylist_id, version, vote, modified_at)
+        SELECT outfit_id, stylist_id, version, vote, modified_at
+        FROM outfit_rating WHERE outfit_id = ?
+    """, outfitId)
 
-    @Query(value = """
-        SELECT stylist_id AS "stylistId", vote::text AS vote, version,
-            modified_at AS "modifiedAt", archived_at AS "archivedAt"
-        FROM (
-            SELECT stylist_id, vote, version, modified_at, archived_at
-            FROM outfit_rating_history WHERE outfit_id = :outfitId
-            UNION ALL
-            SELECT stylist_id, vote, version, modified_at, NULL::timestamptz AS archived_at
-            FROM outfit_rating WHERE outfit_id = :outfitId
-        ) ratings ORDER BY modified_at DESC, stylist_id DESC, version DESC
-    """, countQuery = """
-        SELECT (SELECT count(*) FROM outfit_rating_history WHERE outfit_id = :outfitId)
-             + (SELECT count(*) FROM outfit_rating WHERE outfit_id = :outfitId)
-    """, nativeQuery = true)
-    fun timeline(outfitId: Long, pageable: Pageable): Page<RatingHistoryRow>
+    fun timeline(outfitId: Long, pageable: Pageable): Page<RatingHistoryRow> {
+        val rows = jdbc.query("""
+            SELECT * FROM (
+                SELECT stylist_id, vote, version, modified_at, archived_at
+                FROM outfit_rating_history WHERE outfit_id = ?
+                UNION ALL
+                SELECT stylist_id, vote, version, modified_at, NULL::timestamptz AS archived_at
+                FROM outfit_rating WHERE outfit_id = ?
+            ) ratings ORDER BY modified_at DESC, stylist_id DESC, version DESC LIMIT ? OFFSET ?
+        """, { row, _ -> RatingHistoryRow(row.getLong("stylist_id"), row.getString("vote"), row.getLong("version"),
+            row.getTimestamp("modified_at").toInstant(), row.getTimestamp("archived_at")?.toInstant()) },
+            outfitId, outfitId, pageable.pageSize, pageable.offset)
+        val count = jdbc.queryForObject("""
+            SELECT (SELECT count(*) FROM outfit_rating_history WHERE outfit_id = ?)
+                 + (SELECT count(*) FROM outfit_rating WHERE outfit_id = ?)
+        """, Long::class.java, outfitId, outfitId)!!
+        return PageImpl(rows, pageable, count)
+    }
 }

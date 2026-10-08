@@ -1,9 +1,10 @@
 package ru.itmo.clothesadvisor.service.wardrobe
 
-import jakarta.persistence.EntityNotFoundException
-import java.time.Clock
+import ru.itmo.clothesadvisor.model.EntityNotFoundException
+import jakarta.validation.ConstraintViolationException
+import jakarta.validation.Validator
 import org.springframework.data.domain.Pageable
-import org.springframework.orm.ObjectOptimisticLockingFailureException
+import org.springframework.dao.OptimisticLockingFailureException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import ru.itmo.clothesadvisor.dto.wardrobe.CreateWardrobeItemRequest
@@ -22,15 +23,15 @@ internal class WardrobeItemService(
     private val history: WardrobeItemHistoryRepository,
     private val categories: WardrobeCategoryService,
     private val users: AppUserService,
-    private val clock: Clock,
+    private val validator: Validator,
 ) {
     @Transactional
     fun create(ownerId: Long, request: CreateWardrobeItemRequest): WardrobeItemResponse {
+        val violations = validator.validate(request)
+        if (violations.isNotEmpty()) throw ConstraintViolationException(violations)
         val owner = users.findById(ownerId) ?: throw EntityNotFoundException()
         val category = categories.getById(request.categoryId)
-        return response(items.save(WardrobeItem(
-            owner, category, request.name, request.color, request.material, clock.instant(),
-        )))
+        return response(items.create(requireNotNull(owner.id), category, request.name, request.color, request.material))
     }
 
     fun list(ownerId: Long, pageable: Pageable): List<WardrobeItemResponse> =
@@ -40,6 +41,8 @@ internal class WardrobeItemService(
 
     @Transactional
     fun update(ownerId: Long, id: Long, request: UpdateWardrobeItemRequest): WardrobeItemResponse {
+        val violations = validator.validate(request)
+        if (violations.isNotEmpty()) throw ConstraintViolationException(violations)
         val item = owned(ownerId, id)
         checkVersion(item, request.version)
         val category = categories.getById(request.categoryId)
@@ -47,21 +50,19 @@ internal class WardrobeItemService(
             item.color == request.color && item.material == request.material
         ) return response(item)
 
-        val now = clock.instant()
-        val previous = WardrobeItemHistory(item, now)
-        item.replace(category, request.name, request.color, request.material, now)
-        items.flush()
+        val previous = WardrobeItemHistory(item)
+        item.replace(category, request.name, request.color, request.material)
+        val saved = items.update(item)
         history.save(previous)
-        return response(item)
+        return response(saved)
     }
 
     @Transactional
     fun delete(ownerId: Long, id: Long, expectedVersion: Long) {
         val item = owned(ownerId, id)
         checkVersion(item, expectedVersion)
-        val previous = WardrobeItemHistory(item, clock.instant())
+        val previous = WardrobeItemHistory(item)
         items.delete(item)
-        items.flush()
         history.save(previous)
     }
 
@@ -70,7 +71,7 @@ internal class WardrobeItemService(
 
     private fun checkVersion(item: WardrobeItem, expectedVersion: Long) {
         if (item.version != expectedVersion) {
-            throw ObjectOptimisticLockingFailureException(WardrobeItem::class.java, requireNotNull(item.id))
+            throw OptimisticLockingFailureException("Wardrobe item ${item.id} version conflict")
         }
     }
 

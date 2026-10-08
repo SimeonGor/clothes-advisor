@@ -1,7 +1,8 @@
 package ru.itmo.clothesadvisor.service.outfit
 
-import jakarta.persistence.EntityNotFoundException
-import java.time.Clock
+import ru.itmo.clothesadvisor.model.EntityNotFoundException
+import jakarta.validation.ConstraintViolationException
+import jakarta.validation.Validator
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageImpl
 import org.springframework.data.domain.Pageable
@@ -37,7 +38,7 @@ internal class OutfitService(
     private val precipitation: PrecipitationTypeRepository,
     private val access: AccessGrantService,
     private val ratings: OutfitRatingService,
-    private val clock: Clock,
+    private val validator: Validator,
 ) {
     @Transactional
     fun create(ownerId: Long, request: CreateOutfitRequest): OutfitResponse =
@@ -77,10 +78,11 @@ internal class OutfitService(
         val outfit = outfits.findLockedByIdAndOwnerId(id, ownerId) ?: throw EntityNotFoundException()
         ratings.archiveForDeletion(id)
         outfits.delete(outfit)
-        outfits.flush()
     }
 
     private fun create(ownerId: Long, authorId: Long, source: OutfitSource, request: CreateOutfitRequest): OutfitResponse {
+        val violations = validator.validate(request)
+        if (violations.isNotEmpty()) throw ConstraintViolationException(violations)
         if (request.itemIds.size !in 1..50 || request.itemIds.any { it == null || it <= 0 } ||
             request.itemIds.distinct().size != request.itemIds.size
         ) throw InvalidOutfitRequestException()
@@ -88,11 +90,10 @@ internal class OutfitService(
         if (!precipitation.existsById(request.weather.precipitationTypeId)) throw InvalidOutfitRequestException()
         if (wardrobe.countByOwnerIdAndIdIn(ownerId, ids) != ids.size.toLong()) throw EntityNotFoundException()
 
-        val outfit = outfits.save(Outfit(ownerId, authorId, source, request.name, clock.instant()))
+        val outfit = outfits.create(ownerId, authorId, source, request.name)
         val id = requireNotNull(outfit.id)
         weather.save(OutfitWeather(id, request.weather.temperatureC, request.weather.precipitationTypeId, request.weather.windSpeedMps))
         composition.saveAll(ids.mapIndexed { position, itemId -> OutfitItem(OutfitItemId(id, itemId), position) })
-        outfits.flush()
         return OutfitResponse(id, ownerId, authorId, source, outfit.name, ids, request.weather, outfit.createdAt)
     }
 

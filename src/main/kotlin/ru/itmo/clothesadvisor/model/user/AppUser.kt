@@ -1,19 +1,9 @@
 package ru.itmo.clothesadvisor.model.user
 
 import com.fasterxml.jackson.annotation.JsonCreator
-import jakarta.persistence.Column
-import jakarta.persistence.Entity
-import jakarta.persistence.EnumType
-import jakarta.persistence.Enumerated
-import jakarta.persistence.GeneratedValue
-import jakarta.persistence.GenerationType
-import jakarta.persistence.Id
-import jakarta.persistence.Table
-import jakarta.persistence.Version
 import jakarta.validation.constraints.NotBlank
+import jakarta.validation.constraints.Size
 import java.time.Instant
-import org.hibernate.annotations.JdbcTypeCode
-import org.hibernate.type.SqlTypes
 
 internal enum class UserRole {
     USER, STYLIST, ADMIN;
@@ -35,8 +25,6 @@ internal enum class UserStatus {
     }
 }
 
-@Entity
-@Table(name = "app_user")
 internal class AppUser(
     login: String,
     passwordHash: String,
@@ -44,49 +32,35 @@ internal class AppUser(
     status: UserStatus,
     now: Instant,
 ) {
-    @field:Id
-    @field:GeneratedValue(strategy = GenerationType.IDENTITY)
     var id: Long? = null
-        protected set
+        internal set
 
     @field:NotBlank
-    @field:Column(nullable = false, unique = true, columnDefinition = "text")
+    @field:Size(max = 100)
     var login: String = login
-        protected set
+        internal set
 
     @field:NotBlank
-    @field:Column(name = "password_hash", nullable = false, columnDefinition = "text")
     var passwordHash: String = passwordHash
-        protected set
+        internal set
 
-    @field:Enumerated(EnumType.STRING)
-    @field:JdbcTypeCode(SqlTypes.NAMED_ENUM)
-    @field:Column(nullable = false, columnDefinition = "user_role")
     var role: UserRole = role
-        protected set
+        internal set
 
-    @field:Enumerated(EnumType.STRING)
-    @field:JdbcTypeCode(SqlTypes.NAMED_ENUM)
-    @field:Column(nullable = false, columnDefinition = "user_status")
     var status: UserStatus = status
-        protected set
+        internal set
 
-    @field:Version
-    @field:Column(nullable = false)
     var version: Long = 1
-        protected set
+        internal set
 
-    @field:Column(name = "created_at", nullable = false)
     var createdAt: Instant = now
-        protected set
+        internal set
 
-    @field:Column(name = "modified_at", nullable = false)
     var modifiedAt: Instant = now
-        protected set
+        internal set
 
-    internal fun changeRoleAndStatus(role: UserRole, status: UserStatus, now: Instant) {
+    internal fun changeRoleAndStatus(role: UserRole, status: UserStatus) {
         this.role = role
         this.status = status
-        modifiedAt = now
     }
 }
