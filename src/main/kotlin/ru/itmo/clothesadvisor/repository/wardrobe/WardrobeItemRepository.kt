@@ -12,6 +12,7 @@ internal interface WardrobeItemRepository : Repository<WardrobeItem, Long> {
     @Query("select i from WardrobeItem i where i.id = :id and i.owner.id = :ownerId")
     fun lockOwned(id: Long, ownerId: Long): WardrobeItem?
     fun findByIdAndOwnerId(id: Long, ownerId: Long): WardrobeItem?
+    fun countByOwnerIdAndIdIn(ownerId: Long, ids: Collection<Long>): Long
     fun findAllByOwnerIdOrderByIdAsc(ownerId: Long, pageable: Pageable): List<WardrobeItem>
     fun save(item: WardrobeItem): WardrobeItem
     fun delete(item: WardrobeItem)

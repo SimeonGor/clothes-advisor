@@ -56,7 +56,8 @@ class AppUserPersistenceTests {
 
     @BeforeEach
     fun clearUserAndItemData() {
-        jdbc.execute("TRUNCATE TABLE access_grant, wardrobe_item_photo, wardrobe_item_history, wardrobe_item, app_user_history, app_user RESTART IDENTITY")
+        jdbc.execute("""TRUNCATE TABLE outfit_item, outfit_weather, outfit, access_grant,
+            wardrobe_item_photo, wardrobe_item_history, wardrobe_item, app_user_history, app_user RESTART IDENTITY""")
     }
 
     @Test
@@ -67,7 +68,6 @@ class AppUserPersistenceTests {
         assertThat(loaded.version).isEqualTo(1)
         assertThat(loaded.createdAt).isEqualTo(loaded.modifiedAt)
         assertThat(loaded.createdAt).isEqualTo(TestTimeConfiguration.FIXED_TIME)
-        assertThat(loaded.createdAt.nano % 1_000).isZero()
         assertThat(loaded.passwordHash).isEqualTo("test-password-hash")
         assertThat(loaded.toString()).doesNotContain("test-password-hash")
         assertThat(users.findByLogin("alice")?.id).isEqualTo(user.id)

@@ -5,5 +5,6 @@ import org.springframework.data.repository.Repository
 import ru.itmo.clothesadvisor.model.weather.PrecipitationType
 
 internal interface PrecipitationTypeRepository : Repository<PrecipitationType, Long> {
+    fun existsById(id: Long): Boolean
     fun findAllByOrderByIdAsc(pageable: Pageable): List<PrecipitationType>
 }
