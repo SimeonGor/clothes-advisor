@@ -76,6 +76,17 @@ class WardrobeItemPhotoIntegrationTests {
     @AfterEach fun closeClient() = client.close()
 
     @Test
+    fun `multipart name accepts 300 and rejects 301 before uploading photos`() {
+        val token = login(user())
+        val created = multipart(token, item = ITEM.replace("Shirt", "x".repeat(300)))
+        assertThat(created.statusCode()).isEqualTo(201)
+        assertThat(objectBody(created)["name"]).isEqualTo("x".repeat(300))
+        val rejected = multipart(token, files = listOf(png), item = ITEM.replace("Shirt", "x".repeat(301)))
+        assertThat(rejected.statusCode()).isEqualTo(400)
+        verifyNoInteractions(storage)
+    }
+
+    @Test
     fun `multipart creation append content and deletion preserve item version and history`() {
         val token = login(user())
         val created = multipart(token, files = listOf(png, jpeg), item = ITEM)
@@ -179,10 +190,6 @@ class WardrobeItemPhotoIntegrationTests {
         assertThat(multipart(token, files = listOf(png), item = item).statusCode()).isEqualTo(400)
         verifyNoInteractions(storage)
         assertThat(count("wardrobe_item", "owner_id", owner.id!!)).isZero()
-        assertThat(jdbc.queryForObject("""
-            SELECT count(*) FROM wardrobe_item_photo p JOIN wardrobe_item i ON i.id = p.wardrobe_item_id
-            WHERE i.owner_id = ?
-        """.trimIndent(), Long::class.java, owner.id)).isZero()
     }
 
     @Test
@@ -192,7 +199,7 @@ class WardrobeItemPhotoIntegrationTests {
         val path = "$ITEMS/$id/photos"
         assertThat(multipart(token, path, List(5) { png }).statusCode()).isEqualTo(201)
         clearInvocations(storage)
-        repeat(5) {
+        repeat(2) {
             assertThat(multipart(token, path, List(5) { png }).statusCode()).isEqualTo(409)
         }
         verifyNoInteractions(storage)

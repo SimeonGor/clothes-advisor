@@ -176,7 +176,7 @@ class WardrobeItemIntegrationTests {
         val token = login(createUser())
         val original = dto(request("POST", token = token, body = body()))
         val id = number(original, "id")
-        for (invalid in listOf("{", "{}", body(name = " "), body(color = ""), body(material = " "),
+        for (invalid in listOf("{", "{}", body(name = " "), body(name = "x".repeat(301)), body(color = ""), body(material = " "),
             body(categoryId = 0), body(categoryId = -1), body(categoryId = Long.MAX_VALUE),
             body().replace("\"Shirt\"", "null"), body().replace("\"Cotton\"", "null"),
             body().replace("\"White\"", "null"), body().replace("\"categoryId\":1", "\"categoryId\":null"),
@@ -199,15 +199,33 @@ class WardrobeItemIntegrationTests {
     }
 
     @Test
-    fun `text values are preserved without trimming case conversion or length limits`() {
+    fun `text values are preserved at the name limit without limiting color or material`() {
         val token = login(createUser())
-        val name = "  Shirt " + "x".repeat(300)
-        val response = request("POST", token = token, body = body(name = name, color = " White ", material = "cOtToN"))
+        val name = "  Shirt " + "x".repeat(292)
+        val color = " White " + "x".repeat(301)
+        val material = "cOtToN" + "x".repeat(301)
+        val response = request("POST", token = token, body = body(name = name, color = color, material = material))
         assertThat(response.statusCode()).isEqualTo(201)
         val item = dto(response)
         assertThat(item["name"]).isEqualTo(name)
-        assertThat(item["color"]).isEqualTo(" White ")
-        assertThat(item["material"]).isEqualTo("cOtToN")
+        assertThat(item["color"]).isEqualTo(color)
+        assertThat(item["material"]).isEqualTo(material)
+        val updated = request("PUT", "/api/wardrobe/items/${item["id"]}", token,
+            body(1, name.reversed(), color = color, material = material))
+        assertThat(updated.statusCode()).isEqualTo(200)
+        assertThat(dto(updated)["name"]).isEqualTo(name.reversed())
+    }
+
+    @Test
+    fun `legacy longer names remain readable and are archived intact on update`() {
+        val owner = createUser()
+        val token = login(owner)
+        val id = number(dto(request("POST", token = token, body = body())), "id")
+        val legacyName = "x".repeat(301)
+        jdbc.update("UPDATE wardrobe_item SET name = ? WHERE id = ?", legacyName, id)
+        assertThat(dto(request("GET", "/api/wardrobe/items/$id", token))["name"]).isEqualTo(legacyName)
+        assertThat(request("PUT", "/api/wardrobe/items/$id", token, body(1)).statusCode()).isEqualTo(200)
+        assertThat(history(id).single()[1]).isEqualTo(legacyName)
     }
 
     @Test
