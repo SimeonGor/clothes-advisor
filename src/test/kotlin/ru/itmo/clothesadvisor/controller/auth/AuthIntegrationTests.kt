@@ -16,6 +16,7 @@ import java.time.Clock
 import java.time.Instant
 import java.time.ZoneOffset
 import java.time.temporal.ChronoUnit
+import java.util.Base64
 import java.util.Date
 import java.util.UUID
 import javax.crypto.SecretKey
@@ -143,7 +144,7 @@ class AuthIntegrationTests {
         val base = claims(id)
         val invalid = listOf(
             signed(base, ByteArray(32) { 7 }),
-            signed(base, ByteArray(64) { 8 }, JWSAlgorithm.HS512),
+            signed(base, algorithm = JWSAlgorithm.HS512),
             signed(JWTClaimsSet.Builder(base).issuer("other").build()),
             signed(JWTClaimsSet.Builder(base).audience("other").build()),
             signed(JWTClaimsSet.Builder(base).audience(listOf(SecurityConfiguration.AUDIENCE, "extra")).build()),
@@ -250,6 +251,9 @@ class AuthIntegrationTests {
         @JvmStatic
         @DynamicPropertySource
         fun postgresProperties(registry: DynamicPropertyRegistry) {
+            registry.add("app.security.jwt.secret-base64") {
+                Base64.getEncoder().encodeToString(ByteArray(64) { it.toByte() })
+            }
             registry.add("spring.datasource.url", postgres::getJdbcUrl)
             registry.add("spring.datasource.username", postgres::getUsername)
             registry.add("spring.datasource.password", postgres::getPassword)
