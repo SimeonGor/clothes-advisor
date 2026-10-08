@@ -1,9 +1,7 @@
 package ru.itmo.clothesadvisor.controller.wardrobe
 
-import org.springframework.http.CacheControl
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
-import org.springframework.http.ResponseEntity
 import org.springframework.security.access.prepost.PreAuthorize
 import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.DeleteMapping
@@ -39,11 +37,7 @@ internal class WardrobeItemPhotoController(private val photos: WardrobeItemPhoto
         @AuthenticationPrincipal user: CurrentUser,
         @PathVariable itemId: Long,
         @PathVariable photoId: Long,
-    ): ResponseEntity<ByteArray> {
-        val content = photos.getContent(user.id, itemId, photoId)
-        return ResponseEntity.ok().contentType(MediaType.parseMediaType(content.contentType))
-            .cacheControl(CacheControl.noStore()).header("X-Content-Type-Options", "nosniff").body(content.bytes)
-    }
+    ) = photos.getContent(user.id, itemId, photoId).toPhotoContentResponse()
 
     @DeleteMapping("/{photoId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
