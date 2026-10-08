@@ -56,7 +56,7 @@ class AppUserPersistenceTests {
 
     @BeforeEach
     fun clearUserAndItemData() {
-        jdbc.execute("TRUNCATE TABLE garment_history, garment, app_user_history, app_user RESTART IDENTITY")
+        jdbc.execute("TRUNCATE TABLE wardrobe_item_photo, wardrobe_item_history, wardrobe_item, app_user_history, app_user RESTART IDENTITY")
     }
 
     @Test

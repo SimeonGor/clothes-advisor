@@ -1,0 +1,15 @@
+ALTER TABLE garment RENAME TO wardrobe_item;
+ALTER TABLE garment_history RENAME TO wardrobe_item_history;
+ALTER TABLE garment_category RENAME TO wardrobe_category;
+ALTER TABLE wardrobe_item_history RENAME COLUMN garment_id TO wardrobe_item_id;
+
+ALTER TABLE wardrobe_item RENAME CONSTRAINT garment_pkey TO wardrobe_item_pkey;
+ALTER TABLE wardrobe_item RENAME CONSTRAINT garment_owner_id_fkey TO wardrobe_item_owner_id_fkey;
+ALTER TABLE wardrobe_item RENAME CONSTRAINT garment_category_id_fkey TO wardrobe_item_category_id_fkey;
+ALTER TABLE wardrobe_item_history RENAME CONSTRAINT garment_history_pkey TO wardrobe_item_history_pkey;
+ALTER TABLE wardrobe_item_history RENAME CONSTRAINT garment_history_category_id_fkey TO wardrobe_item_history_category_id_fkey;
+ALTER TABLE wardrobe_category RENAME CONSTRAINT garment_category_pkey TO wardrobe_category_pkey;
+ALTER TABLE wardrobe_category RENAME CONSTRAINT garment_category_code_key TO wardrobe_category_code_key;
+ALTER INDEX garment_owner_id_id_idx RENAME TO wardrobe_item_owner_id_id_idx;
+ALTER SEQUENCE garment_id_seq RENAME TO wardrobe_item_id_seq;
+ALTER SEQUENCE garment_category_id_seq RENAME TO wardrobe_category_id_seq;

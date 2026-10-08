@@ -14,7 +14,7 @@ import java.time.Instant
 import ru.itmo.clothesadvisor.model.user.AppUser
 
 @Entity
-@Table(name = "garment")
+@Table(name = "wardrobe_item")
 internal class WardrobeItem(
     owner: AppUser,
     category: WardrobeCategory,

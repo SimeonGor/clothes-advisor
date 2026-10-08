@@ -74,7 +74,7 @@ class WardrobeItemIntegrationTests {
         assertThat(history(id)).isEmpty()
 
         val earlier = TestTimeConfiguration.FIXED_TIME.minusSeconds(10)
-        jdbc.update("UPDATE garment SET created_at = ?, modified_at = ? WHERE id = ?",
+        jdbc.update("UPDATE wardrobe_item SET created_at = ?, modified_at = ? WHERE id = ?",
             Timestamp.from(earlier), Timestamp.from(earlier), id)
         val changedResponse = request("PUT", path, token, body(1, "Jacket", 2, "Blue", "Wool"))
         assertThat(changedResponse.statusCode()).isEqualTo(200)
@@ -86,7 +86,7 @@ class WardrobeItemIntegrationTests {
         assertThat(number(changed, "categoryId")).isEqualTo(2)
         assertThat(changed["color"]).isEqualTo("Blue")
         assertThat(changed["material"]).isEqualTo("Wool")
-        assertThat(jdbc.queryForObject("SELECT owner_id FROM garment WHERE id = ?", Long::class.java, id))
+        assertThat(jdbc.queryForObject("SELECT owner_id FROM wardrobe_item WHERE id = ?", Long::class.java, id))
             .isEqualTo(owner.id)
         assertThat(history(id)).containsExactly(listOf(1L, "Shirt", 1L, "White", "Cotton", earlier,
             TestTimeConfiguration.FIXED_TIME))
@@ -141,7 +141,7 @@ class WardrobeItemIntegrationTests {
         val id = number(firstItem, "id")
         assertThat(rows(request("GET", token = firstToken))).containsExactly(firstItem)
         assertThat(rows(request("GET", token = secondToken))).containsExactly(secondItem)
-        assertThat(jdbc.queryForObject("SELECT owner_id FROM garment WHERE id = ?", Long::class.java, id))
+        assertThat(jdbc.queryForObject("SELECT owner_id FROM wardrobe_item WHERE id = ?", Long::class.java, id))
             .isEqualTo(first.id)
         for (target in listOf(id, Long.MAX_VALUE)) {
             val path = "/api/wardrobe/items/$target"
@@ -215,7 +215,7 @@ class WardrobeItemIntegrationTests {
         val owner = createUser()
         val token = login(owner)
         jdbc.update("""
-            INSERT INTO garment (owner_id, category_id, name, color, material, version, created_at, modified_at)
+            INSERT INTO wardrobe_item (owner_id, category_id, name, color, material, version, created_at, modified_at)
             SELECT ?, 1, 'Shirt ' || n, 'White', 'Cotton', 1, ?, ? FROM generate_series(1, 55) n
         """.trimIndent(), owner.id, Timestamp.from(TestTimeConfiguration.FIXED_TIME), Timestamp.from(TestTimeConfiguration.FIXED_TIME))
         val response = request("GET", token = token)
@@ -223,7 +223,7 @@ class WardrobeItemIntegrationTests {
         val second = rows(request("GET", "/api/wardrobe/items?page=1&size=50", token))
         assertThat(first).hasSize(50)
         assertThat(second).hasSize(5)
-        val expected = jdbc.queryForList("SELECT id FROM garment WHERE owner_id = ? ORDER BY id", Long::class.java, owner.id)
+        val expected = jdbc.queryForList("SELECT id FROM wardrobe_item WHERE owner_id = ? ORDER BY id", Long::class.java, owner.id)
         assertThat((first + second).map { number(it, "id") }).isEqualTo(expected)
         assertThat(response.headers().allValues("X-Total-Count")).isEmpty()
         assertThat(rows(request("GET", "/api/wardrobe/items?page=1&size=1", token))).containsExactly(first[1])
@@ -275,7 +275,7 @@ class WardrobeItemIntegrationTests {
     private fun number(row: Map<String, Any>, key: String): Long = (row.getValue(key) as Number).toLong()
 
     private fun history(id: Long): List<List<Any>> = jdbc.query(
-        "SELECT * FROM garment_history WHERE garment_id = ? ORDER BY version",
+        "SELECT * FROM wardrobe_item_history WHERE wardrobe_item_id = ? ORDER BY version",
         { row, _ -> listOf(row.getLong("version"), row.getString("name"), row.getLong("category_id"),
             row.getString("color"), row.getString("material"), row.getTimestamp("modified_at").toInstant(),
             row.getTimestamp("archived_at").toInstant()) }, id,
