@@ -16,7 +16,10 @@ services:
       retries: 10
 
   app:
-    build: .
+    build:
+      context: .
+      args:
+        APP_UID: ${APP_UID:?Set APP_UID to the credential owner UID (id -u)}
     environment:
       DB_URL: jdbc:postgresql://postgres:5432/${DB_NAME:-clothes_advisor}
       DB_USER: ${DB_USER:-clothes_advisor}
@@ -28,10 +31,19 @@ services:
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?S3_ACCESS_KEY_ID must be set}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?S3_SECRET_ACCESS_KEY must be set}
       OPENAI_MODEL: ${OPENAI_MODEL:-}
+      CHATGPT_CREDENTIALS_DIR: /run/chatgpt
+      CHATGPT_TRUST_STORE: ${CHATGPT_TRUST_STORE:-}
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
       LOCAL_USER_PASSWORD: ${LOCAL_USER_PASSWORD:-}
       LOCAL_STYLIST_PASSWORD: ${LOCAL_STYLIST_PASSWORD:-}
       LOCAL_ADMIN_PASSWORD: ${LOCAL_ADMIN_PASSWORD:-}
+    volumes:
+      - type: bind
+        source: ${CHATGPT_CREDENTIALS_DIR:?Set CHATGPT_CREDENTIALS_DIR to an existing absolute path}
+        target: /run/chatgpt
+        read_only: true
+        bind:
+          create_host_path: false
     ports:
       - "127.0.0.1:${APP_PORT:-8080}:8080"
     depends_on:

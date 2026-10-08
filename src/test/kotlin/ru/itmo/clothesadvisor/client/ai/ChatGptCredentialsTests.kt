@@ -85,19 +85,23 @@ class ChatGptCredentialsTests {
     }
 
     @Test
-    fun `unconfigured missing public and symlinked storage is rejected`() {
+    fun `readable storage is accepted with permissive modes`() {
+        val fixture = ChatGptCredentialFixture(temporary)
+        Files.setPosixFilePermissions(fixture.directory, PosixFilePermissions.fromString("rwxr-xr-x"))
+        for (name in listOf("registration.json", "credentials.json")) {
+            Files.setPosixFilePermissions(fixture.directory.resolve(name), PosixFilePermissions.fromString("rw-r--r--"))
+        }
+        assertThat(fixture.reader().accessToken()).isEqualTo("synthetic-test-token")
+    }
+
+    @Test
+    fun `unconfigured missing and symlinked storage is rejected`() {
         val fixture = ChatGptCredentialFixture(temporary)
         unavailable { ChatGptCredentials(fixture.mapper, fixture.clock, "").accessToken() }
         val credentials = fixture.directory.resolve("credentials.json")
         Files.delete(credentials)
         unavailable { fixture.reader().accessToken() }
         fixture.save()
-        Files.setPosixFilePermissions(credentials, PosixFilePermissions.fromString("rw-r--r--"))
-        unavailable { fixture.reader().accessToken() }
-        fixture.save()
-        Files.setPosixFilePermissions(fixture.directory, PosixFilePermissions.fromString("rwxr-xr-x"))
-        unavailable { fixture.reader().accessToken() }
-        Files.setPosixFilePermissions(fixture.directory, PosixFilePermissions.fromString("rwx------"))
         val target = fixture.directory.resolve("target.json")
         Files.move(credentials, target)
         Files.createSymbolicLink(credentials, target)

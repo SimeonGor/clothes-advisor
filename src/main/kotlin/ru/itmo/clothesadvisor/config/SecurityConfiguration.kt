@@ -111,6 +111,7 @@ internal class SecurityConfiguration {
                     ).permitAll()
                 }
                 it.dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
+                    .requestMatchers(org.springframework.http.HttpMethod.GET, "/", "/index.html", "/demo.css", "/demo.js").permitAll()
                     .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/auth/login").permitAll()
                     .requestMatchers(org.springframework.http.HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
                     .anyRequest().authenticated()
