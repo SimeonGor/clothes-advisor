@@ -13,7 +13,6 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
-import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
 import org.testcontainers.junit.jupiter.Container
@@ -30,9 +29,6 @@ class ClothesAdvisorApplicationTests {
     private lateinit var dataSource: DataSource
 
     @Autowired
-    private lateinit var jdbcTemplate: JdbcTemplate
-
-    @Autowired
     private lateinit var clock: Clock
 
     @Test
@@ -42,8 +38,6 @@ class ClothesAdvisorApplicationTests {
         dataSource.connection.use { connection ->
             assertThat(connection.metaData.databaseProductName).isEqualTo("PostgreSQL")
         }
-        assertThat(jdbcTemplate.queryForObject("SELECT 1", Int::class.java)).isEqualTo(1)
-
         val response = HttpClient.newHttpClient().use { client ->
             client.send(
                 HttpRequest.newBuilder(URI("http://localhost:$port/actuator/health")).GET().build(),

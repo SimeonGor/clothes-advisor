@@ -6,12 +6,13 @@ import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
 import ru.itmo.clothesadvisor.service.outfit.InvalidOutfitRequestException
+import ru.itmo.clothesadvisor.service.rating.RatingConflictException
 
 @RestControllerAdvice(assignableTypes = [OutfitController::class, StylistOutfitController::class])
 internal class OutfitExceptionHandler {
     @ExceptionHandler(InvalidOutfitRequestException::class)
     fun invalidRequest(): ResponseEntity<Void> = ResponseEntity.badRequest().build()
 
-    @ExceptionHandler(DataIntegrityViolationException::class, OptimisticLockingFailureException::class)
+    @ExceptionHandler(DataIntegrityViolationException::class, OptimisticLockingFailureException::class, RatingConflictException::class)
     fun conflict(): ResponseEntity<Void> = ResponseEntity.status(409).build()
 }

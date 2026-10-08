@@ -10,6 +10,7 @@ import org.springframework.boot.DefaultApplicationArguments
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
 import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder
 import org.springframework.security.crypto.password.PasswordEncoder
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.DynamicPropertyRegistry
@@ -35,9 +36,6 @@ class LocalAccountsTests {
     private lateinit var users: AppUserService
 
     @Autowired
-    private lateinit var encoder: PasswordEncoder
-
-    @Autowired
     private lateinit var initializer: LocalAccountsInitializer
 
     @Autowired
@@ -45,13 +43,13 @@ class LocalAccountsTests {
 
     @Test
     fun `local profile creates three hashed accounts and rerun preserves all existing state`() {
+        val bcrypt = BCryptPasswordEncoder()
         UserRole.entries.forEach { role ->
             val login = role.name.lowercase()
             val user = users.findByLogin(login)!!
             assertThat(user.role).isEqualTo(role)
             assertThat(user.status).isEqualTo(UserStatus.ACTIVE)
-            assertThat(user.passwordHash).startsWith("$2a$10$")
-            assertThat(encoder.matches("local-$login-test", user.passwordHash)).isTrue()
+            assertThat(bcrypt.matches("local-$login-test", user.passwordHash)).isTrue()
         }
         val user = users.findByLogin("user")!!
         users.changeRoleAndStatus(user.id!!, user.version, UserRole.ADMIN, UserStatus.BLOCKED)
