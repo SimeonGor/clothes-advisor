@@ -13,7 +13,6 @@ import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItem
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItemHistory
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemHistoryRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
-import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeCategoryRepository
 import ru.itmo.clothesadvisor.service.user.AppUserService
 
 @Service
@@ -21,14 +20,14 @@ import ru.itmo.clothesadvisor.service.user.AppUserService
 internal class WardrobeItemService(
     private val items: WardrobeItemRepository,
     private val history: WardrobeItemHistoryRepository,
-    private val categories: WardrobeCategoryRepository,
+    private val categories: WardrobeCategoryService,
     private val users: AppUserService,
     private val clock: Clock,
 ) {
     @Transactional
     fun create(ownerId: Long, request: CreateWardrobeItemRequest): WardrobeItemResponse {
         val owner = users.findById(ownerId) ?: throw EntityNotFoundException()
-        val category = category(request.categoryId)
+        val category = categories.getById(request.categoryId)
         return response(items.save(WardrobeItem(
             owner, category, request.name, request.color, request.material, clock.instant(),
         )))
@@ -43,7 +42,7 @@ internal class WardrobeItemService(
     fun update(ownerId: Long, id: Long, request: UpdateWardrobeItemRequest): WardrobeItemResponse {
         val item = owned(ownerId, id)
         checkVersion(item, request.version)
-        val category = category(request.categoryId)
+        val category = categories.getById(request.categoryId)
         if (item.name == request.name && item.category.id == request.categoryId &&
             item.color == request.color && item.material == request.material
         ) return response(item)
@@ -69,8 +68,6 @@ internal class WardrobeItemService(
     private fun owned(ownerId: Long, id: Long): WardrobeItem =
         items.findByIdAndOwnerId(id, ownerId) ?: throw EntityNotFoundException()
 
-    private fun category(id: Long) = categories.findById(id) ?: throw UnknownWardrobeCategoryException()
-
     private fun checkVersion(item: WardrobeItem, expectedVersion: Long) {
         if (item.version != expectedVersion) {
             throw ObjectOptimisticLockingFailureException(WardrobeItem::class.java, requireNotNull(item.id))
@@ -82,5 +79,3 @@ internal class WardrobeItemService(
         item.color, item.material, item.version, item.createdAt, item.modifiedAt,
     )
 }
-
-internal class UnknownWardrobeCategoryException : RuntimeException()

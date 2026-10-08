@@ -40,13 +40,13 @@ entity "access_grant" as access #FFF5DF {
   owner_id <<PK, FK>>
   stylist_id <<PK, FK>>
 }
-entity "garment_category · справочник" as category #E8F5EF {
+entity "wardrobe_category · справочник" as category #E8F5EF {
   id <<PK>>
   --
   code <<UK>>
   name
 }
-entity "garment" as garment {
+entity "wardrobe_item" as wardrobe_item {
   id <<PK>>
   --
   owner_id <<FK>>
@@ -58,8 +58,8 @@ entity "garment" as garment {
   created_at
   modified_at
 }
-entity "garment_history" as garment_history {
-  garment_id <<PK>>
+entity "wardrobe_item_history" as item_history {
+  wardrobe_item_id <<PK>>
   version <<PK>>
   --
   name
@@ -69,12 +69,13 @@ entity "garment_history" as garment_history {
   modified_at
   archived_at
 }
-entity "garment_photo" as photo #E8F5EF {
+entity "wardrobe_item_photo" as photo #E8F5EF {
   id <<PK>>
   --
-  garment_id <<FK>>
-  s3_key
-  metadata
+  wardrobe_item_id <<FK>>
+  s3_key <<UK>>
+  content_type
+  size_bytes
   created_at
 }
 entity "outfit · неизменяемый" as outfit {
@@ -101,7 +102,7 @@ entity "precipitation_type · справочник" as precipitation #E8F5EF {
 }
 entity "outfit_item · неизменяемый" as item #E8F5EF {
   outfit_id <<PK, FK>>
-  garment_id <<PK, FK>>
+  wardrobe_item_id <<PK, FK>>
   --
   position
 }
@@ -127,18 +128,18 @@ entity "outfit_rating_history" as rating_history #F2EDFB {
 user ||--o{ user_history : user_id
 user ||--o{ access : owner_id
 user ||--o{ access : stylist_id
-user ||..o{ garment : owner_id
+user ||..o{ wardrobe_item : owner_id
 user ||..o{ outfit : owner_id
 user ||..o{ outfit : author_id
 user ||--o{ rating : stylist_id
 user ||--o{ rating_history : stylist_id
-category ||..o{ garment : category_id
-category ||..o{ garment_history : category_id
-garment ||..o{ photo : garment_id · CASCADE
+category ||..o{ wardrobe_item : category_id
+category ||..o{ item_history : category_id
+wardrobe_item ||..o{ photo : wardrobe_item_id · CASCADE
 outfit ||--|| weather : outfit_id · CASCADE
 precipitation ||..o{ weather : precipitation_type_id
 outfit ||--|{ item : outfit_id · CASCADE
-garment ||--o{ item : garment_id · RESTRICT
+wardrobe_item ||--o{ item : wardrobe_item_id · RESTRICT
 outfit ||--o{ rating : outfit_id · CASCADE
 
 @enduml

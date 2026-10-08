@@ -61,7 +61,7 @@ class WardrobeItemPersistenceTests {
                 else items.update(owner, original.id, update("Changed"))
                 repository.flush()
                 assertThat(history(original.id)).hasSize(1)
-                assertThat(jdbc.queryForObject("SELECT count(*) FROM garment WHERE id = ?", Long::class.java, original.id))
+                assertThat(jdbc.queryForObject("SELECT count(*) FROM wardrobe_item WHERE id = ?", Long::class.java, original.id))
                     .isEqualTo(if (delete) 0L else 1L)
                 error("forced rollback")
             }
@@ -75,9 +75,9 @@ class WardrobeItemPersistenceTests {
     fun `history conflict rolls back flushed mutation and preserves the existing snapshot`(delete: Boolean) {
         val (owner, original) = createWardrobeItem()
         jdbc.update("""
-            INSERT INTO garment_history (garment_id, version, name, category_id, color, material, modified_at, archived_at)
+            INSERT INTO wardrobe_item_history (wardrobe_item_id, version, name, category_id, color, material, modified_at, archived_at)
             SELECT id, version, 'Existing history', category_id, color, material, modified_at, modified_at
-            FROM garment WHERE id = ?
+            FROM wardrobe_item WHERE id = ?
         """.trimIndent(), original.id)
         val existing = history(original.id)
         assertThatThrownBy {
@@ -176,7 +176,7 @@ class WardrobeItemPersistenceTests {
     }
 
     private fun history(id: Long): List<Map<String, Any>> = jdbc.query(
-        "SELECT * FROM garment_history WHERE garment_id = ? ORDER BY version",
+        "SELECT * FROM wardrobe_item_history WHERE wardrobe_item_id = ? ORDER BY version",
         { row, _ -> mapOf(
             "version" to row.getLong("version"), "name" to row.getString("name"),
             "category_id" to row.getLong("category_id"), "color" to row.getString("color"),

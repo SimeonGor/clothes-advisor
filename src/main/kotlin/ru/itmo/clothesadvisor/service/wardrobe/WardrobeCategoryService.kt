@@ -13,4 +13,9 @@ internal class WardrobeCategoryService(
 ) {
     fun list(pageable: Pageable): List<WardrobeCategory> =
         wardrobeCategories.findAllByOrderByIdAsc(pageable)
+
+    fun getById(id: Long): WardrobeCategory =
+        wardrobeCategories.findById(id) ?: throw UnknownWardrobeCategoryException()
 }
+
+internal class UnknownWardrobeCategoryException : RuntimeException()

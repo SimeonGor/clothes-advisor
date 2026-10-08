@@ -11,14 +11,14 @@ import org.springframework.data.domain.Persistable
 
 @Embeddable
 internal data class WardrobeItemHistoryId(
-    @field:Column(name = "garment_id", nullable = false)
+    @field:Column(name = "wardrobe_item_id", nullable = false)
     val itemId: Long,
     @field:Column(nullable = false)
     val version: Long,
 ) : Serializable
 
 @Entity
-@Table(name = "garment_history")
+@Table(name = "wardrobe_item_history")
 internal class WardrobeItemHistory(item: WardrobeItem, archivedAt: Instant) : Persistable<WardrobeItemHistoryId> {
     @field:EmbeddedId
     private val key = WardrobeItemHistoryId(requireNotNull(item.id), item.version)

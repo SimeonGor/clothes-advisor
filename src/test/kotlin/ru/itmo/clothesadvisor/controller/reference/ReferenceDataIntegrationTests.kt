@@ -177,11 +177,11 @@ class ReferenceDataIntegrationTests {
     companion object {
         private const val PASSWORD = "reference-test-password"
         private val ENDPOINTS = mapOf(
-            "/api/wardrobe/categories" to "garment_category",
+            "/api/wardrobe/categories" to "wardrobe_category",
             "/api/weather/precipitation-types" to "precipitation_type",
         )
         private val SEEDS = mapOf(
-            "garment_category" to listOf(
+            "wardrobe_category" to listOf(
                 "TOP" to "Верх", "BOTTOM" to "Низ", "ONE_PIECE" to "Платья и комбинезоны",
                 "OUTERWEAR" to "Верхняя одежда", "FOOTWEAR" to "Обувь", "ACCESSORIES" to "Аксессуары",
             ),

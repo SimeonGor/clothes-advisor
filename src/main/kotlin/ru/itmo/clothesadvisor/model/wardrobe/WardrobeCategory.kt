@@ -9,7 +9,7 @@ import jakarta.persistence.Table
 import jakarta.validation.constraints.NotBlank
 
 @Entity
-@Table(name = "garment_category")
+@Table(name = "wardrobe_category")
 internal class WardrobeCategory(code: String, name: String) {
     @field:Id
     @field:GeneratedValue(strategy = GenerationType.IDENTITY)
