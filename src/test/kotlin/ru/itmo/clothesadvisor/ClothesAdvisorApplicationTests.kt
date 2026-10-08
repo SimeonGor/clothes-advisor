@@ -1,5 +1,6 @@
 package ru.itmo.clothesadvisor
 
+import ru.itmo.clothesadvisor.config.PostgresIntegrationTest
 import com.jayway.jsonpath.JsonPath
 import java.net.URI
 import java.net.http.HttpClient
@@ -13,15 +14,9 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
-import org.springframework.test.context.DynamicPropertyRegistry
-import org.springframework.test.context.DynamicPropertySource
-import org.testcontainers.junit.jupiter.Container
-import org.testcontainers.junit.jupiter.Testcontainers
-import org.testcontainers.postgresql.PostgreSQLContainer
 
-@Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class ClothesAdvisorApplicationTests {
+class ClothesAdvisorApplicationTests : PostgresIntegrationTest() {
     @LocalServerPort
     private var port: Int = 0
 
@@ -52,17 +47,4 @@ class ClothesAdvisorApplicationTests {
         )
     }
 
-    companion object {
-        @Container
-        @JvmStatic
-        val postgres = PostgreSQLContainer("postgres:18-alpine")
-
-        @JvmStatic
-        @DynamicPropertySource
-        fun postgresProperties(registry: DynamicPropertyRegistry) {
-            registry.add("spring.datasource.url", postgres::getJdbcUrl)
-            registry.add("spring.datasource.username", postgres::getUsername)
-            registry.add("spring.datasource.password", postgres::getPassword)
-        }
-    }
 }

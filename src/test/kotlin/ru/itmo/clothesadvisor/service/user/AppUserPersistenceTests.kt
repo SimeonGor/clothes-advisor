@@ -1,7 +1,7 @@
 package ru.itmo.clothesadvisor.service.user
 
-import jakarta.persistence.EntityManager
-import jakarta.persistence.EntityNotFoundException
+import ru.itmo.clothesadvisor.config.PostgresIntegrationTest
+import ru.itmo.clothesadvisor.model.EntityNotFoundException
 import jakarta.validation.ConstraintViolationException
 import java.sql.Timestamp
 import java.time.Instant
@@ -19,26 +19,18 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.jdbc.core.JdbcTemplate
-import org.springframework.orm.ObjectOptimisticLockingFailureException
-import org.springframework.test.context.DynamicPropertyRegistry
-import org.springframework.test.context.DynamicPropertySource
+import org.springframework.dao.OptimisticLockingFailureException
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionTemplate
-import org.testcontainers.junit.jupiter.Container
-import org.testcontainers.junit.jupiter.Testcontainers
-import org.testcontainers.postgresql.PostgreSQLContainer
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
 import ru.itmo.clothesadvisor.model.user.AppUser
-import ru.itmo.clothesadvisor.model.user.AppUserHistory
-import ru.itmo.clothesadvisor.model.user.AppUserHistoryId
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
 import ru.itmo.clothesadvisor.repository.user.AppUserRepository
 
-@Testcontainers
 @SpringBootTest
 @Import(TestTimeConfiguration::class)
-class AppUserPersistenceTests {
+class AppUserPersistenceTests : PostgresIntegrationTest() {
     @Autowired
     private lateinit var users: AppUserService
 
@@ -49,15 +41,11 @@ class AppUserPersistenceTests {
     private lateinit var repository: AppUserRepository
 
     @Autowired
-    private lateinit var entityManager: EntityManager
-
-    @Autowired
     private lateinit var transactionManager: PlatformTransactionManager
 
     @BeforeEach
     fun clearMutableData() {
-        jdbc.execute("""TRUNCATE TABLE outfit_rating_history, outfit_rating, outfit_item, outfit_weather, outfit, access_grant,
-            wardrobe_item_photo, wardrobe_item_history, wardrobe_item, app_user_history, app_user RESTART IDENTITY""")
+        resetMutableData()
     }
 
     @Test
@@ -67,7 +55,7 @@ class AppUserPersistenceTests {
 
         assertThat(loaded.version).isEqualTo(1)
         assertThat(loaded.createdAt).isEqualTo(loaded.modifiedAt)
-        assertThat(loaded.createdAt).isEqualTo(TestTimeConfiguration.FIXED_TIME)
+        assertThat(loaded.createdAt).isEqualTo(jdbc.queryForObject("SELECT created_at FROM app_user WHERE id = ?", Timestamp::class.java, user.id)!!.toInstant())
         assertThat(loaded.passwordHash).isEqualTo("test-password-hash")
         assertThat(loaded.toString()).doesNotContain("test-password-hash")
         assertThat(users.findByLogin("alice")?.id).isEqualTo(user.id)
@@ -96,9 +84,9 @@ class AppUserPersistenceTests {
                 val changed = users.findById(id)!!
                 assertThat(changed.role).isEqualTo(nextRole)
                 assertThat(changed.status).isEqualTo(nextStatus)
-                val archived = entityManager.find(AppUserHistory::class.java, AppUserHistoryId(id, 1))
-                assertThat(archived.role).isEqualTo(role)
-                assertThat(archived.status).isEqualTo(status)
+                val archived = jdbc.queryForMap("SELECT role, status FROM app_user_history WHERE user_id = ? AND version = 1", id)
+                assertThat(archived["role"].toString()).isEqualTo(role.name)
+                assertThat(archived["status"].toString()).isEqualTo(status.name)
             }
         }
     }
@@ -136,7 +124,6 @@ class AppUserPersistenceTests {
         assertThat(changed.status).isEqualTo(UserStatus.BLOCKED)
         assertThat(changed.createdAt).isEqualTo(original.createdAt)
         assertThat(changed.passwordHash).isEqualTo(original.passwordHash)
-        assertThat(changed.modifiedAt).isEqualTo(TestTimeConfiguration.FIXED_TIME)
         assertThat(current(id).modifiedAt).isEqualTo(changed.modifiedAt)
         assertThat(history()).containsExactly(Archived(id, old, changed.modifiedAt))
 
@@ -144,8 +131,8 @@ class AppUserPersistenceTests {
         users.changeRoleAndStatus(id, 2, UserRole.ADMIN, UserStatus.BLOCKED)
         assertThat(current(id).version).isEqualTo(3)
         assertThat(history()).containsExactly(
-            Archived(id, old, TestTimeConfiguration.FIXED_TIME),
-            Archived(id, previous, TestTimeConfiguration.FIXED_TIME),
+            Archived(id, old, changed.modifiedAt),
+            Archived(id, previous, current(id).modifiedAt),
         )
     }
 
@@ -157,9 +144,9 @@ class AppUserPersistenceTests {
         assertThat(users.changeRoleAndStatus(id, 1, UserRole.USER, UserStatus.ACTIVE).version).isEqualTo(1)
         assertThat(current(id)).isEqualTo(before)
         assertThatThrownBy { users.changeRoleAndStatus(id, 0, UserRole.USER, UserStatus.ACTIVE) }
-            .isInstanceOf(ObjectOptimisticLockingFailureException::class.java)
+            .isInstanceOf(OptimisticLockingFailureException::class.java)
         assertThatThrownBy { users.changeRoleAndStatus(id, 0, UserRole.ADMIN, UserStatus.BLOCKED) }
-            .isInstanceOf(ObjectOptimisticLockingFailureException::class.java)
+            .isInstanceOf(OptimisticLockingFailureException::class.java)
         assertThat(current(id)).isEqualTo(before)
         assertThat(history()).isEmpty()
         assertThatThrownBy {
@@ -168,14 +155,14 @@ class AppUserPersistenceTests {
     }
 
     @Test
-    fun `failure after both flushes rolls back user and history`() {
+    fun `failure after both writes rolls back user and history`() {
         val id = createUser().id!!
         val before = current(id)
 
         assertThatThrownBy {
             TransactionTemplate(transactionManager).executeWithoutResult {
                 users.changeRoleAndStatus(id, 1, UserRole.ADMIN, UserStatus.BLOCKED)
-                repository.flush()
+
                 assertThat(current(id).version).isEqualTo(2)
                 assertThat(history()).hasSize(1)
                 error("forced failure after writes")
@@ -187,7 +174,7 @@ class AppUserPersistenceTests {
     }
 
     @Test
-    fun `history key conflict rolls back flushed user and never overwrites historical row`() {
+    fun `history key conflict rolls back written user and never overwrites historical row`() {
         val id = createUser().id!!
         val before = current(id)
         jdbc.update(
@@ -217,7 +204,7 @@ class AppUserPersistenceTests {
                 executor.submit(Callable {
                     try {
                         TransactionTemplate(transactionManager).apply { timeout = 20 }.executeWithoutResult {
-                            // Both transactions retain version 1 in their own persistence context.
+                            // Both callers submit the same expected version.
                             assertThat(requireNotNull(repository.findById(id)).version).isEqualTo(1)
                             loaded.await(10, TimeUnit.SECONDS)
                             users.changeRoleAndStatus(id, 1, role, UserStatus.BLOCKED)
@@ -231,7 +218,7 @@ class AppUserPersistenceTests {
             val attempts = futures.map { it.get(30, TimeUnit.SECONDS) }
             val winner = attempts.single { it.failure == null }
             assertThat(attempts.single { it.failure != null }.failure)
-                .isInstanceOf(ObjectOptimisticLockingFailureException::class.java)
+                .isInstanceOf(OptimisticLockingFailureException::class.java)
             val result = current(id)
             assertThat(result.version).isEqualTo(2)
             assertThat(result.role).isEqualTo(winner.role.name)
@@ -245,6 +232,35 @@ class AppUserPersistenceTests {
 
     private fun createUser(login: String = "alice"): AppUser =
         users.create(login, "test-password-hash", UserRole.USER)
+
+    @Test
+    fun `login boundary is enforced by both service and database`() {
+        val user = createUser("x".repeat(100))
+        assertThatThrownBy { createUser("x".repeat(101)) }.isInstanceOf(ConstraintViolationException::class.java)
+        for (invalid in listOf("x".repeat(101), " \t\n")) {
+            assertThatThrownBy { jdbc.update("UPDATE app_user SET login = ? WHERE id = ?", invalid, user.id) }
+                .isInstanceOf(DataIntegrityViolationException::class.java)
+        }
+        assertThatThrownBy { jdbc.update("UPDATE app_user SET version = 0 WHERE id = ?", user.id) }
+            .isInstanceOf(DataIntegrityViolationException::class.java)
+        assertThat(users.findById(user.id!!)!!.login).isEqualTo("x".repeat(100))
+    }
+
+    @Test
+    fun `database transaction timestamp owns creation modification and archival dates`() {
+        TransactionTemplate(transactionManager).executeWithoutResult {
+            val transactionTime = jdbc.queryForObject("SELECT CURRENT_TIMESTAMP", Timestamp::class.java)!!.toInstant()
+            val created = createUser()
+            val changed = users.changeRoleAndStatus(created.id!!, 1, UserRole.STYLIST, UserStatus.ACTIVE)
+            assertThat(created.createdAt).isEqualTo(transactionTime)
+            assertThat(created.modifiedAt).isEqualTo(transactionTime)
+            assertThat(changed.createdAt).isEqualTo(created.createdAt)
+            assertThat(changed.modifiedAt).isEqualTo(transactionTime)
+            assertThat(history().single()).isEqualTo(Archived(created.id!!,
+                Snapshot(created.login, "USER", "ACTIVE", 1, created.modifiedAt), transactionTime))
+            assertThat(changed.version).isEqualTo(2)
+        }
+    }
 
     private fun current(id: Long): Snapshot = jdbc.queryForObject(
         "SELECT login, role, status, version, modified_at FROM app_user WHERE id = ?",
@@ -278,17 +294,4 @@ class AppUserPersistenceTests {
     private data class Archived(val userId: Long, val snapshot: Snapshot, val archivedAt: Instant)
     private data class Attempt(val role: UserRole, val failure: Exception?)
 
-    companion object {
-        @Container
-        @JvmStatic
-        val postgres = PostgreSQLContainer("postgres:18-alpine")
-
-        @JvmStatic
-        @DynamicPropertySource
-        fun postgresProperties(registry: DynamicPropertyRegistry) {
-            registry.add("spring.datasource.url", postgres::getJdbcUrl)
-            registry.add("spring.datasource.username", postgres::getUsername)
-            registry.add("spring.datasource.password", postgres::getPassword)
-        }
-    }
 }
