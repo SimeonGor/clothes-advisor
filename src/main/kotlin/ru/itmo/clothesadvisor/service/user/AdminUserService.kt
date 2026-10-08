@@ -25,7 +25,7 @@ internal class AdminUserService(private val users: AppUserRepository, private va
 
     @Transactional
     fun update(actorId: Long, id: Long, request: UpdateUserRoleAndStatusRequest): AdminUserResponse {
-        val locked = users.findAllByIdInOrderByIdAsc(listOf(actorId, id))
+        val locked = users.findAllLockedByIdInOrderByIdAsc(listOf(actorId, id))
         val actor = locked.find { it.id == actorId }
         if (actor?.role != UserRole.ADMIN || actor.status != UserStatus.ACTIVE) {
             throw AccessDeniedException("Active administrator required")
