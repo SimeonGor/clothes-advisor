@@ -9,6 +9,8 @@ import javax.crypto.spec.SecretKeySpec
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.core.env.Environment
+import org.springframework.core.env.Profiles
 import org.springframework.security.authentication.AuthenticationManager
 import org.springframework.security.authentication.ProviderManager
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken
@@ -95,7 +97,7 @@ internal class SecurityConfiguration {
         ProviderManager(DaoAuthenticationProvider(userDetailsService).apply { setPasswordEncoder(encoder) })
 
     @Bean
-    fun securityFilterChain(http: HttpSecurity, users: AppUserService): SecurityFilterChain {
+    fun securityFilterChain(http: HttpSecurity, users: AppUserService, environment: Environment): SecurityFilterChain {
         http.csrf { it.disable() }
             .formLogin { it.disable() }
             .httpBasic { it.disable() }
@@ -103,6 +105,11 @@ internal class SecurityConfiguration {
             .requestCache { it.disable() }
             .sessionManagement { it.sessionCreationPolicy(SessionCreationPolicy.STATELESS) }
             .authorizeHttpRequests {
+                if (environment.acceptsProfiles(Profiles.of("local"))) {
+                    it.requestMatchers(org.springframework.http.HttpMethod.GET,
+                        "/swagger-ui.html", "/swagger-ui/**", "/v3/api-docs", "/v3/api-docs/**", "/v3/api-docs.yaml",
+                    ).permitAll()
+                }
                 it.dispatcherTypeMatchers(DispatcherType.ERROR).permitAll()
                     .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/auth/login").permitAll()
                     .requestMatchers(org.springframework.http.HttpMethod.GET, "/actuator/health", "/actuator/health/**").permitAll()
