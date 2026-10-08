@@ -1,7 +1,7 @@
 package ru.itmo.clothesadvisor.service.access
 
-import jakarta.persistence.EntityNotFoundException
-import org.springframework.security.access.AccessDeniedException
+import ru.itmo.clothesadvisor.model.EntityNotFoundException
+import ru.itmo.clothesadvisor.model.AccessDeniedException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import ru.itmo.clothesadvisor.model.user.UserRole

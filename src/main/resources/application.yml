@@ -20,13 +20,8 @@ app:
     trust-store: ${CHATGPT_TRUST_STORE:}
   s3:
     endpoint: ${S3_ENDPOINT:https://storage.yandexcloud.net}
-    region: ${S3_REGION:ru-central1}
     bucket: ${S3_BUCKET:}
-    access-key-id: ${S3_ACCESS_KEY_ID:}
-    secret-access-key: ${S3_SECRET_ACCESS_KEY:}
-  security:
-    jwt:
-      secret-base64: ${JWT_SECRET_BASE64:}
+    iam-token: ${YANDEX_IAM_TOKEN:}
 
 spring:
   servlet:
@@ -37,10 +32,6 @@ spring:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/clothes_advisor}
     username: ${DB_USER:clothes_advisor}
     password: ${DB_PASSWORD}
-  jpa:
-    hibernate:
-      ddl-auto: validate
-    open-in-view: false
 
 management:
   endpoints:

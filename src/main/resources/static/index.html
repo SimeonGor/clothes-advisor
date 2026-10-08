@@ -9,7 +9,7 @@
   <script src="/demo.js" defer></script>
 </head>
 <body>
-  <main id="login-screen" class="welcome">
+  <main id="user-selection" class="welcome">
     <section class="welcome-story">
       <a class="brand" href="/">ca<span>clothes advisor</span></a>
       <div><p class="eyebrow">Меньше сомнений. Больше сочетаний.</p>
@@ -18,17 +18,15 @@
       </div>
       <p class="muted">Учебный проект · Демонстрационная версия</p>
     </section>
-    <section class="login-card" aria-labelledby="login-title">
-      <p class="eyebrow">Рады видеть вас</p><h2 id="login-title">Войти в гардероб</h2>
-      <p class="muted">Используйте аккаунт с ролью USER. В локальном окружении логин — user, пароль задан при запуске.</p>
-      <form id="login-form">
-        <label>Логин<input name="login" autocomplete="username" required></label>
-        <label>Пароль<input name="password" type="password" autocomplete="current-password" required></label>
-        <p id="login-status" class="status" role="status" aria-live="polite"></p>
-        <button type="submit" class="primary wide">Войти</button>
+    <section class="user-picker-card" aria-labelledby="user-picker-title">
+      <p class="eyebrow">Локальная демонстрация</p><h2 id="user-picker-title">Выберите тестового пользователя</h2>
+      <p class="muted">Данные аккаунта загружаются с сервера. Это локальный демо-интерфейс без проверки подлинности.</p>
+      <form id="user-picker-form">
+        <label>Пользователь<select id="user-picker" name="userId" required></select></label>
+        <p id="user-picker-status" class="status" role="status" aria-live="polite"></p>
+        <button type="submit" class="primary wide">Открыть гардероб</button>
       </form>
-      <p class="fine">Сессия хранится только в памяти вкладки. После обновления страницы потребуется повторный вход.</p>
-      <a href="/swagger-ui.html">Документация API ↗</a>
+      <p class="fine">После обновления страницы потребуется снова выбрать пользователя.</p>
     </section>
   </main>
 
@@ -39,12 +37,10 @@
         <button id="wardrobe-tab" class="nav-button" aria-current="page">Гардероб <span>01</span></button>
         <button id="outfits-tab" class="nav-button">Образы <span>02</span></button>
       </nav>
-      <div class="sidebar-bottom"><p id="account" class="account"></p><button id="logout" class="quiet">Выйти из аккаунта</button>
-        <a href="/swagger-ui.html">Swagger API ↗</a><p class="fine">Демо · Личная коллекция</p></div>
+      <div class="sidebar-bottom"><p id="account" class="account"></p><button id="change-user" class="quiet">Сменить пользователя</button>
+        <p class="fine">Локальная демонстрация без проверки подлинности</p></div>
     </aside>
     <main class="workspace">
-      <section id="role-limit" hidden><p class="eyebrow">Демонстрационная версия</p><h1>Интерфейс для USER</h1>
-        <p>Для вашей роли используйте <a href="/swagger-ui.html">Swagger API</a> (доступен в профиле local) или выйдите и войдите аккаунтом USER.</p></section>
       <div id="user-workspace">
         <header class="page-header"><div><p class="eyebrow">Всё начинается с ваших вещей</p><h1 id="page-title">Мой гардероб</h1><p id="page-subtitle" class="muted">Любимые вещи, готовые к новым сочетаниям.</p></div>
           <div class="actions"><button id="refresh" class="quiet">Обновить</button><button id="create" class="primary">+ Добавить вещь</button></div>
@@ -60,8 +56,8 @@
     <div class="dialog-heading"><div><p class="eyebrow">Личная коллекция</p><h2 id="item-title">Добавить вещь</h2></div><button type="button" class="close" data-close aria-label="Закрыть">×</button></div>
     <form id="item-form">
       <label>Название<input name="name" required maxlength="300" placeholder="Например, льняная рубашка"></label>
-      <div class="form-grid"><label>Категория<select name="categoryId" required></select></label><label>Цвет<input name="color" required placeholder="Молочный"></label></div>
-      <label>Материал<input name="material" required placeholder="Лён"></label>
+      <div class="form-grid"><label>Категория<select name="categoryId" required></select></label><label>Цвет<input name="color" required maxlength="100" placeholder="Молочный"></label></div>
+      <label>Материал<input name="material" required maxlength="100" placeholder="Лён"></label>
       <div id="initial-photos"><label>Фотографии<input name="photos" type="file" accept="image/jpeg,image/png" multiple></label><p class="fine">До 5 фотографий JPEG или PNG, каждая не более 10 МБ.</p></div>
       <p id="item-status" class="status" role="status" aria-live="polite"></p>
       <button type="submit" class="primary wide">Сохранить вещь</button>

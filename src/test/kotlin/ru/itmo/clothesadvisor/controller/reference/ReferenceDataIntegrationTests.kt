@@ -1,5 +1,7 @@
 package ru.itmo.clothesadvisor.controller.reference
 
+import ru.itmo.clothesadvisor.config.PostgresIntegrationTest
+import ru.itmo.clothesadvisor.config.insertUser
 import com.jayway.jsonpath.JsonPath
 import java.net.URI
 import java.net.http.HttpClient
@@ -21,31 +23,22 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.context.annotation.Import
 import org.springframework.jdbc.core.JdbcTemplate
-import org.springframework.security.crypto.password.PasswordEncoder
-import org.springframework.test.context.DynamicPropertyRegistry
-import org.springframework.test.context.DynamicPropertySource
-import org.testcontainers.junit.jupiter.Container
-import org.testcontainers.junit.jupiter.Testcontainers
-import org.testcontainers.postgresql.PostgreSQLContainer
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
 import ru.itmo.clothesadvisor.model.user.AppUser
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
 import ru.itmo.clothesadvisor.service.user.AppUserService
 
-@Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(TestTimeConfiguration::class)
 @Execution(ExecutionMode.SAME_THREAD)
-class ReferenceDataIntegrationTests {
+class ReferenceDataIntegrationTests : PostgresIntegrationTest() {
     @LocalServerPort
     private var port: Int = 0
 
     @Autowired
     private lateinit var users: AppUserService
 
-    @Autowired
-    private lateinit var passwords: PasswordEncoder
 
     @Autowired
     private lateinit var jdbc: JdbcTemplate
@@ -60,9 +53,9 @@ class ReferenceDataIntegrationTests {
     @ParameterizedTest(name = "{0}")
     @EnumSource(UserRole::class)
     internal fun `every active role reads exact seeded DTOs in ID order`(role: UserRole) {
-        val token = login(createUser(role))
+        val actorId = actorId(createUser(role))
         for ((path, table) in ENDPOINTS) {
-            val response = request(path, token)
+            val response = request(path, actorId)
             assertThat(rows(response)).isEqualTo(expectedSeeds(table))
             assertThat(response.headers().allValues("X-Total-Count")).isEmpty()
         }
@@ -71,13 +64,13 @@ class ReferenceDataIntegrationTests {
     @ParameterizedTest(name = "{0}")
     @MethodSource("referenceEndpoints")
     fun `paging returns the requested part of a dictionary`(path: String, table: String) {
-        val token = login(createUser())
+        val actorId = actorId(createUser())
         val seeds = expectedSeeds(table)
-        assertThat(rows(request("$path?size=1", token))).containsExactly(seeds[0])
-        assertThat(rows(request("$path?page=1&size=1", token))).containsExactly(seeds[1])
-        assertThat(rows(request("$path?page=${seeds.size - 1}&size=1", token))).containsExactly(seeds.last())
-        assertThat(rows(request("$path?page=${seeds.size}&size=1", token))).isEmpty()
-        assertThat(rows(request("$path?page=${Int.MAX_VALUE}&size=1", token))).isEmpty()
+        assertThat(rows(request("$path?size=1", actorId))).containsExactly(seeds[0])
+        assertThat(rows(request("$path?page=1&size=1", actorId))).containsExactly(seeds[1])
+        assertThat(rows(request("$path?page=${seeds.size - 1}&size=1", actorId))).containsExactly(seeds.last())
+        assertThat(rows(request("$path?page=${seeds.size}&size=1", actorId))).isEmpty()
+        assertThat(rows(request("$path?page=${Int.MAX_VALUE}&size=1", actorId))).isEmpty()
     }
 
     @ParameterizedTest(name = "{0}")
@@ -87,16 +80,16 @@ class ReferenceDataIntegrationTests {
         "page=42949673&size=50", "page=2147483647&size=2",
     ])
     fun `invalid paging and overflowing offsets return bad request`(query: String) {
-        val token = login(createUser())
+        val actorId = actorId(createUser())
         for (path in ENDPOINTS.keys) {
-            assertThat(request("$path?$query", token).statusCode()).describedAs(path).isEqualTo(400)
+            assertThat(request("$path?$query", actorId).statusCode()).describedAs(path).isEqualTo(400)
         }
     }
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("referenceEndpoints")
     fun `pages stay bounded with more than fifty records`(path: String, table: String) {
-        val token = login(createUser())
+        val actorId = actorId(createUser())
         val prefix = "TEST${UUID.randomUUID().toString().replace("-", "")}"
         try {
             jdbc.update(
@@ -104,55 +97,47 @@ class ReferenceDataIntegrationTests {
                 prefix,
             )
             val expected = databaseRows(table)
-            val first = rows(request(path, token))
-            val second = rows(request("$path?page=1&size=50", token))
+            val first = rows(request(path, actorId))
+            val second = rows(request("$path?page=1&size=50", actorId))
             assertThat(first).hasSize(50)
             assertThat(second).hasSize(expected.size - 50)
             assertThat(first + second).isEqualTo(expected)
-            assertThat(rows(request("$path?page=2&size=50", token))).isEmpty()
+            assertThat(rows(request("$path?page=2&size=50", actorId))).isEmpty()
         } finally {
             jdbc.update("DELETE FROM $table WHERE code LIKE ?", "$prefix%")
         }
     }
 
     @Test
-    fun `anonymous and blocked users cannot read dictionaries`() {
+    fun `dictionaries are public regardless of actor header`() {
         val user = createUser()
-        val token = login(user)
+        val actorId = actorId(user)
         for (path in ENDPOINTS.keys) {
-            assertThat(request(path).statusCode()).isEqualTo(401)
-            assertThat(request(path, token).statusCode()).isEqualTo(200)
+            assertThat(request(path).statusCode()).isEqualTo(200)
+            assertThat(request(path, actorId).statusCode()).isEqualTo(200)
         }
         users.changeRoleAndStatus(user.id!!, user.version, user.role, UserStatus.BLOCKED)
-        for (path in ENDPOINTS.keys) assertThat(request(path, token).statusCode()).isEqualTo(401)
+        for (path in ENDPOINTS.keys) assertThat(request(path, actorId).statusCode()).isEqualTo(200)
     }
 
     @ParameterizedTest(name = "{0}")
     @ValueSource(strings = ["POST", "PUT", "PATCH", "DELETE"])
-    internal fun `write methods are unavailable for an authenticated user`(method: String) {
-        val token = login(createUser())
+    internal fun `write methods are unavailable for an caller`(method: String) {
+        val actorId = actorId(createUser())
         for (path in ENDPOINTS.keys) {
-            assertThat(request(path, token, method).statusCode()).describedAs(path).isEqualTo(405)
+            assertThat(request(path, actorId, method).statusCode()).describedAs(path).isEqualTo(405)
         }
     }
 
     private fun createUser(role: UserRole = UserRole.USER): AppUser =
-        users.create(UUID.randomUUID().toString(), requireNotNull(passwords.encode(PASSWORD)), role)
+        jdbc.insertUser(UUID.randomUUID().toString(), "!", role)
 
-    private fun login(user: AppUser): String {
-        val request = HttpRequest.newBuilder(URI("http://localhost:$port/api/auth/login"))
-            .header("Content-Type", "application/json")
-            .POST(HttpRequest.BodyPublishers.ofString("{\"login\":\"${user.login}\",\"password\":\"$PASSWORD\"}"))
-            .build()
-        val response = client.send(request, HttpResponse.BodyHandlers.ofString())
-        assertThat(response.statusCode()).isEqualTo(200)
-        return JsonPath.read(response.body(), "$.accessToken")
-    }
+    private fun actorId(user: AppUser): String = requireNotNull(user.id).toString()
 
-    private fun request(path: String, token: String? = null, method: String = "GET"): HttpResponse<String> {
+    private fun request(path: String, actorId: String? = null, method: String = "GET"): HttpResponse<String> {
         val request = HttpRequest.newBuilder(URI("http://localhost:$port$path"))
             .method(method, HttpRequest.BodyPublishers.noBody())
-        if (token != null) request.header("Authorization", "Bearer $token")
+        if (actorId != null) request.header("X-User-Id", "$actorId")
         return client.send(request.build(), HttpResponse.BodyHandlers.ofString())
     }
 
@@ -175,7 +160,6 @@ class ReferenceDataIntegrationTests {
     private data class ReferenceRow(val id: Long, val code: String, val name: String)
 
     companion object {
-        private const val PASSWORD = "reference-test-password"
         private val ENDPOINTS = mapOf(
             "/api/wardrobe/categories" to "wardrobe_category",
             "/api/weather/precipitation-types" to "precipitation_type",
@@ -192,17 +176,5 @@ class ReferenceDataIntegrationTests {
 
         @JvmStatic
         fun referenceEndpoints(): List<Arguments> = ENDPOINTS.map { (path, table) -> Arguments.of(path, table) }
-
-        @Container
-        @JvmStatic
-        val postgres = PostgreSQLContainer("postgres:18-alpine")
-
-        @JvmStatic
-        @DynamicPropertySource
-        fun postgresProperties(registry: DynamicPropertyRegistry) {
-            registry.add("spring.datasource.url", postgres::getJdbcUrl)
-            registry.add("spring.datasource.username", postgres::getUsername)
-            registry.add("spring.datasource.password", postgres::getPassword)
-        }
     }
 }

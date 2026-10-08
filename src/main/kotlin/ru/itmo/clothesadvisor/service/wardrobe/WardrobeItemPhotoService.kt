@@ -1,7 +1,6 @@
 package ru.itmo.clothesadvisor.service.wardrobe
 
-import jakarta.persistence.EntityNotFoundException
-import java.time.Clock
+import ru.itmo.clothesadvisor.model.EntityNotFoundException
 import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
 import org.springframework.transaction.PlatformTransactionManager
@@ -20,7 +19,6 @@ internal class WardrobeItemPhotoService(
     private val items: WardrobeItemRepository,
     private val photos: WardrobeItemPhotoRepository,
     private val storage: S3PhotoStorage,
-    private val clock: Clock,
     transactionManager: PlatformTransactionManager,
 ) {
     private val transaction = TransactionTemplate(transactionManager)
@@ -76,11 +74,11 @@ internal class WardrobeItemPhotoService(
             val item = items.lockOwned(itemId, ownerId) ?: throw EntityNotFoundException()
             checkPhotoCapacity(photos.countByItemId(itemId), validated.size)
             validated.map {
-                response(photos.save(WardrobeItemPhoto(item, it.s3Key, it.contentType, it.bytes.size.toLong(), clock.instant())))
+                response(photos.create(requireNotNull(item.id), it.s3Key, it.contentType, it.bytes.size.toLong()))
             }
         }
 
     private fun response(photo: WardrobeItemPhoto) = WardrobeItemPhotoResponse(
-        requireNotNull(photo.id), requireNotNull(photo.item.id), photo.contentType, photo.sizeBytes, photo.createdAt,
+        requireNotNull(photo.id), photo.itemId, photo.contentType, photo.sizeBytes, photo.createdAt,
     )
 }

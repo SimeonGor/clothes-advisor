@@ -3,7 +3,7 @@
 (() => {
   const $ = (id) => document.getElementById(id);
   const PAGE_SIZE = 12;
-  let session = { token: null, controller: new AbortController() };
+  let session = { userId: null, controller: new AbortController() };
   let user = null;
   let tab = "wardrobe";
   let page = 0;
@@ -13,6 +13,7 @@
   let pickerRevision = 0;
   let categories = [];
   let precipitation = [];
+  let accounts = [];
   const itemCache = new Map();
   const photoUrls = new Set();
   const selected = new Map();
@@ -50,7 +51,7 @@
   function errorMessage(code, purpose) {
     const messages = {
       400: purpose === "ai" ? "Проверьте погоду и выбор вещей: AI нужны 1–20 вещей с фотографиями." : "Проверьте заполнение полей и выбранные значения.",
-      401: purpose === "login" ? "Неверный логин или пароль." : "Сессия истекла. Войдите снова.",
+      401: "Сервер отклонил запрос. Повторите выбор пользователя.",
       403: "Недостаточно прав для этого действия.",
       404: "Объект больше не найден. Обновите список.",
       409: purpose === "delete-item" ? "Вещь изменена или используется в образе. Обновите список; сначала удалите связанные образы." : "Данные изменились или объект уже удалён. Обновите список и откройте форму заново.",
@@ -68,7 +69,7 @@
     check(ctx);
     const { purpose, blob, ...request } = options;
     const headers = new Headers(request.headers);
-    if (ctx.session.token) headers.set("Authorization", `Bearer ${ctx.session.token}`);
+    if (ctx.session.userId !== null) headers.set("X-User-Id", String(ctx.session.userId));
     if (request.body && !(request.body instanceof FormData)) headers.set("Content-Type", "application/json");
     let response;
     try {
@@ -80,10 +81,6 @@
     }
     check(ctx);
     if (!response.ok) {
-      if (response.status === 401 && purpose !== "login") {
-        resetSession("Сессия истекла. Войдите снова.");
-        throw new DOMException("Сессия завершена", "AbortError");
-      }
       // Domain errors may have an empty or non-JSON body; their status is sufficient.
       throw new Error(errorMessage(response.status, purpose));
     }
@@ -160,23 +157,58 @@
 
   function resetSession(message = "") {
     session.controller.abort();
-    session = { token: null, controller: new AbortController() };
+    session = { userId: null, controller: new AbortController() };
     user = null;
+    accounts = [];
     categories = [];
     precipitation = [];
     itemCache.clear();
     listRevision++;
     closeDialogs();
-    $("login-form").reset();
-    $("login-form").querySelector("button").disabled = false;
+    $("user-picker-form").reset();
+    $("user-picker-form").querySelector("button").disabled = false;
     $("refresh").disabled = false;
     ["cards", "pagination", "account"].forEach((id) => $(id).replaceChildren());
+    $("user-picker").replaceChildren();
+    $("user-picker").disabled = true;
     document.querySelectorAll("select[name=categoryId], select[name=precipitationTypeId]").forEach((select) => select.replaceChildren());
     status("page-status");
-    status("login-status", message, Boolean(message));
+    status("user-picker-status", message, Boolean(message));
     $("app").hidden = true;
-    $("login-screen").hidden = false;
-    $("login-form").elements.login.focus();
+    $("user-selection").hidden = false;
+    $("user-picker").focus();
+  }
+
+  function renderAccounts(accounts) {
+    const picker = $("user-picker");
+    picker.replaceChildren();
+    accounts.forEach((account) => {
+      const option = node("option", "", `${account.login} · ${account.role}`);
+      option.value = account.id;
+      option.disabled = account.status !== "ACTIVE";
+      picker.append(option);
+    });
+    const preferred = accounts.find((account) => account.login === "user" && account.status === "ACTIVE") ||
+      accounts.find((account) => account.status === "ACTIVE");
+    if (preferred) picker.value = String(preferred.id);
+    picker.disabled = !preferred;
+    $("user-picker-form").querySelector("button").disabled = !preferred;
+  }
+
+  async function loadAccounts() {
+    const ctx = context();
+    $("user-picker").disabled = true;
+    $("user-picker-form").querySelector("button").disabled = true;
+    status("user-picker-status", "Загружаем пользователей…");
+    try {
+      const loadedAccounts = await pagedEntries("/api/admin/users", ctx);
+      check(ctx);
+      accounts = loadedAccounts;
+      renderAccounts(accounts);
+      if (!accounts.length) status("user-picker-status", "На сервере нет аккаунтов для выбора.", true);
+      else if (!accounts.some((account) => account.status === "ACTIVE")) status("user-picker-status", "Нет активных аккаунтов для выбора.", true);
+      else status("user-picker-status");
+    } catch (error) { report(error, "user-picker-status", ctx); }
   }
 
   function options(select, entries) {
@@ -188,7 +220,7 @@
     });
   }
 
-  async function dictionary(path, ctx) {
+  async function pagedEntries(path, ctx) {
     const entries = [];
     for (let index = 0; ; index++) {
       const { data } = await api(`${path}?page=${index}&size=50`, ctx);
@@ -201,8 +233,8 @@
     status("page-status", "Загружаем коллекцию…");
     $("create").disabled = true;
     const lists = await Promise.all([
-      dictionary("/api/wardrobe/categories", ctx),
-      dictionary("/api/weather/precipitation-types", ctx),
+      pagedEntries("/api/wardrobe/categories", ctx),
+      pagedEntries("/api/weather/precipitation-types", ctx),
     ]);
     check(ctx);
     [categories, precipitation] = lists;
@@ -210,33 +242,23 @@
     await loadList(ctx);
   }
 
-  $("login-form").addEventListener("submit", (event) => {
+  $("user-picker-form").addEventListener("submit", (event) => {
     event.preventDefault();
     const form = event.currentTarget;
-    action(form.querySelector("button"), "login-status", async (ctx) => {
-      ctx.session.token = null;
-      const { data } = await api("/api/auth/login", ctx, {
-        method: "POST", purpose: "login", body: JSON.stringify({ login: form.elements.login.value.trim(), password: form.elements.password.value }),
-      });
-      ctx.session.token = data.accessToken;
-      form.reset();
-      const me = await api("/api/auth/me", ctx);
-      user = me.data;
+    action(form.querySelector("button"), "user-picker-status", async (ctx) => {
+      const account = accounts.find((entry) => String(entry.id) === form.elements.userId.value);
+      if (!account || account.status !== "ACTIVE") throw new Error("Выберите активного пользователя.");
+      ctx.session.userId = account.id;
+      user = account;
       $("account").textContent = `${user.login} · ${user.role}`;
-      $("login-screen").hidden = true;
+      $("user-selection").hidden = true;
       $("app").hidden = false;
-      const isUser = user.role === "USER";
-      $("role-limit").hidden = isUser;
-      $("user-workspace").hidden = !isUser;
-      document.querySelector(".sidebar nav").hidden = !isUser;
-      if (isUser) {
-        setTab("wardrobe");
-        try { await refresh(ctx); } catch (error) { report(error, "page-status", ctx); }
-      }
+      setTab("wardrobe");
+      try { await refresh(ctx); } catch (error) { report(error, "page-status", ctx); }
     });
   });
 
-  $("logout").addEventListener("click", () => resetSession());
+  $("change-user").addEventListener("click", () => { resetSession(); loadAccounts(); });
   $("refresh").addEventListener("click", () => action($("refresh"), "page-status", refresh));
 
   function setTab(next) {
@@ -566,4 +588,6 @@
       }
     }, true);
   });
+
+  loadAccounts();
 })();

@@ -16,7 +16,7 @@ import ru.itmo.clothesadvisor.controller.toPageRequest
 import ru.itmo.clothesadvisor.dto.weather.PrecipitationTypeResponse
 import ru.itmo.clothesadvisor.service.weather.PrecipitationTypeService
 
-@Tag(name = "Справочники", description = "Любая активная роль USER, STYLIST или ADMIN.")
+@Tag(name = "Справочники", description = "Публичное чтение; X-User-Id не требуется.")
 @RestController
 @RequestMapping("/api/weather/precipitation-types")
 internal class PrecipitationTypeController(private val precipitationTypes: PrecipitationTypeService) {

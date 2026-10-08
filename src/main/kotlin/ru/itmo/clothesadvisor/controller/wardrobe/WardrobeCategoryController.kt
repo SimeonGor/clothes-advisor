@@ -16,7 +16,7 @@ import ru.itmo.clothesadvisor.controller.toPageRequest
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeCategoryResponse
 import ru.itmo.clothesadvisor.service.wardrobe.WardrobeCategoryService
 
-@Tag(name = "Справочники", description = "Любая активная роль USER, STYLIST или ADMIN.")
+@Tag(name = "Справочники", description = "Публичное чтение; X-User-Id не требуется.")
 @RestController
 @RequestMapping("/api/wardrobe/categories")
 internal class WardrobeCategoryController(private val wardrobeCategories: WardrobeCategoryService) {

@@ -1,10 +1,10 @@
 package ru.itmo.clothesadvisor.service.user
 
-import jakarta.persistence.EntityNotFoundException
+import ru.itmo.clothesadvisor.model.EntityNotFoundException
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
-import org.springframework.security.access.AccessDeniedException
+import ru.itmo.clothesadvisor.model.AccessDeniedException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import ru.itmo.clothesadvisor.dto.user.AdminUserResponse

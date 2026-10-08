@@ -1,5 +1,10 @@
 package ru.itmo.clothesadvisor.controller.ai
 
+import ru.itmo.clothesadvisor.client.ai.AiOutfitFailure
+
+import ru.itmo.clothesadvisor.config.PostgresIntegrationTest
+import ru.itmo.clothesadvisor.config.insertItem
+import ru.itmo.clothesadvisor.config.insertUser
 import com.jayway.jsonpath.JsonPath
 import java.math.BigDecimal
 import java.net.URI
@@ -31,17 +36,11 @@ import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.context.annotation.Import
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.jdbc.core.JdbcTemplate
-import org.springframework.security.crypto.password.PasswordEncoder
-import org.springframework.test.context.DynamicPropertyRegistry
-import org.springframework.test.context.DynamicPropertySource
 import org.springframework.test.context.bean.override.mockito.MockitoBean
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate
-import org.testcontainers.junit.jupiter.Container
-import org.testcontainers.junit.jupiter.Testcontainers
-import org.testcontainers.postgresql.PostgreSQLContainer
 import ru.itmo.clothesadvisor.client.ai.AiCandidateImage
 import ru.itmo.clothesadvisor.client.ai.AiOutfitException
 import ru.itmo.clothesadvisor.client.ai.AiWeather
@@ -54,6 +53,7 @@ import ru.itmo.clothesadvisor.model.user.AppUser
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
 import ru.itmo.clothesadvisor.repository.outfit.OutfitRepository
+import ru.itmo.clothesadvisor.repository.outfit.OutfitItemRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemPhotoRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.service.user.AppUserService
@@ -62,13 +62,11 @@ import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemService
 import ru.itmo.clothesadvisor.storage.wardrobe.PhotoStorageUnavailableException
 import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
 
-@Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(TestTimeConfiguration::class)
-class AiOutfitIntegrationTests {
+class AiOutfitIntegrationTests : PostgresIntegrationTest() {
     @LocalServerPort private var port: Int = 0
     @Autowired private lateinit var users: AppUserService
-    @Autowired private lateinit var passwords: PasswordEncoder
     @Autowired private lateinit var items: WardrobeItemService
     @Autowired private lateinit var photoService: WardrobeItemPhotoService
     @Autowired private lateinit var jdbc: JdbcTemplate
@@ -77,7 +75,7 @@ class AiOutfitIntegrationTests {
     @MockitoBean private lateinit var provider: OpenAiOutfitClient
     @MockitoSpyBean private lateinit var wardrobe: WardrobeItemRepository
     @MockitoSpyBean private lateinit var photos: WardrobeItemPhotoRepository
-    @MockitoSpyBean private lateinit var outfits: OutfitRepository
+    @MockitoSpyBean private lateinit var composition: OutfitItemRepository
     private val http = HttpClient.newHttpClient()
     private val providerCalls = AtomicInteger()
     private val downloaded = mutableListOf<String>()
@@ -86,7 +84,7 @@ class AiOutfitIntegrationTests {
 
     @BeforeEach
     fun externalCallsOutsideTransactions() {
-        jdbc.execute("TRUNCATE app_user CASCADE")
+        resetMutableData()
         doAnswer { call ->
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
             downloaded += call.getArgument<String>(0)
@@ -110,7 +108,7 @@ class AiOutfitIntegrationTests {
     @Test
     fun `absent null and explicit candidates save immutable AI outfits and reuse old reads with exact weather`() {
         val owner = connectedUser()
-        val token = login(owner)
+        val actorId = actorId(owner)
         val first = item(owner)
         val second = item(owner)
         val noPhoto = item(owner, false)
@@ -122,7 +120,7 @@ class AiOutfitIntegrationTests {
             listOf(second, first)
         }
         for (candidates in listOf(null, "null", "[$second,$noPhoto,$first]")) {
-            val created = request("POST", token = token, body = body(candidates))
+            val created = request("POST", actorId = actorId, body = body(candidates))
             assertThat(created.statusCode()).isEqualTo(201)
             val row = dto(created)
             val id = number(row, "id")
@@ -130,35 +128,35 @@ class AiOutfitIntegrationTests {
             assertThat(number(row, "ownerId")).isEqualTo(owner.id)
             assertThat(number(row, "authorId")).isEqualTo(owner.id)
             assertThat(row["source"]).isEqualTo("AI")
-            assertThat(row["createdAt"]).isEqualTo(TestTimeConfiguration.FIXED_TIME.toString())
+            assertThat(row["createdAt"]).isEqualTo(jdbc.queryForObject("SELECT created_at FROM outfit WHERE id = ?", java.sql.Timestamp::class.java, id)!!.toInstant().toString())
             assertThat((row["itemIds"] as List<*>).map { (it as Number).toLong() }).containsExactly(second, first)
-            val read = request("GET", "/api/outfits/$id", token)
+            val read = request("GET", "/api/outfits/$id", actorId)
             assertThat(dto(read)).isEqualTo(row)
             assertThat(read.body()).contains("\"temperatureC\":$TEMPERATURE", "\"windSpeedMps\":$WIND")
-            assertThat(request("PUT", "/api/outfits/$id", token, body()).statusCode()).isEqualTo(405)
+            assertThat(request("PUT", "/api/outfits/$id", actorId, body()).statusCode()).isEqualTo(405)
         }
         assertThat(downloaded).containsExactly("photo-$first", "photo-$second", "photo-$first", "photo-$second", "photo-$first", "photo-$second")
         assertThat(providerCalls).hasValue(3)
-        assertThat(JsonPath.read<List<Any>>(request("GET", "/api/outfits", token).body(), "$")).hasSize(3)
+        assertThat(JsonPath.read<List<Any>>(request("GET", "/api/outfits", actorId).body(), "$")).hasSize(3)
     }
 
     @Test
     fun `known bad inputs do not touch storage or provider and foreign IDs remain 404 without photos`() {
         val owner = connectedUser()
-        val token = login(owner)
+        val actorId = actorId(owner)
         val own = item(owner, false)
         val foreign = item(user(), false)
         for (ids in listOf("[]", "[0]", "[-1]", "[null]", "[$own,$own]", "[$own]", null)) {
-            assertThat(request("POST", token = token, body = body(ids)).statusCode()).isEqualTo(400)
+            assertThat(request("POST", actorId = actorId, body = body(ids)).statusCode()).isEqualTo(400)
         }
         for (ids in listOf("[$foreign]", "[$own,$foreign]", "[9223372036854775807]")) {
-            assertThat(request("POST", token = token, body = body(ids)).statusCode()).isEqualTo(404)
+            assertThat(request("POST", actorId = actorId, body = body(ids)).statusCode()).isEqualTo(404)
         }
         item(owner)
         for (invalid in listOf(body().replace("Daily", " "), body().replace("Daily", "x".repeat(301)),
             body().replace("\"precipitationTypeId\":1", "\"precipitationTypeId\":999999"),
             body().replace(WIND, "-1"), "{}")) {
-            assertThat(request("POST", token = token, body = invalid).statusCode()).isEqualTo(400)
+            assertThat(request("POST", actorId = actorId, body = invalid).statusCode()).isEqualTo(400)
         }
         verifyNoInteractions(storage)
         assertThat(providerCalls).hasValue(0)
@@ -168,25 +166,25 @@ class AiOutfitIntegrationTests {
     @Test
     fun `twenty candidates succeed twenty one fail and automatic query is bounded to twenty one`() {
         val owner = connectedUser()
-        val token = login(owner)
+        val actorId = actorId(owner)
         val ids = List(20) { item(owner) }
         select = { listOf(it.last().item.id) }
-        assertThat(request("POST", token = token, body = body()).statusCode()).isEqualTo(201)
+        assertThat(request("POST", actorId = actorId, body = body()).statusCode()).isEqualTo(201)
         verify(wardrobe).findOwnedItemsWithPhotos(owner.id!!, 21)
         item(owner)
         val downloads = downloaded.size
-        assertThat(request("POST", token = token, body = body()).statusCode()).isEqualTo(400)
+        assertThat(request("POST", actorId = actorId, body = body()).statusCode()).isEqualTo(400)
         val all = jdbc.queryForList("SELECT id FROM wardrobe_item WHERE owner_id = ? ORDER BY id", Long::class.java, owner.id)
-        assertThat(request("POST", token = token, body = body(all.toString())).statusCode()).isEqualTo(400)
+        assertThat(request("POST", actorId = actorId, body = body(all.toString())).statusCode()).isEqualTo(400)
         assertThat(downloaded).hasSize(downloads)
         assertThat(providerCalls).hasValue(1)
-        assertThat(request("POST", token = token, body = body(ids.toString())).statusCode()).isEqualTo(201)
+        assertThat(request("POST", actorId = actorId, body = body(ids.toString())).statusCode()).isEqualTo(201)
     }
 
     @Test
     fun `photo deletion after bounded query cannot hide an oversized wardrobe`() {
         val owner = connectedUser()
-        val token = login(owner)
+        val actorId = actorId(owner)
         val ids = List(22) { item(owner) }
         val firstPhoto = firstPhoto(ids.first())
         doAnswer { call ->
@@ -197,7 +195,7 @@ class AiOutfitIntegrationTests {
             rows
         }.`when`(wardrobe).findOwnedItemsWithPhotos(owner.id!!, 21)
 
-        assertEmpty(request("POST", token = token, body = body()), 400)
+        assertEmpty(request("POST", actorId = actorId, body = body()), 400)
         assertThat(jdbc.queryForObject("""
             SELECT count(DISTINCT wardrobe_item_id) FROM wardrobe_item_photo
             WHERE wardrobe_item_id IN (SELECT id FROM wardrobe_item WHERE owner_id = ?)
@@ -208,19 +206,19 @@ class AiOutfitIntegrationTests {
     }
 
     @Test
-    fun `only active USER may call AI and JWT owner overrides extra fields`() {
+    fun `only active USER may call AI and selected owner overrides extra fields`() {
         val owner = connectedUser()
-        val token = login(owner)
+        val actorId = actorId(owner)
         val id = item(owner)
         val blocked = user()
-        val blockedToken = login(blocked)
+        val blockedActorId = actorId(blocked)
         users.changeRoleAndStatus(blocked.id!!, blocked.version, blocked.role, UserStatus.BLOCKED)
-        for ((jwt, status) in listOf(null to 401, "invalid" to 401, blockedToken to 401,
-            login(user(UserRole.STYLIST)) to 403, login(user(UserRole.ADMIN)) to 403)) {
-            assertThat(request("POST", token = jwt, body = body()).statusCode()).isEqualTo(status)
+        for ((callerId, status) in listOf(null to 400, "invalid" to 400, blockedActorId to 403,
+            actorId(user(UserRole.STYLIST)) to 403, actorId(user(UserRole.ADMIN)) to 403)) {
+            assertThat(request("POST", actorId = callerId, body = body()).statusCode()).isEqualTo(status)
         }
         verifyNoInteractions(storage)
-        val created = request("POST", token = token, body = body("[$id]").dropLast(1) +
+        val created = request("POST", actorId = actorId, body = body("[$id]").dropLast(1) +
             ",\"ownerId\":${blocked.id},\"authorId\":${blocked.id},\"source\":\"USER\"}")
         assertThat(created.statusCode()).isEqualTo(201)
         assertThat(number(dto(created), "ownerId")).isEqualTo(owner.id)
@@ -233,7 +231,7 @@ class AiOutfitIntegrationTests {
         connectedUser()
         val foreign = user()
         item(foreign)
-        assertEmpty(request("POST", token = login(foreign), body = body()), 503)
+        assertEmpty(request("POST", actorId = actorId(foreign), body = body()), 503)
         verifyNoInteractions(provider, storage)
         assertNoOutfits(foreign)
     }
@@ -241,30 +239,30 @@ class AiOutfitIntegrationTests {
     @Test
     fun `unconfigured AI and remote failures leave no outfit or partial rows`() {
         val owner = connectedUser()
-        val token = login(owner)
+        val actorId = actorId(owner)
         item(owner)
-        doThrow(AiOutfitException(503)).`when`(provider).requireAvailable()
-        assertEmpty(request("POST", token = token, body = body()), 503)
+        doThrow(AiOutfitException(AiOutfitFailure.UNAVAILABLE)).`when`(provider).requireAvailable()
+        assertEmpty(request("POST", actorId = actorId, body = body()), 503)
         verifyNoInteractions(storage)
         doAnswer { null }.`when`(provider).requireAvailable()
-        for (status in listOf(422, 502, 503, 504)) {
-            select = { throw AiOutfitException(status) }
-            assertEmpty(request("POST", token = token, body = body()), status)
+        for (failure in listOf(AiOutfitFailure.NO_OUTFIT, AiOutfitFailure.INVALID_RESPONSE, AiOutfitFailure.UNAVAILABLE, AiOutfitFailure.TIMEOUT)) {
+            select = { throw AiOutfitException(failure) }
+            assertEmpty(request("POST", actorId = actorId, body = body()), failure.status)
             assertNoOutfits(owner)
         }
         onDownload = { throw PhotoStorageUnavailableException() }
-        assertEmpty(request("POST", token = token, body = body()), 503)
+        assertEmpty(request("POST", actorId = actorId, body = body()), 503)
         assertNoOutfits(owner)
     }
 
     @Test
     fun `photo deletion during S3 download conflicts and skips OpenAI`() {
         val owner = connectedUser()
-        val token = login(owner)
+        val actorId = actorId(owner)
         val id = item(owner)
         val photoId = firstPhoto(id)
         onDownload = { photoService.delete(owner.id!!, id, photoId) }
-        assertEmpty(request("POST", token = token, body = body()), 409)
+        assertEmpty(request("POST", actorId = actorId, body = body()), 409)
         assertThat(providerCalls).hasValue(0)
         assertNoOutfits(owner)
     }
@@ -272,28 +270,28 @@ class AiOutfitIntegrationTests {
     @Test
     fun `deletion of an unselected candidate during OpenAI conflicts and ordinary edits remain allowed`() {
         val owner = connectedUser()
-        val token = login(owner)
+        val actorId = actorId(owner)
         val chosen = item(owner)
         val unused = item(owner)
         select = {
             items.delete(owner.id!!, unused, 1)
             listOf(chosen)
         }
-        assertEmpty(request("POST", token = token, body = body()), 409)
+        assertEmpty(request("POST", actorId = actorId, body = body()), 409)
         assertNoOutfits(owner)
         select = {
             items.update(owner.id!!, chosen, UpdateWardrobeItemRequest(1, "Edited", 1, "Black", "Wool"))
             listOf(chosen)
         }
-        assertThat(request("POST", token = token, body = body()).statusCode()).isEqualTo(201)
+        assertThat(request("POST", actorId = actorId, body = body()).statusCode()).isEqualTo(201)
     }
 
     @Test
     fun `account revocation during downloads or inference prevents persistence`() {
         for (duringDownload in listOf(true, false)) {
-            jdbc.execute("TRUNCATE app_user CASCADE")
+            resetMutableData()
             val owner = connectedUser()
-            val token = login(owner)
+            val actorId = actorId(owner)
             item(owner)
             if (duringDownload) onDownload = {
                 users.changeRoleAndStatus(owner.id!!, owner.version, UserRole.STYLIST, UserStatus.ACTIVE)
@@ -304,7 +302,7 @@ class AiOutfitIntegrationTests {
                     it.map { image -> image.item.id }
                 }
             }
-            assertThat(request("POST", token = token, body = body()).statusCode()).isEqualTo(403)
+            assertThat(request("POST", actorId = actorId, body = body()).statusCode()).isEqualTo(403)
             assertNoOutfits(owner)
         }
         assertThat(providerCalls).hasValue(1)
@@ -322,7 +320,7 @@ class AiOutfitIntegrationTests {
 
     private fun finalLockWait(account: Boolean) {
         val owner = connectedUser()
-        val token = login(owner)
+        val actorId = actorId(owner)
         val item = item(owner)
         val locked = CountDownLatch(1)
         val release = CountDownLatch(1)
@@ -334,7 +332,7 @@ class AiOutfitIntegrationTests {
             listOf(item)
         }
         Executors.newFixedThreadPool(2).use { executor ->
-            val creation = executor.submit(Callable { request("POST", token = token, body = body()) })
+            val creation = executor.submit(Callable { request("POST", actorId = actorId, body = body()) })
             assertThat(providerEntered.await(10, TimeUnit.SECONDS)).isTrue()
             val blocker = executor.submit(Callable {
                 TransactionTemplate(transactionManager).executeWithoutResult {
@@ -363,7 +361,7 @@ class AiOutfitIntegrationTests {
     @Test
     fun `shared item lock holds photo deletion behind final metadata check until creation commits`() {
         val owner = connectedUser()
-        val token = login(owner)
+        val actorId = actorId(owner)
         val item = item(owner)
         val photo = firstPhoto(item)
         val checked = CountDownLatch(1)
@@ -380,7 +378,7 @@ class AiOutfitIntegrationTests {
             value
         }.`when`(photos).findByIdAndItemIdAndItemOwnerId(photo, item, owner.id!!)
         Executors.newFixedThreadPool(2).use { executor ->
-            val creation = executor.submit(Callable { request("POST", token = token, body = body()) })
+            val creation = executor.submit(Callable { request("POST", actorId = actorId, body = body()) })
             assertThat(checked.await(10, TimeUnit.SECONDS)).isTrue()
             val deletion = executor.submit(Callable { photoService.delete(owner.id!!, item, photo) })
             try { awaitBlockedBy(creatorPid.get()) } finally { release.countDown() }
@@ -392,23 +390,23 @@ class AiOutfitIntegrationTests {
     }
 
     @Test
-    fun `failure after outfit flush rolls back outfit weather and composition together`() {
+    fun `failure after composition write rolls back outfit weather and composition together`() {
         val owner = connectedUser()
-        val token = login(owner)
+        val actorId = actorId(owner)
         item(owner)
-        var flushedId = 0L
+        var writtenId = 0L
         doAnswer { call ->
-            mockingDetails(outfits).mockCreationSettings.defaultAnswer.answer(call)
-            flushedId = jdbc.queryForObject("SELECT id FROM outfit WHERE owner_id = ?", Long::class.java, owner.id)!!
-            assertThat(count("outfit_weather", "outfit_id", flushedId)).isEqualTo(1)
-            assertThat(count("outfit_item", "outfit_id", flushedId)).isEqualTo(1)
-            throw DataIntegrityViolationException("synthetic failure after flush")
-        }.`when`(outfits).flush()
-        assertEmpty(request("POST", token = token, body = body()), 409)
-        assertThat(flushedId).isPositive()
+            call.callRealMethod()
+            writtenId = jdbc.queryForObject("SELECT id FROM outfit WHERE owner_id = ?", Long::class.java, owner.id)!!
+            assertThat(count("outfit_weather", "outfit_id", writtenId)).isEqualTo(1)
+            assertThat(count("outfit_item", "outfit_id", writtenId)).isEqualTo(1)
+            throw DataIntegrityViolationException("synthetic failure after composition write")
+        }.`when`(composition).saveAll(anyList())
+        assertEmpty(request("POST", actorId = actorId, body = body()), 409)
+        assertThat(writtenId).isPositive()
         assertNoOutfits(owner)
-        assertThat(count("outfit_weather", "outfit_id", flushedId)).isZero()
-        assertThat(count("outfit_item", "outfit_id", flushedId)).isZero()
+        assertThat(count("outfit_weather", "outfit_id", writtenId)).isZero()
+        assertThat(count("outfit_item", "outfit_id", writtenId)).isZero()
     }
 
     private fun awaitBlockedBy(pid: Int) {
@@ -421,13 +419,13 @@ class AiOutfitIntegrationTests {
         throw AssertionError("Expected a database lock waiter blocked by $pid")
     }
 
-    private fun connectedUser(): AppUser = users.create("user", passwords.encode("ai-test-password")!!, UserRole.USER)
+    private fun connectedUser(): AppUser = jdbc.insertUser("user", "!", UserRole.USER)
 
     private fun user(role: UserRole = UserRole.USER): AppUser =
-        users.create(UUID.randomUUID().toString(), passwords.encode("ai-test-password")!!, role)
+        jdbc.insertUser(UUID.randomUUID().toString(), "!", role)
 
     private fun item(owner: AppUser, withPhoto: Boolean = true): Long {
-        val id = items.create(owner.id!!, CreateWardrobeItemRequest("Shirt", 1, "White", "Cotton")).id
+        val id = jdbc.insertItem(owner.id!!, CreateWardrobeItemRequest("Shirt", 1, "White", "Cotton")).id
         if (withPhoto) photo(id, "photo-$id")
         return id
     }
@@ -440,14 +438,13 @@ class AiOutfitIntegrationTests {
     private fun firstPhoto(item: Long): Long = jdbc.queryForObject(
         "SELECT id FROM wardrobe_item_photo WHERE wardrobe_item_id = ? ORDER BY id LIMIT 1", Long::class.java, item)!!
 
-    private fun login(user: AppUser): String = JsonPath.read(request("POST", "/api/auth/login", body =
-        """{"login":"${user.login}","password":"ai-test-password"}""").body(), "$.accessToken")
+    private fun actorId(user: AppUser): String = requireNotNull(user.id).toString()
 
     private fun body(candidates: String? = null): String = """{"name":"Daily","weather":{"temperatureC":$TEMPERATURE,"precipitationTypeId":1,"windSpeedMps":$WIND}${candidates?.let { ",\"candidateItemIds\":$it" } ?: ""}}"""
 
-    private fun request(method: String, path: String = "/api/outfits/ai", token: String? = null, body: String? = null): HttpResponse<String> {
+    private fun request(method: String, path: String = "/api/outfits/ai", actorId: String? = null, body: String? = null): HttpResponse<String> {
         val builder = HttpRequest.newBuilder(URI("http://localhost:$port$path"))
-        if (token != null) builder.header("Authorization", "Bearer $token")
+        if (actorId != null) builder.header("X-User-Id", "$actorId")
         if (body != null) builder.header("Content-Type", "application/json")
         return http.send(builder.method(method, body?.let(HttpRequest.BodyPublishers::ofString) ?: HttpRequest.BodyPublishers.noBody()).build(),
             HttpResponse.BodyHandlers.ofString())
@@ -466,12 +463,5 @@ class AiOutfitIntegrationTests {
     companion object {
         private const val TEMPERATURE = "-123.123456789123456789"
         private const val WIND = "1.123456789123456789"
-        @Container @JvmStatic val postgres = PostgreSQLContainer("postgres:18-alpine")
-        @JvmStatic @DynamicPropertySource
-        fun postgresProperties(registry: DynamicPropertyRegistry) {
-            registry.add("spring.datasource.url", postgres::getJdbcUrl)
-            registry.add("spring.datasource.username", postgres::getUsername)
-            registry.add("spring.datasource.password", postgres::getPassword)
-        }
     }
 }

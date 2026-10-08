@@ -1,5 +1,7 @@
 package ru.itmo.clothesadvisor.service.wardrobe
 
+import ru.itmo.clothesadvisor.config.PostgresIntegrationTest
+import ru.itmo.clothesadvisor.config.insertUser
 import java.util.UUID
 import java.util.concurrent.Callable
 import java.util.concurrent.CountDownLatch
@@ -17,13 +19,8 @@ import org.springframework.context.annotation.Import
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.dao.OptimisticLockingFailureException
 import org.springframework.jdbc.core.JdbcTemplate
-import org.springframework.test.context.DynamicPropertyRegistry
-import org.springframework.test.context.DynamicPropertySource
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionTemplate
-import org.testcontainers.junit.jupiter.Container
-import org.testcontainers.junit.jupiter.Testcontainers
-import org.testcontainers.postgresql.PostgreSQLContainer
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
 import ru.itmo.clothesadvisor.dto.wardrobe.CreateWardrobeItemRequest
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemResponse
@@ -32,10 +29,9 @@ import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.service.user.AppUserService
 
-@Testcontainers
 @SpringBootTest
 @Import(TestTimeConfiguration::class)
-class WardrobeItemPersistenceTests {
+class WardrobeItemPersistenceTests : PostgresIntegrationTest() {
     @Autowired
     private lateinit var items: WardrobeItemService
 
@@ -59,7 +55,7 @@ class WardrobeItemPersistenceTests {
             TransactionTemplate(transactionManager).executeWithoutResult {
                 if (delete) items.delete(owner, original.id, 1)
                 else items.update(owner, original.id, update("Changed"))
-                repository.flush()
+
                 assertThat(history(original.id)).hasSize(1)
                 assertThat(jdbc.queryForObject("SELECT count(*) FROM wardrobe_item WHERE id = ?", Long::class.java, original.id))
                     .isEqualTo(if (delete) 0L else 1L)
@@ -72,7 +68,7 @@ class WardrobeItemPersistenceTests {
 
     @ParameterizedTest
     @ValueSource(booleans = [false, true])
-    fun `history conflict rolls back flushed mutation and preserves the existing snapshot`(delete: Boolean) {
+    fun `history conflict rolls back written mutation and preserves the existing snapshot`(delete: Boolean) {
         val (owner, original) = createWardrobeItem()
         jdbc.update("""
             INSERT INTO wardrobe_item_history (wardrobe_item_id, version, name, category_id, color, material, modified_at, archived_at)
@@ -111,7 +107,8 @@ class WardrobeItemPersistenceTests {
             val winner = attempts.single { it.second == null }.first
             assertThat(attempts.single { it.second != null }.second)
                 .isInstanceOf(OptimisticLockingFailureException::class.java)
-            assertThat(items.get(owner, original.id)).isEqualTo(original.copy(name = winner, version = 2))
+            val saved = items.get(owner, original.id)
+            assertThat(saved).isEqualTo(original.copy(name = winner, version = 2, modifiedAt = saved.modifiedAt))
             assertOriginalHistory(original)
         } finally {
             executor.shutdownNow()
@@ -120,7 +117,7 @@ class WardrobeItemPersistenceTests {
     }
 
     @Test
-    fun `stale managed delete after committed update fails before writing duplicate history`() {
+    fun `stale delete after committed update fails before writing duplicate history`() {
         val (owner, original) = createWardrobeItem()
         val loaded = CyclicBarrier(2)
         val committed = CountDownLatch(1)
@@ -152,7 +149,8 @@ class WardrobeItemPersistenceTests {
             })
             updater.get(30, TimeUnit.SECONDS)
             assertThat(deleter.get(30, TimeUnit.SECONDS)).isInstanceOf(OptimisticLockingFailureException::class.java)
-            assertThat(items.get(owner, original.id)).isEqualTo(original.copy(name = "Winner", version = 2))
+            val saved = items.get(owner, original.id)
+            assertThat(saved).isEqualTo(original.copy(name = "Winner", version = 2, modifiedAt = saved.modifiedAt))
             assertOriginalHistory(original)
         } finally {
             executor.shutdownNow()
@@ -161,7 +159,7 @@ class WardrobeItemPersistenceTests {
     }
 
     private fun createWardrobeItem(): Pair<Long, WardrobeItemResponse> {
-        val owner = users.create(UUID.randomUUID().toString(), "test-hash", UserRole.USER).id!!
+        val owner = jdbc.insertUser(UUID.randomUUID().toString(), "test-hash", UserRole.USER).id!!
         return owner to items.create(owner, CreateWardrobeItemRequest("Shirt", 1, "White", "Cotton"))
     }
 
@@ -171,7 +169,8 @@ class WardrobeItemPersistenceTests {
         assertThat(history(original.id)).containsExactly(mapOf(
             "version" to 1L, "name" to original.name, "category_id" to original.categoryId,
             "color" to original.color, "material" to original.material,
-            "modified_at" to original.modifiedAt, "archived_at" to TestTimeConfiguration.FIXED_TIME,
+            "modified_at" to original.modifiedAt,
+            "archived_at" to jdbc.queryForObject("SELECT modified_at FROM wardrobe_item WHERE id = ?", java.sql.Timestamp::class.java, original.id)!!.toInstant(),
         ))
     }
 
@@ -185,17 +184,4 @@ class WardrobeItemPersistenceTests {
         ) }, id,
     )
 
-    companion object {
-        @Container
-        @JvmStatic
-        val postgres = PostgreSQLContainer("postgres:18-alpine")
-
-        @JvmStatic
-        @DynamicPropertySource
-        fun postgresProperties(registry: DynamicPropertyRegistry) {
-            registry.add("spring.datasource.url", postgres::getJdbcUrl)
-            registry.add("spring.datasource.username", postgres::getUsername)
-            registry.add("spring.datasource.password", postgres::getPassword)
-        }
-    }
 }

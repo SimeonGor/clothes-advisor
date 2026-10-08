@@ -2,6 +2,7 @@ package ru.itmo.clothesadvisor.client.ai
 
 import java.io.InputStream
 import java.io.InputStreamReader
+import java.io.Reader
 import java.nio.charset.CodingErrorAction
 import tools.jackson.core.JacksonException
 import tools.jackson.databind.DeserializationFeature
@@ -15,63 +16,34 @@ internal class OpenAiResponseStream(mapper: JsonMapper) {
     fun read(stream: InputStream): String {
         val input = InputStreamReader(stream, Charsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT)
             .onUnmappableCharacter(CodingErrorAction.REPORT)).buffered()
-        var eventName = ""
-        val data = StringBuilder()
         val deltas = StringBuilder()
-        var group: Triple<String, Long, Long>? = null
-
-        fun dispatch(): String? {
-            if (data.isEmpty()) return null
-            val event = json(data.toString())
-            val type = event.path("type").takeIf { it.isString }?.asString() ?: invalid()
-            if (eventName.isNotEmpty() && eventName != type) invalid()
-
-            when {
-                type == "error" || type == "response.failed" -> throw AiOutfitException(503)
-                type == "response.incomplete" -> invalid()
-                type.startsWith("response.refusal.") -> throw AiOutfitException(422)
-                type == "response.output_text.delta" -> {
-                    val item = event.path("item_id")
-                    val output = event.path("output_index")
-                    val content = event.path("content_index")
-
-                    if (!item.isString || item.asString().isBlank() ||
-                        !output.isIntegralNumber || !output.canConvertToLong() || output.longValue() < 0 ||
-                        !content.isIntegralNumber || !content.canConvertToLong() || content.longValue() < 0) invalid()
-
-                    val next = Triple(item.asString(), output.longValue(), content.longValue())
-                    if (group != null && group != next) invalid()
-                    group = next
-                    val delta = event.path("delta")
-                    if (!delta.isString || delta.asString().length > LIMIT - deltas.length) invalid()
-                    deltas.append(delta.asString())
-                }
-                type == "response.completed" -> {
-                    val response = event.path("response")
-                    if (!response.path("error").isNull && !response.path("error").isMissingNode ||
-                        response.path("status").asString() == "failed") throw AiOutfitException(503)
-                    if (response.path("status").asString() != "completed") invalid()
-                    return finalText(response) ?: deltas.toString().takeIf { it.isNotBlank() } ?: invalid()
-                }
-            }
-            return null
-        }
+        var textPart: TextPart? = null
 
         while (true) {
-            val line = StringBuilder()
-            while (true) {
-                val character = input.read()
-                if (character == -1) invalid() // EOF cannot dispatch an unterminated event.
-                if (character == '\n'.code) break
-                line.append(character.toChar())
-                if (line.length > LIMIT) invalid()
+            val event = readEvent(input)
+            val type = event.path("type").asString()
+            when {
+                type == "error" || type == "response.failed" -> throw AiOutfitException(AiOutfitFailure.UNAVAILABLE)
+                type == "response.incomplete" -> invalid()
+                type.startsWith("response.refusal.") -> throw AiOutfitException(AiOutfitFailure.NO_OUTFIT)
+                type == "response.output_text.delta" -> textPart = appendDelta(event, textPart, deltas)
+                type == "response.completed" -> return completedText(event.path("response"), deltas)
             }
+        }
+    }
 
-            val value = line.toString().removeSuffix("\r")
-
+    private fun readEvent(input: Reader): JsonNode {
+        var eventName = ""
+        val data = StringBuilder()
+        while (true) {
+            val value = readLine(input)
             if (value.isEmpty()) {
-                dispatch()?.let { return it }
-                data.setLength(0)
+                if (data.isNotEmpty()) {
+                    val event = json(data.toString())
+                    val type = event.path("type").takeIf { it.isString }?.asString() ?: invalid()
+                    if (eventName.isNotEmpty() && eventName != type) invalid()
+                    return event
+                }
                 eventName = ""
             } else if (!value.startsWith(':')) {
                 val colon = value.indexOf(':')
@@ -89,10 +61,47 @@ internal class OpenAiResponseStream(mapper: JsonMapper) {
         }
     }
 
+    private fun readLine(input: Reader): String {
+        val line = StringBuilder()
+        while (true) {
+            val character = input.read()
+            if (character == -1) invalid() // EOF cannot dispatch an unterminated event.
+            if (character == '\n'.code) return line.toString().removeSuffix("\r")
+            line.append(character.toChar())
+            if (line.length > LIMIT) invalid()
+        }
+    }
+
+    private fun appendDelta(event: JsonNode, expectedPart: TextPart?, deltas: StringBuilder): TextPart {
+        val item = event.path("item_id")
+        val output = event.path("output_index")
+        val content = event.path("content_index")
+        if (!item.isString || item.asString().isBlank()) invalid()
+        if (!output.isIntegralNumber || !output.canConvertToLong() || output.longValue() < 0) invalid()
+        if (!content.isIntegralNumber || !content.canConvertToLong() || content.longValue() < 0) invalid()
+
+        val part = TextPart(item.asString(), output.longValue(), content.longValue())
+        if (expectedPart != null && expectedPart != part) invalid()
+        val delta = event.path("delta")
+        if (!delta.isString || delta.asString().length > LIMIT - deltas.length) invalid()
+        deltas.append(delta.asString())
+        return part
+    }
+
+    private fun completedText(response: JsonNode, deltas: StringBuilder): String {
+        val error = response.path("error")
+        val status = response.path("status").asString()
+        if ((!error.isNull && !error.isMissingNode) || status == "failed") {
+            throw AiOutfitException(AiOutfitFailure.UNAVAILABLE)
+        }
+        if (status != "completed") invalid()
+        return finalText(response) ?: deltas.toString().takeIf { it.isNotBlank() } ?: invalid()
+    }
+
     private fun finalText(response: JsonNode): String? {
         val output = response.path("output")
         if (!output.isArray) invalid()
-        if (output.any { it.path("type").asString() == "refusal" }) throw AiOutfitException(422)
+        if (output.any { it.path("type").asString() == "refusal" }) throw AiOutfitException(AiOutfitFailure.NO_OUTFIT)
         val messages = output.filter { it.path("type").asString() == "message" }
         if (messages.isEmpty() && output.isEmpty) return null
         if (messages.size != 1) invalid()
@@ -100,7 +109,7 @@ internal class OpenAiResponseStream(mapper: JsonMapper) {
         if (message.path("status").asString() != "completed" || message.path("role").asString() != "assistant") invalid()
         val content = message.path("content")
         if (!content.isArray) invalid()
-        if (content.any { it.path("type").asString() == "refusal" }) throw AiOutfitException(422)
+        if (content.any { it.path("type").asString() == "refusal" }) throw AiOutfitException(AiOutfitFailure.NO_OUTFIT)
         if (content.size() != 1 || content[0].path("type").asString() != "output_text" ||
             !content[0].path("text").isString) invalid()
         return content[0].path("text").asString().takeIf { it.isNotBlank() }
@@ -110,7 +119,9 @@ internal class OpenAiResponseStream(mapper: JsonMapper) {
         reader.readTree(value)?.takeIf { it.isObject } ?: invalid()
     } catch (_: JacksonException) { invalid() }
 
-    private fun invalid(): Nothing = throw AiOutfitException(502)
+    private fun invalid(): Nothing = throw AiOutfitException(AiOutfitFailure.INVALID_RESPONSE)
+
+    private data class TextPart(val itemId: String, val outputIndex: Long, val contentIndex: Long)
 
     private companion object { const val LIMIT = 1_048_576 }
 }

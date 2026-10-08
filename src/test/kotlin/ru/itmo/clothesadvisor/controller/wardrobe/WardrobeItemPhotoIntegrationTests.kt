@@ -1,5 +1,7 @@
 package ru.itmo.clothesadvisor.controller.wardrobe
 
+import ru.itmo.clothesadvisor.config.PostgresIntegrationTest
+import ru.itmo.clothesadvisor.config.insertUser
 import com.jayway.jsonpath.JsonPath
 import java.awt.image.BufferedImage
 import java.io.ByteArrayOutputStream
@@ -24,9 +26,6 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.context.annotation.Import
 import org.springframework.jdbc.core.JdbcTemplate
-import org.springframework.security.crypto.password.PasswordEncoder
-import org.springframework.test.context.DynamicPropertyRegistry
-import org.springframework.test.context.DynamicPropertySource
 import org.springframework.test.context.bean.override.mockito.MockitoBean
 import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.mockito.ArgumentMatchers.anyLong
@@ -35,9 +34,6 @@ import org.mockito.ArgumentMatchers.any as anyArgument
 import org.mockito.Mockito.clearInvocations
 import org.mockito.Mockito.doAnswer
 import org.mockito.Mockito.verifyNoInteractions
-import org.testcontainers.junit.jupiter.Container
-import org.testcontainers.junit.jupiter.Testcontainers
-import org.testcontainers.postgresql.PostgreSQLContainer
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
 import ru.itmo.clothesadvisor.model.user.AppUser
 import ru.itmo.clothesadvisor.model.user.UserRole
@@ -46,13 +42,11 @@ import ru.itmo.clothesadvisor.service.user.AppUserService
 import ru.itmo.clothesadvisor.storage.wardrobe.PhotoStorageUnavailableException
 import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
 
-@Testcontainers
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(TestTimeConfiguration::class)
-class WardrobeItemPhotoIntegrationTests {
+class WardrobeItemPhotoIntegrationTests : PostgresIntegrationTest() {
     @LocalServerPort private var port: Int = 0
     @Autowired private lateinit var users: AppUserService
-    @Autowired private lateinit var passwords: PasswordEncoder
     @Autowired private lateinit var jdbc: JdbcTemplate
     @MockitoBean private lateinit var storage: S3PhotoStorage
     private val client = HttpClient.newHttpClient()
@@ -77,63 +71,63 @@ class WardrobeItemPhotoIntegrationTests {
 
     @Test
     fun `multipart name accepts 300 and rejects 301 before uploading photos`() {
-        val token = login(user())
-        val created = multipart(token, item = ITEM.replace("Shirt", "x".repeat(300)))
+        val actorId = actorId(user())
+        val created = multipart(actorId, item = ITEM.replace("Shirt", "x".repeat(300)))
         assertThat(created.statusCode()).isEqualTo(201)
         assertThat(objectBody(created)["name"]).isEqualTo("x".repeat(300))
-        val rejected = multipart(token, files = listOf(png), item = ITEM.replace("Shirt", "x".repeat(301)))
+        val rejected = multipart(actorId, files = listOf(png), item = ITEM.replace("Shirt", "x".repeat(301)))
         assertThat(rejected.statusCode()).isEqualTo(400)
         verifyNoInteractions(storage)
     }
 
     @Test
     fun `multipart creation append content and deletion preserve item version and history`() {
-        val token = login(user())
-        val created = multipart(token, files = listOf(png, jpeg), item = ITEM)
+        val actorId = actorId(user())
+        val created = multipart(actorId, files = listOf(png, jpeg), item = ITEM)
         assertThat(created.statusCode()).isEqualTo(201)
         val item = objectBody(created)
         val id = number(item, "id")
         assertThat(created.headers().firstValue("Location")).hasValue("$ITEMS/$id")
-        val initial = rows(request("GET", "$ITEMS/$id/photos", token))
+        val initial = rows(request("GET", "$ITEMS/$id/photos", actorId))
         assertThat(initial.map { it["contentType"] }).containsExactly("image/png", "image/jpeg")
         assertThat(initial.map { number(it, "id") }).isSorted()
         initial.forEachIndexed { index, photo ->
             assertThat(photo.keys).containsExactlyInAnyOrder("id", "itemId", "contentType", "sizeBytes", "createdAt")
             assertThat(number(photo, "itemId")).isEqualTo(id)
             assertThat(number(photo, "sizeBytes")).isEqualTo(listOf(png, jpeg)[index].size.toLong())
-            assertThat(photo["createdAt"]).isEqualTo(TestTimeConfiguration.FIXED_TIME.toString())
-            val content = request("GET", "$ITEMS/$id/photos/${photo["id"]}/content", token)
+            assertThat(photo["createdAt"]).isEqualTo(jdbc.queryForObject("SELECT created_at FROM wardrobe_item_photo WHERE id = ?", java.sql.Timestamp::class.java, number(photo, "id"))!!.toInstant().toString())
+            val content = request("GET", "$ITEMS/$id/photos/${photo["id"]}/content", actorId)
             assertThat(content.statusCode()).isEqualTo(200)
             assertThat(content.body()).isEqualTo(listOf(png, jpeg)[index])
             assertThat(content.headers().firstValue("Content-Type")).hasValue(photo["contentType"].toString())
             assertThat(content.headers().firstValue("Cache-Control")).hasValue("no-store")
             assertThat(content.headers().firstValue("X-Content-Type-Options")).hasValue("nosniff")
         }
-        val appended = multipart(token, "$ITEMS/$id/photos", listOf(png))
+        val appended = multipart(actorId, "$ITEMS/$id/photos", listOf(png))
         assertThat(appended.statusCode()).isEqualTo(201)
         assertThat(rows(appended)).hasSize(1)
         val deletedPath = "$ITEMS/$id/photos/${initial.first()["id"]}"
-        assertThat(request("DELETE", deletedPath, token).statusCode()).isEqualTo(204)
-        assertThat(request("GET", "$deletedPath/content", token).statusCode()).isEqualTo(404)
-        assertThat(request("DELETE", deletedPath, token).statusCode()).isEqualTo(404)
-        assertThat(objectBody(request("GET", "$ITEMS/$id", token))).isEqualTo(item)
+        assertThat(request("DELETE", deletedPath, actorId).statusCode()).isEqualTo(204)
+        assertThat(request("GET", "$deletedPath/content", actorId).statusCode()).isEqualTo(404)
+        assertThat(request("DELETE", deletedPath, actorId).statusCode()).isEqualTo(404)
+        assertThat(objectBody(request("GET", "$ITEMS/$id", actorId))).isEqualTo(item)
         assertThat(count("wardrobe_item_history", "wardrobe_item_id", id)).isZero()
-        assertThat(request("DELETE", "$ITEMS/$id?version=1", token).statusCode()).isEqualTo(204)
+        assertThat(request("DELETE", "$ITEMS/$id?version=1", actorId).statusCode()).isEqualTo(204)
         assertThat(count("wardrobe_item_photo", "wardrobe_item_id", id)).isZero()
         assertThat(count("wardrobe_item_history", "wardrobe_item_id", id)).isEqualTo(1)
         assertThat(objects).hasSize(3)
-        assertThat(request("GET", "$ITEMS/$id/photos/${initial.last()["id"]}/content", token).statusCode()).isEqualTo(404)
-        assertThat(multipart(token, item = ITEM).statusCode()).isEqualTo(201)
-        assertThat(request("POST", ITEMS, token, ITEM).statusCode()).isEqualTo(201)
+        assertThat(request("GET", "$ITEMS/$id/photos/${initial.last()["id"]}/content", actorId).statusCode()).isEqualTo(404)
+        assertThat(multipart(actorId, item = ITEM).statusCode()).isEqualTo(201)
+        assertThat(request("POST", ITEMS, actorId, ITEM).statusCode()).isEqualTo(201)
     }
 
     @Test
-    fun `every photo route requires an active USER and hides foreign or absent IDs`() {
+    fun `every photo route requires an active actor and hides foreign or absent IDs`() {
         val owner = user()
-        val token = login(owner)
-        val id = create(token)
-        val photoId = number(rows(multipart(token, "$ITEMS/$id/photos", listOf(png))).single(), "id")
-        val stranger = login(user())
+        val actorId = actorId(owner)
+        val id = create(actorId)
+        val photoId = number(rows(multipart(actorId, "$ITEMS/$id/photos", listOf(png))).single(), "id")
+        val stranger = actorId(user())
         for (target in listOf(id, Long.MAX_VALUE)) {
             val path = "$ITEMS/$target/photos"
             assertThat(multipart(stranger, path, listOf(png)).statusCode()).isEqualTo(404)
@@ -141,66 +135,64 @@ class WardrobeItemPhotoIntegrationTests {
             assertThat(request("GET", "$path/$photoId/content", stranger).statusCode()).isEqualTo(404)
             assertThat(request("DELETE", "$path/$photoId", stranger).statusCode()).isEqualTo(404)
         }
-        val second = create(token)
+        val second = create(actorId)
         for (target in listOf(second, id)) {
             val missingPhoto = if (target == second) photoId else Long.MAX_VALUE
-            assertThat(request("GET", "$ITEMS/$target/photos/$missingPhoto/content", token).statusCode()).isEqualTo(404)
-            assertThat(request("DELETE", "$ITEMS/$target/photos/$missingPhoto", token).statusCode()).isEqualTo(404)
+            assertThat(request("GET", "$ITEMS/$target/photos/$missingPhoto/content", actorId).statusCode()).isEqualTo(404)
+            assertThat(request("DELETE", "$ITEMS/$target/photos/$missingPhoto", actorId).statusCode()).isEqualTo(404)
         }
-        val stylist = login(user(UserRole.STYLIST))
-        val admin = login(user(UserRole.ADMIN))
         users.changeRoleAndStatus(owner.id!!, owner.version, owner.role, UserStatus.BLOCKED)
-        for ((deniedToken, status) in listOf(null to 401, "invalid" to 401, token to 401, stylist to 403, admin to 403)) {
+        for ((deniedActorId, status) in listOf(null to 400, "invalid" to 400, actorId to 403)) {
             val path = "$ITEMS/$id/photos"
-            assertThat(multipart(deniedToken, path, listOf(png)).statusCode()).isEqualTo(status)
-            assertThat(multipart(deniedToken, files = listOf(png), item = ITEM).statusCode()).isEqualTo(status)
-            assertThat(request("GET", path, deniedToken).statusCode()).isEqualTo(status)
-            assertThat(request("GET", "$path/$photoId/content", deniedToken).statusCode()).isEqualTo(status)
-            assertThat(request("DELETE", "$path/$photoId", deniedToken).statusCode()).isEqualTo(status)
+            assertThat(multipart(deniedActorId, path, listOf(png)).statusCode()).isEqualTo(status)
+            assertThat(multipart(deniedActorId, files = listOf(png), item = ITEM).statusCode()).isEqualTo(status)
+            assertThat(request("GET", path, deniedActorId).statusCode()).isEqualTo(status)
+            assertThat(request("GET", "$path/$photoId/content", deniedActorId).statusCode()).isEqualTo(status)
+            assertThat(request("DELETE", "$path/$photoId", deniedActorId).statusCode()).isEqualTo(status)
         }
         assertThat(objects).hasSize(1)
     }
 
     @Test
     fun `all files are validated before storage and size and count boundaries are enforced`() {
-        val token = login(user())
-        val id = create(token)
+        val actorId = actorId(user())
+        val id = create(actorId)
         val path = "$ITEMS/$id/photos"
         for ((bytes, status) in listOf(byteArrayOf() to 400, "broken".toByteArray() to 400,
             png.copyOf(12) to 400, image("gif") to 415, png.copyOf(10_000_001) to 413)) {
-            assertThat(multipart(token, path, listOf(png, bytes)).statusCode()).isEqualTo(status)
+            assertThat(multipart(actorId, path, listOf(png, bytes)).statusCode()).isEqualTo(status)
         }
-        assertThat(multipart(token, path, List(6) { png }).statusCode()).isEqualTo(400)
-        assertThat(multipart(token, path).statusCode()).isEqualTo(400)
-        assertThat(multipart(token, path, List(6) { png.copyOf(9_000_000) }).statusCode()).isEqualTo(413)
-        assertThat(multipart(token, files = listOf(png), item = "{}").statusCode()).isEqualTo(400)
+        assertThat(multipart(actorId, path, List(6) { png }).statusCode()).isEqualTo(400)
+        assertThat(multipart(actorId, path).statusCode()).isEqualTo(400)
+        assertThat(multipart(actorId, path, List(6) { png.copyOf(9_000_000) }).statusCode()).isEqualTo(413)
+        assertThat(multipart(actorId, files = listOf(png), item = "{}").statusCode()).isEqualTo(400)
         verifyNoInteractions(storage)
-        assertThat(multipart(token, path, listOf(png.copyOf(10_000_000))).statusCode()).isEqualTo(201)
-        assertThat(multipart(token, path, List(4) { jpeg }).statusCode()).isEqualTo(201)
-        assertThat(rows(request("GET", path, token))).hasSize(5)
-        assertThat(multipart(token, path, listOf(png)).statusCode()).isEqualTo(409)
-        assertThat(rows(request("GET", path, token))).hasSize(5)
+        assertThat(multipart(actorId, path, listOf(png.copyOf(10_000_000))).statusCode()).isEqualTo(201)
+        assertThat(multipart(actorId, path, List(4) { jpeg }).statusCode()).isEqualTo(201)
+        assertThat(rows(request("GET", path, actorId))).hasSize(5)
+        assertThat(multipart(actorId, path, listOf(png)).statusCode()).isEqualTo(409)
+        assertThat(rows(request("GET", path, actorId))).hasSize(5)
     }
 
     @Test
     fun `multipart creation with unknown category avoids storage and database writes`() {
         val owner = user()
-        val token = login(owner)
+        val actorId = actorId(owner)
         val item = """{"name":"Shirt","categoryId":${Long.MAX_VALUE},"color":"White","material":"Cotton"}"""
-        assertThat(multipart(token, files = listOf(png), item = item).statusCode()).isEqualTo(400)
+        assertThat(multipart(actorId, files = listOf(png), item = item).statusCode()).isEqualTo(400)
         verifyNoInteractions(storage)
         assertThat(count("wardrobe_item", "owner_id", owner.id!!)).isZero()
     }
 
     @Test
     fun `full item rejects repeated batches without storage interactions`() {
-        val token = login(user())
-        val id = create(token)
+        val actorId = actorId(user())
+        val id = create(actorId)
         val path = "$ITEMS/$id/photos"
-        assertThat(multipart(token, path, List(5) { png }).statusCode()).isEqualTo(201)
+        assertThat(multipart(actorId, path, List(5) { png }).statusCode()).isEqualTo(201)
         clearInvocations(storage)
         repeat(2) {
-            assertThat(multipart(token, path, List(5) { png }).statusCode()).isEqualTo(409)
+            assertThat(multipart(actorId, path, List(5) { png }).statusCode()).isEqualTo(409)
         }
         verifyNoInteractions(storage)
         assertThat(count("wardrobe_item_photo", "wardrobe_item_id", id)).isEqualTo(5)
@@ -209,16 +201,16 @@ class WardrobeItemPhotoIntegrationTests {
 
     @Test
     fun `batch exceeding remaining capacity avoids storage while exact fit succeeds`() {
-        val token = login(user())
-        val id = create(token)
+        val actorId = actorId(user())
+        val id = create(actorId)
         val path = "$ITEMS/$id/photos"
-        assertThat(multipart(token, path, List(3) { png }).statusCode()).isEqualTo(201)
+        assertThat(multipart(actorId, path, List(3) { png }).statusCode()).isEqualTo(201)
         clearInvocations(storage)
-        assertThat(multipart(token, path, List(3) { png }).statusCode()).isEqualTo(409)
+        assertThat(multipart(actorId, path, List(3) { png }).statusCode()).isEqualTo(409)
         verifyNoInteractions(storage)
         assertThat(count("wardrobe_item_photo", "wardrobe_item_id", id)).isEqualTo(3)
         assertThat(objects).hasSize(3)
-        assertThat(multipart(token, path, List(2) { png }).statusCode()).isEqualTo(201)
+        assertThat(multipart(actorId, path, List(2) { png }).statusCode()).isEqualTo(201)
         assertThat(count("wardrobe_item_photo", "wardrobe_item_id", id)).isEqualTo(5)
         assertThat(objects).hasSize(5)
     }
@@ -226,24 +218,24 @@ class WardrobeItemPhotoIntegrationTests {
     @Test
     fun `storage failure leaves no partial item or metadata and download failure is sanitized`() {
         val owner = user()
-        val token = login(owner)
+        val actorId = actorId(owner)
         doAnswer { call ->
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
             if (objects.isNotEmpty()) throw PhotoStorageUnavailableException()
             objects[call.getArgument(0)] = call.getArgument(2)
             null
         }.`when`(storage).put(anyString(), anyString(), anyArgument(ByteArray::class.java) ?: byteArrayOf())
-        val failed = multipart(token, files = listOf(png, jpeg), item = ITEM)
+        val failed = multipart(actorId, files = listOf(png, jpeg), item = ITEM)
         assertThat(failed.statusCode()).isEqualTo(503)
         assertThat(failed.body()).isEmpty()
         assertThat(count("wardrobe_item", "owner_id", owner.id!!)).isZero()
-        val id = create(token)
-        assertThat(multipart(token, "$ITEMS/$id/photos", listOf(png)).statusCode()).isEqualTo(503)
+        val id = create(actorId)
+        assertThat(multipart(actorId, "$ITEMS/$id/photos", listOf(png)).statusCode()).isEqualTo(503)
         assertThat(count("wardrobe_item_photo", "wardrobe_item_id", id)).isZero()
         storageOutsideTransactions()
-        val photoId = number(rows(multipart(token, "$ITEMS/$id/photos", listOf(png))).single(), "id")
+        val photoId = number(rows(multipart(actorId, "$ITEMS/$id/photos", listOf(png))).single(), "id")
         doAnswer { throw PhotoStorageUnavailableException() }.`when`(storage).get(anyString(), anyLong())
-        val download = request("GET", "$ITEMS/$id/photos/$photoId/content", token)
+        val download = request("GET", "$ITEMS/$id/photos/$photoId/content", actorId)
         assertThat(download.statusCode()).isEqualTo(503)
         assertThat(download.body()).isEmpty()
     }
@@ -251,8 +243,8 @@ class WardrobeItemPhotoIntegrationTests {
     @Test
     fun `database failure rolls back newly created item and earlier metadata after uploads`() {
         val owner = user()
-        val token = login(owner)
-        val existing = create(token)
+        val actorId = actorId(owner)
+        val existing = create(actorId)
         doAnswer { call ->
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
             val key = call.getArgument<String>(0)
@@ -263,7 +255,7 @@ class WardrobeItemPhotoIntegrationTests {
             """.trimIndent(), existing, key, png.size)
             null
         }.`when`(storage).put(anyString(), anyString(), anyArgument(ByteArray::class.java) ?: byteArrayOf())
-        assertThat(multipart(token, files = listOf(png, png), item = ITEM).statusCode()).isEqualTo(409)
+        assertThat(multipart(actorId, files = listOf(png, png), item = ITEM).statusCode()).isEqualTo(409)
         assertThat(count("wardrobe_item", "owner_id", owner.id!!)).isEqualTo(1)
         assertThat(jdbc.queryForObject("""
             SELECT count(*) FROM wardrobe_item_photo p JOIN wardrobe_item i ON i.id = p.wardrobe_item_id
@@ -275,10 +267,10 @@ class WardrobeItemPhotoIntegrationTests {
 
     @Test
     fun `concurrent uploads serialize count checks and cannot exceed five`() {
-        val token = login(user())
-        val id = create(token)
+        val actorId = actorId(user())
+        val id = create(actorId)
         val path = "$ITEMS/$id/photos"
-        assertThat(multipart(token, path, List(4) { png }).statusCode()).isEqualTo(201)
+        assertThat(multipart(actorId, path, List(4) { png }).statusCode()).isEqualTo(201)
         val uploaded = CyclicBarrier(2)
         doAnswer { call ->
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
@@ -287,17 +279,17 @@ class WardrobeItemPhotoIntegrationTests {
             null
         }.`when`(storage).put(anyString(), anyString(), anyArgument(ByteArray::class.java) ?: byteArrayOf())
         Executors.newFixedThreadPool(2).use { executor ->
-            val attempts = List(2) { executor.submit(Callable { multipart(token, path, listOf(png)).statusCode() }) }
+            val attempts = List(2) { executor.submit(Callable { multipart(actorId, path, listOf(png)).statusCode() }) }
             assertThat(attempts.map { it.get(20, TimeUnit.SECONDS) }).containsExactlyInAnyOrder(201, 409)
         }
-        assertThat(rows(request("GET", path, token))).hasSize(5)
+        assertThat(rows(request("GET", path, actorId))).hasSize(5)
         assertThat(objects).hasSize(6)
     }
 
     @Test
     fun `item deletion while upload is paused prevents metadata creation`() {
-        val token = login(user())
-        val id = create(token)
+        val actorId = actorId(user())
+        val id = create(actorId)
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
         doAnswer { call ->
@@ -308,10 +300,10 @@ class WardrobeItemPhotoIntegrationTests {
             null
         }.`when`(storage).put(anyString(), anyString(), anyArgument(ByteArray::class.java) ?: byteArrayOf())
         Executors.newSingleThreadExecutor().use { executor ->
-            val upload = executor.submit(Callable { multipart(token, "$ITEMS/$id/photos", listOf(png)) })
+            val upload = executor.submit(Callable { multipart(actorId, "$ITEMS/$id/photos", listOf(png)) })
             try {
                 assertThat(entered.await(10, TimeUnit.SECONDS)).isTrue()
-                assertThat(request("DELETE", "$ITEMS/$id?version=1", token).statusCode()).isEqualTo(204)
+                assertThat(request("DELETE", "$ITEMS/$id?version=1", actorId).statusCode()).isEqualTo(204)
             } finally { release.countDown() }
             assertThat(upload.get(20, TimeUnit.SECONDS).statusCode()).isEqualTo(404)
         }
@@ -321,10 +313,10 @@ class WardrobeItemPhotoIntegrationTests {
 
     @Test
     fun `photo or item deletion during download revokes the in flight response`() {
-        val token = login(user())
+        val actorId = actorId(user())
         for (deleteItem in listOf(false, true)) {
-            val id = create(token)
-            val photoId = number(rows(multipart(token, "$ITEMS/$id/photos", listOf(png))).single(), "id")
+            val id = create(actorId)
+            val photoId = number(rows(multipart(actorId, "$ITEMS/$id/photos", listOf(png))).single(), "id")
             val path = "$ITEMS/$id/photos/$photoId"
             val entered = CountDownLatch(1)
             val release = CountDownLatch(1)
@@ -335,10 +327,10 @@ class WardrobeItemPhotoIntegrationTests {
                 objects.getValue(call.getArgument(0))
             }.`when`(storage).get(anyString(), anyLong())
             Executors.newSingleThreadExecutor().use { executor ->
-                val download = executor.submit(Callable { request("GET", "$path/content", token) })
+                val download = executor.submit(Callable { request("GET", "$path/content", actorId) })
                 try {
                     assertThat(entered.await(10, TimeUnit.SECONDS)).isTrue()
-                    assertThat(request("DELETE", if (deleteItem) "$ITEMS/$id?version=1" else path, token).statusCode())
+                    assertThat(request("DELETE", if (deleteItem) "$ITEMS/$id?version=1" else path, actorId).statusCode())
                         .isEqualTo(204)
                 } finally { release.countDown() }
                 val response = download.get(20, TimeUnit.SECONDS)
@@ -349,17 +341,16 @@ class WardrobeItemPhotoIntegrationTests {
     }
 
     private fun user(role: UserRole = UserRole.USER): AppUser =
-        users.create(UUID.randomUUID().toString(), passwords.encode("photo-password")!!, role)
+        jdbc.insertUser(UUID.randomUUID().toString(), "!", role)
 
-    private fun login(user: AppUser): String = objectBody(request("POST", "/api/auth/login",
-        body = """{"login":"${user.login}","password":"photo-password"}"""))["accessToken"].toString()
+    private fun actorId(user: AppUser): String = requireNotNull(user.id).toString()
 
-    private fun create(token: String): Long = number(objectBody(request("POST", ITEMS, token, ITEM)), "id")
+    private fun create(actorId: String): Long = number(objectBody(request("POST", ITEMS, actorId, ITEM)), "id")
 
-    private fun request(method: String, path: String, token: String? = null, body: String? = null): HttpResponse<ByteArray> =
-        send(method, path, token, "application/json", body?.toByteArray() ?: byteArrayOf())
+    private fun request(method: String, path: String, actorId: String? = null, body: String? = null): HttpResponse<ByteArray> =
+        send(method, path, actorId, "application/json", body?.toByteArray() ?: byteArrayOf())
 
-    private fun multipart(token: String?, path: String = ITEMS, files: List<ByteArray> = emptyList(), item: String? = null): HttpResponse<ByteArray> {
+    private fun multipart(actorId: String?, path: String = ITEMS, files: List<ByteArray> = emptyList(), item: String? = null): HttpResponse<ByteArray> {
         val boundary = "test-${UUID.randomUUID()}"
         val body = ByteArrayOutputStream()
         fun part(name: String, bytes: ByteArray, filename: String = "", type: String) {
@@ -370,13 +361,13 @@ class WardrobeItemPhotoIntegrationTests {
         if (item != null) part("item", item.toByteArray(), type = "application/json")
         files.forEach { part("photos", it, "; filename=\"misleading.txt\"", "text/plain") }
         body.write("--$boundary--\r\n".toByteArray())
-        return send("POST", path, token, "multipart/form-data; boundary=$boundary", body.toByteArray())
+        return send("POST", path, actorId, "multipart/form-data; boundary=$boundary", body.toByteArray())
     }
 
-    private fun send(method: String, path: String, token: String?, type: String, bytes: ByteArray): HttpResponse<ByteArray> {
+    private fun send(method: String, path: String, actorId: String?, type: String, bytes: ByteArray): HttpResponse<ByteArray> {
         val request = HttpRequest.newBuilder(URI("http://localhost:$port$path"))
             .header("Content-Type", type).method(method, HttpRequest.BodyPublishers.ofByteArray(bytes))
-        if (token != null) request.header("Authorization", "Bearer $token")
+        if (actorId != null) request.header("X-User-Id", "$actorId")
         return client.send(request.build(), HttpResponse.BodyHandlers.ofByteArray())
     }
 
@@ -392,12 +383,5 @@ class WardrobeItemPhotoIntegrationTests {
     companion object {
         private const val ITEMS = "/api/wardrobe/items"
         private const val ITEM = """{"name":"Shirt","categoryId":1,"color":"White","material":"Cotton"}"""
-        @Container @JvmStatic val postgres = PostgreSQLContainer("postgres:18-alpine")
-        @JvmStatic @DynamicPropertySource
-        fun postgresProperties(registry: DynamicPropertyRegistry) {
-            registry.add("spring.datasource.url", postgres::getJdbcUrl)
-            registry.add("spring.datasource.username", postgres::getUsername)
-            registry.add("spring.datasource.password", postgres::getPassword)
-        }
     }
 }

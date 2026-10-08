@@ -1,8 +1,9 @@
 package ru.itmo.clothesadvisor.service.user
 
-import jakarta.persistence.EntityNotFoundException
-import java.time.Clock
-import org.springframework.orm.ObjectOptimisticLockingFailureException
+import ru.itmo.clothesadvisor.model.EntityNotFoundException
+import jakarta.validation.ConstraintViolationException
+import jakarta.validation.Validator
+import org.springframework.dao.OptimisticLockingFailureException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import ru.itmo.clothesadvisor.model.user.AppUser
@@ -17,7 +18,7 @@ import ru.itmo.clothesadvisor.repository.user.AppUserRepository
 internal class AppUserService(
     private val users: AppUserRepository,
     private val history: AppUserHistoryRepository,
-    private val clock: Clock,
+    private val validator: Validator,
 ) {
     @Transactional
     fun create(
@@ -25,7 +26,12 @@ internal class AppUserService(
         passwordHash: String,
         role: UserRole,
         status: UserStatus = UserStatus.ACTIVE,
-    ): AppUser = users.save(AppUser(login, passwordHash, role, status, clock.instant()))
+    ): AppUser {
+        val violations = validator.validateValue(AppUser::class.java, "login", login) +
+            validator.validateValue(AppUser::class.java, "passwordHash", passwordHash)
+        if (violations.isNotEmpty()) throw ConstraintViolationException(violations)
+        return users.create(login, passwordHash, role, status)
+    }
 
     fun findById(id: Long): AppUser? = users.findById(id)
 
@@ -40,15 +46,14 @@ internal class AppUserService(
     ): AppUser {
         val user = users.findById(id) ?: throw EntityNotFoundException("User $id not found")
         if (user.version != expectedVersion) {
-            throw ObjectOptimisticLockingFailureException(AppUser::class.java, id)
+            throw OptimisticLockingFailureException("User $id version conflict")
         }
         if (user.role == role && user.status == status) return user
 
-        val timestamp = clock.instant()
-        val previous = AppUserHistory(user, timestamp)
-        user.changeRoleAndStatus(role, status, timestamp)
-        users.flush()
+        val previous = AppUserHistory(user)
+        user.changeRoleAndStatus(role, status)
+        val saved = users.update(user)
         history.save(previous)
-        return user
+        return saved
     }
 }

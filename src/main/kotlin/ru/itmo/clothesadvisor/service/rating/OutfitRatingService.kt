@@ -1,10 +1,9 @@
 package ru.itmo.clothesadvisor.service.rating
 
-import jakarta.persistence.EntityNotFoundException
-import java.time.Clock
+import ru.itmo.clothesadvisor.model.EntityNotFoundException
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
-import org.springframework.security.access.AccessDeniedException
+import ru.itmo.clothesadvisor.model.AccessDeniedException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Isolation
 import org.springframework.transaction.annotation.Transactional
@@ -31,15 +30,14 @@ internal class OutfitRatingService(
     private val access: AccessGrantService,
     private val ratings: OutfitRatingRepository,
     private val history: OutfitRatingHistoryRepository,
-    private val clock: Clock,
 ) {
     @Transactional
     fun create(stylistId: Long, ownerId: Long, outfitId: Long, request: CreateRatingRequest): RatingResponse {
         lockForRating(stylistId, ownerId, outfitId)
         val key = OutfitRatingId(outfitId, stylistId)
-        if (ratings.findById(key) != null) throw RatingConflictException()
         val version = (history.maxVersion(outfitId, stylistId) ?: 0) + 1
-        return ratings.save(OutfitRating(key, request.vote, clock.instant(), version = version)).response()
+        val rating = ratings.insert(key, request.vote, version) ?: throw RatingConflictException()
+        return rating.response()
     }
 
     @Transactional
@@ -47,15 +45,12 @@ internal class OutfitRatingService(
         lockForRating(stylistId, ownerId, outfitId)
         val rating = ratings.findById(OutfitRatingId(outfitId, stylistId)) ?: throw EntityNotFoundException()
         if (rating.version != request.version) throw RatingConflictException()
-        val now = clock.instant()
-        val previous = OutfitRatingHistory(rating, now)
+        val previous = OutfitRatingHistory(rating)
         rating.vote = request.vote
         rating.version += 1
-        rating.modifiedAt = now
-        ratings.flush()
+        val saved = ratings.update(rating, request.version)
         history.save(previous)
-        history.flush()
-        return rating.response()
+        return saved.response()
     }
 
     @Transactional
@@ -63,11 +58,9 @@ internal class OutfitRatingService(
         lockForRating(stylistId, ownerId, outfitId)
         val rating = ratings.findById(OutfitRatingId(outfitId, stylistId)) ?: throw EntityNotFoundException()
         if (rating.version != version) throw RatingConflictException()
-        val previous = OutfitRatingHistory(rating, clock.instant())
+        val previous = OutfitRatingHistory(rating)
         ratings.delete(rating)
-        ratings.flush()
         history.save(previous)
-        history.flush()
     }
 
     fun counts(outfitIds: List<Long>): Map<Long, RatingCounts> =
@@ -91,7 +84,7 @@ internal class OutfitRatingService(
 
     @Transactional
     fun archiveForDeletion(outfitId: Long) {
-        history.archiveCurrent(outfitId, clock.instant())
+        history.archiveCurrent(outfitId)
     }
 
     private fun lockForRating(stylistId: Long, ownerId: Long, outfitId: Long) {

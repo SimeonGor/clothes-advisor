@@ -1,5 +1,6 @@
 package ru.itmo.clothesadvisor.controller.wardrobe
 
+import io.swagger.v3.oas.annotations.Parameter
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.headers.Header
 import io.swagger.v3.oas.annotations.media.Content
@@ -16,8 +17,6 @@ import java.net.URI
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
-import org.springframework.security.access.prepost.PreAuthorize
-import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -32,17 +31,16 @@ import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.multipart.MultipartFile
 import ru.itmo.clothesadvisor.controller.toPageRequest
 import ru.itmo.clothesadvisor.dto.ApiErrorResponse
-import ru.itmo.clothesadvisor.dto.auth.CurrentUser
+import ru.itmo.clothesadvisor.dto.user.CurrentUser
 import ru.itmo.clothesadvisor.dto.wardrobe.CreateWardrobeItemRequest
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemResponse
 import ru.itmo.clothesadvisor.dto.wardrobe.UpdateWardrobeItemRequest
 import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemService
 import ru.itmo.clothesadvisor.service.wardrobe.WardrobeManagementService
 
-@Tag(name = "Гардероб владельца", description = "Только USER: собственные вещи.")
+@Tag(name = "Гардероб владельца", description = "Действующий пользователь; владелец определяется по X-User-Id.")
 @RestController
 @RequestMapping("/api/wardrobe/items")
-@PreAuthorize("hasRole('USER')")
 internal class WardrobeItemController(
     private val items: WardrobeItemService,
     private val management: WardrobeManagementService,
@@ -55,7 +53,7 @@ internal class WardrobeItemController(
         ApiResponse(responseCode = "409", description = "Конфликт ограничений данных; пустое тело", content = [Content()]),
     )
     fun create(
-        @AuthenticationPrincipal user: CurrentUser,
+        @Parameter(hidden = true) user: CurrentUser,
         @Valid @RequestBody request: CreateWardrobeItemRequest,
     ): ResponseEntity<WardrobeItemResponse> {
         val created = items.create(user.id, request)
@@ -79,7 +77,7 @@ internal class WardrobeItemController(
         ApiResponse(responseCode = "503", description = "Хранилище недоступно или подключение не настроено; пустое тело", content = [Content()]),
     )
     fun createWithPhotos(
-        @AuthenticationPrincipal user: CurrentUser,
+        @Parameter(hidden = true) user: CurrentUser,
         @Valid @RequestPart("item") request: CreateWardrobeItemRequest,
         @RequestPart("photos", required = false) files: List<MultipartFile>?,
     ): ResponseEntity<WardrobeItemResponse> {
@@ -94,18 +92,18 @@ internal class WardrobeItemController(
         ApiResponse(responseCode = "400", description = "Некорректные параметры запроса", content = [Content()]),
     )
     fun list(
-        @AuthenticationPrincipal user: CurrentUser,
+        @Parameter(hidden = true) user: CurrentUser,
         @RequestParam(defaultValue = "0") @Min(0) page: Int,
         @RequestParam(defaultValue = "50") @Min(1) @Max(50) size: Int,
     ): List<WardrobeItemResponse> = items.list(user.id, toPageRequest(page, size))
 
     @GetMapping("/{id}")
-    @Operation(summary = "Карточка вещи", description = "Только собственная вещь.")
+    @Operation(summary = "Карточка вещи", description = "Владелец определяется по X-User-Id.")
     @ApiResponses(
         ApiResponse(responseCode = "200", description = "Успешно", useReturnTypeSchema = true),
         ApiResponse(responseCode = "404", description = "Ресурс отсутствует, не принадлежит владельцу или доступ не предоставлен; пустое тело", content = [Content()]),
     )
-    fun get(@AuthenticationPrincipal user: CurrentUser, @PathVariable id: Long): WardrobeItemResponse =
+    fun get(@Parameter(hidden = true) user: CurrentUser, @PathVariable id: Long): WardrobeItemResponse =
         items.get(user.id, id)
 
     @PutMapping("/{id}")
@@ -117,7 +115,7 @@ internal class WardrobeItemController(
         ApiResponse(responseCode = "409", description = "Конфликт версии, состояния или ограничений данных; пустое тело", content = [Content()]),
     )
     fun update(
-        @AuthenticationPrincipal user: CurrentUser,
+        @Parameter(hidden = true) user: CurrentUser,
         @PathVariable id: Long,
         @Valid @RequestBody request: UpdateWardrobeItemRequest,
     ): WardrobeItemResponse = items.update(user.id, id, request)
@@ -131,7 +129,7 @@ internal class WardrobeItemController(
         ApiResponse(responseCode = "409", description = "Конфликт версии, состояния или ограничений данных; пустое тело", content = [Content()]),
     )
     fun delete(
-        @AuthenticationPrincipal user: CurrentUser,
+        @Parameter(hidden = true) user: CurrentUser,
         @PathVariable id: Long,
         @RequestParam @Positive version: Long,
     ) = items.delete(user.id, id, version)

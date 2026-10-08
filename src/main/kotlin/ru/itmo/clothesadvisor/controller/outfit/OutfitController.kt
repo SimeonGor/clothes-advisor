@@ -1,5 +1,6 @@
 package ru.itmo.clothesadvisor.controller.outfit
 
+import io.swagger.v3.oas.annotations.Parameter
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.headers.Header
 import io.swagger.v3.oas.annotations.media.Content
@@ -14,8 +15,6 @@ import jakarta.validation.constraints.Min
 import java.net.URI
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
-import org.springframework.security.access.prepost.PreAuthorize
-import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -27,15 +26,14 @@ import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
 import ru.itmo.clothesadvisor.controller.toPageRequest
 import ru.itmo.clothesadvisor.dto.ApiErrorResponse
-import ru.itmo.clothesadvisor.dto.auth.CurrentUser
+import ru.itmo.clothesadvisor.dto.user.CurrentUser
 import ru.itmo.clothesadvisor.dto.outfit.CreateOutfitRequest
 import ru.itmo.clothesadvisor.service.outfit.OutfitService
 import ru.itmo.clothesadvisor.service.rating.OutfitRatingService
 
-@Tag(name = "Образы владельца", description = "Только USER: собственные образы.")
+@Tag(name = "Образы владельца", description = "Действующий пользователь; владелец определяется по X-User-Id.")
 @RestController
 @RequestMapping("/api/outfits")
-@PreAuthorize("hasRole('USER')")
 internal class OutfitController(private val outfits: OutfitService, private val ratings: OutfitRatingService) {
     @PostMapping
     @Operation(summary = "Создать ручной образ", description = "1..50 различных положительных itemIds своего гардероба; известный вид осадков.")
@@ -45,7 +43,7 @@ internal class OutfitController(private val outfits: OutfitService, private val 
         ApiResponse(responseCode = "404", description = "Ресурс отсутствует, не принадлежит владельцу или доступ не предоставлен; пустое тело", content = [Content()]),
         ApiResponse(responseCode = "409", description = "Конфликт версии, состояния или ограничений данных; пустое тело", content = [Content()]),
     )
-    fun create(@AuthenticationPrincipal user: CurrentUser, @Valid @RequestBody request: CreateOutfitRequest) =
+    fun create(@Parameter(hidden = true) user: CurrentUser, @Valid @RequestBody request: CreateOutfitRequest) =
         outfits.create(user.id, request).let { ResponseEntity.created(URI("/api/outfits/${it.id}")).body(it) }
 
     @GetMapping
@@ -55,7 +53,7 @@ internal class OutfitController(private val outfits: OutfitService, private val 
         ApiResponse(responseCode = "400", description = "Некорректные параметры запроса", content = [Content()]),
     )
     fun list(
-        @AuthenticationPrincipal user: CurrentUser,
+        @Parameter(hidden = true) user: CurrentUser,
         @RequestParam(defaultValue = "0") @Min(0) page: Int,
         @RequestParam(defaultValue = "50") @Min(1) @Max(50) size: Int,
     ) = outfits.list(user.id, toPageRequest(page, size)).let {
@@ -63,12 +61,12 @@ internal class OutfitController(private val outfits: OutfitService, private val 
     }
 
     @GetMapping("/{id}")
-    @Operation(summary = "Карточка образа", description = "Только собственный образ.")
+    @Operation(summary = "Карточка образа", description = "Владелец определяется по X-User-Id.")
     @ApiResponses(
         ApiResponse(responseCode = "200", description = "Успешно", useReturnTypeSchema = true),
         ApiResponse(responseCode = "404", description = "Ресурс отсутствует, не принадлежит владельцу или доступ не предоставлен; пустое тело", content = [Content()]),
     )
-    fun get(@AuthenticationPrincipal user: CurrentUser, @PathVariable id: Long) = outfits.get(user.id, id)
+    fun get(@Parameter(hidden = true) user: CurrentUser, @PathVariable id: Long) = outfits.get(user.id, id)
 
     @GetMapping("/{id}/ratings/history")
     @Operation(summary = "История оценок образа", description = "Включает текущие и архивные оценки.")
@@ -78,7 +76,7 @@ internal class OutfitController(private val outfits: OutfitService, private val 
         ApiResponse(responseCode = "404", description = "Ресурс отсутствует, не принадлежит владельцу или доступ не предоставлен; пустое тело", content = [Content()]),
     )
     fun history(
-        @AuthenticationPrincipal user: CurrentUser,
+        @Parameter(hidden = true) user: CurrentUser,
         @PathVariable id: Long,
         @RequestParam(defaultValue = "0") @Min(0) page: Int,
         @RequestParam(defaultValue = "50") @Min(1) @Max(50) size: Int,
@@ -93,5 +91,5 @@ internal class OutfitController(private val outfits: OutfitService, private val 
         ApiResponse(responseCode = "404", description = "Ресурс отсутствует, не принадлежит владельцу или доступ не предоставлен; пустое тело", content = [Content()]),
         ApiResponse(responseCode = "409", description = "Конфликт версии, состояния или ограничений данных; пустое тело", content = [Content()]),
     )
-    fun delete(@AuthenticationPrincipal user: CurrentUser, @PathVariable id: Long) = outfits.delete(user.id, id)
+    fun delete(@Parameter(hidden = true) user: CurrentUser, @PathVariable id: Long) = outfits.delete(user.id, id)
 }

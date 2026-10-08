@@ -1,5 +1,6 @@
 package ru.itmo.clothesadvisor.controller.wardrobe
 
+import io.swagger.v3.oas.annotations.Parameter
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.headers.Header
 import io.swagger.v3.oas.annotations.media.Content
@@ -10,8 +11,6 @@ import io.swagger.v3.oas.annotations.tags.Tag
 
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
-import org.springframework.security.access.prepost.PreAuthorize
-import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -21,14 +20,13 @@ import org.springframework.web.bind.annotation.RequestPart
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.multipart.MultipartFile
-import ru.itmo.clothesadvisor.dto.auth.CurrentUser
+import ru.itmo.clothesadvisor.dto.user.CurrentUser
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemPhotoResponse
 import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemPhotoService
 
-@Tag(name = "Фотографии владельца", description = "Только USER: фотографии собственных вещей.")
+@Tag(name = "Фотографии владельца", description = "Действующий пользователь; владелец определяется по X-User-Id.")
 @RestController
 @RequestMapping("/api/wardrobe/items/{itemId}/photos")
-@PreAuthorize("hasRole('USER')")
 internal class WardrobeItemPhotoController(private val photos: WardrobeItemPhotoService) {
     @PostMapping(consumes = [MediaType.MULTIPART_FORM_DATA_VALUE])
     @ResponseStatus(HttpStatus.CREATED)
@@ -42,7 +40,7 @@ internal class WardrobeItemPhotoController(private val photos: WardrobeItemPhoto
         ApiResponse(responseCode = "503", description = "Хранилище недоступно или подключение не настроено; пустое тело", content = [Content()]),
     )
     fun add(
-        @AuthenticationPrincipal user: CurrentUser,
+        @Parameter(hidden = true) user: CurrentUser,
         @PathVariable itemId: Long,
         @RequestPart("photos") files: List<MultipartFile>,
     ): List<WardrobeItemPhotoResponse> = photos.add(user.id, itemId, files)
@@ -53,7 +51,7 @@ internal class WardrobeItemPhotoController(private val photos: WardrobeItemPhoto
         ApiResponse(responseCode = "200", description = "Успешно", useReturnTypeSchema = true),
         ApiResponse(responseCode = "404", description = "Ресурс отсутствует, не принадлежит владельцу или доступ не предоставлен; пустое тело", content = [Content()]),
     )
-    fun list(@AuthenticationPrincipal user: CurrentUser, @PathVariable itemId: Long) = photos.list(user.id, itemId)
+    fun list(@Parameter(hidden = true) user: CurrentUser, @PathVariable itemId: Long) = photos.list(user.id, itemId)
 
     @GetMapping("/{photoId}/content")
     @Operation(summary = "Скачать фотографию", description = "Исходные байты JPEG/PNG; без Content-Disposition.")
@@ -63,7 +61,7 @@ internal class WardrobeItemPhotoController(private val photos: WardrobeItemPhoto
         ApiResponse(responseCode = "503", description = "Хранилище недоступно или подключение не настроено; пустое тело", content = [Content()]),
     )
     fun content(
-        @AuthenticationPrincipal user: CurrentUser,
+        @Parameter(hidden = true) user: CurrentUser,
         @PathVariable itemId: Long,
         @PathVariable photoId: Long,
     ) = photos.getContent(user.id, itemId, photoId).toPhotoContentResponse()
@@ -74,6 +72,6 @@ internal class WardrobeItemPhotoController(private val photos: WardrobeItemPhoto
     @ApiResponses(
         ApiResponse(responseCode = "404", description = "Ресурс отсутствует, не принадлежит владельцу или доступ не предоставлен; пустое тело", content = [Content()]),
     )
-    fun delete(@AuthenticationPrincipal user: CurrentUser, @PathVariable itemId: Long, @PathVariable photoId: Long) =
+    fun delete(@Parameter(hidden = true) user: CurrentUser, @PathVariable itemId: Long, @PathVariable photoId: Long) =
         photos.delete(user.id, itemId, photoId)
 }

@@ -5,6 +5,7 @@ import java.math.BigDecimal
 import java.net.InetSocketAddress
 import java.net.URI
 import java.net.http.HttpClient
+import java.nio.charset.MalformedInputException
 import java.nio.file.Path
 import java.time.Duration
 import java.util.concurrent.CountDownLatch
@@ -187,6 +188,27 @@ class OpenAiOutfitClientTests {
         assertThat(client().select(weather, candidates)).containsExactly(9, 7)
         reply = delta("malformed unused partial") + completed("{\"itemIds\":[11]}")
         assertThat(client().select(weather, candidates)).containsExactly(11)
+        reply = delta("{\"itemIds\":[9]}") + completed(" \t")
+        assertThat(client().select(weather, candidates)).containsExactly(9)
+    }
+
+    @Test
+    fun `SSE framing accepts comments CRLF multiline data and optional field space`() {
+        val ignored = "event: ignored\ndata:\n\n: keepalive\nretry: 1000\nunknown\n\n" +
+            "event: response.created\ndata: {\"type\":\"response.created\"}\n\n"
+        val terminal = completed("{\"itemIds\":[7]}")
+            .replace("event: ", "event:")
+            .replace("data: ", "data:")
+            .replace(",\"response\":", ",\ndata: \"response\":")
+        respond { 200 to (ignored + terminal).replace("\n", "\r\n") }
+        assertThat(client().select(weather, candidates)).containsExactly(7)
+    }
+
+    @Test
+    fun `malformed UTF8 remains an input decoding failure`() {
+        val bytes = "data: ".toByteArray() + byteArrayOf(0xC3.toByte(), 0x28) + "\n\n".toByteArray()
+        assertThatThrownBy { OpenAiResponseStream(mapper).read(bytes.inputStream()) }
+            .isInstanceOf(MalformedInputException::class.java)
     }
 
     @Test

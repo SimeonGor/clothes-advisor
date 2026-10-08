@@ -1,5 +1,6 @@
 package ru.itmo.clothesadvisor.controller.outfit
 
+import io.swagger.v3.oas.annotations.Parameter
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.headers.Header
 import io.swagger.v3.oas.annotations.media.Content
@@ -12,8 +13,6 @@ import jakarta.validation.constraints.Max
 import jakarta.validation.constraints.Min
 import org.springframework.http.HttpStatus
 import org.springframework.http.ResponseEntity
-import org.springframework.security.access.prepost.PreAuthorize
-import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -22,13 +21,12 @@ import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
 import ru.itmo.clothesadvisor.controller.toPageRequest
-import ru.itmo.clothesadvisor.dto.auth.CurrentUser
+import ru.itmo.clothesadvisor.dto.user.CurrentUser
 import ru.itmo.clothesadvisor.service.outfit.AdminOutfitService
 
-@Tag(name = "Модерация образов", description = "Только ADMIN: доступ без разрешения, в том числе к контенту заблокированных владельцев.")
+@Tag(name = "Модерация образов", description = "Действующий пользователь; административные ограничения проверяются бизнес-правилами.")
 @RestController
 @RequestMapping("/api/admin/users/{ownerId}/outfits")
-@PreAuthorize("hasRole('ADMIN')")
 internal class AdminOutfitController(private val outfits: AdminOutfitService) {
     @GetMapping
     @Operation(summary = "Список образов владельца", description = "По ID по убыванию.")
@@ -38,7 +36,7 @@ internal class AdminOutfitController(private val outfits: AdminOutfitService) {
         ApiResponse(responseCode = "404", description = "Ресурс отсутствует, не принадлежит владельцу или доступ не предоставлен; пустое тело", content = [Content()]),
     )
     fun list(
-        @AuthenticationPrincipal user: CurrentUser,
+        @Parameter(hidden = true) user: CurrentUser,
         @PathVariable ownerId: Long,
         @RequestParam(defaultValue = "0") @Min(0) page: Int,
         @RequestParam(defaultValue = "50") @Min(1) @Max(50) size: Int,
@@ -52,7 +50,7 @@ internal class AdminOutfitController(private val outfits: AdminOutfitService) {
         ApiResponse(responseCode = "200", description = "Успешно", useReturnTypeSchema = true),
         ApiResponse(responseCode = "404", description = "Ресурс отсутствует, не принадлежит владельцу или доступ не предоставлен; пустое тело", content = [Content()]),
     )
-    fun get(@AuthenticationPrincipal user: CurrentUser, @PathVariable ownerId: Long, @PathVariable id: Long) =
+    fun get(@Parameter(hidden = true) user: CurrentUser, @PathVariable ownerId: Long, @PathVariable id: Long) =
         outfits.get(user.id, ownerId, id)
 
     @DeleteMapping("/{id}")
@@ -62,6 +60,6 @@ internal class AdminOutfitController(private val outfits: AdminOutfitService) {
         ApiResponse(responseCode = "404", description = "Ресурс отсутствует, не принадлежит владельцу или доступ не предоставлен; пустое тело", content = [Content()]),
         ApiResponse(responseCode = "409", description = "Конфликт версии, состояния или ограничений данных; пустое тело", content = [Content()]),
     )
-    fun delete(@AuthenticationPrincipal user: CurrentUser, @PathVariable ownerId: Long, @PathVariable id: Long) =
+    fun delete(@Parameter(hidden = true) user: CurrentUser, @PathVariable ownerId: Long, @PathVariable id: Long) =
         outfits.delete(user.id, ownerId, id)
 }
