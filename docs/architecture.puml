@@ -15,17 +15,17 @@ skinparam componentBorderColor #6485AD
 
 title Сервис подбора одежды · монолит
 
-component "USER / STYLIST / ADMIN\nКлиент REST API / Swagger" as client #FFF5DF
+component "USER / STYLIST / ADMIN\nДемонстрационный UI / REST-клиент" as client #FFF5DF
 
 rectangle "Docker Compose" {
   node "Kotlin / Spring Boot · один процесс" {
-    component "REST API / Swagger\nDTO · валидация · ошибки" as api
-    component "Пользователи и безопасность\nВход · JWT · роли · блокировки" as identity
+    component "REST API\nX-User-Id · DTO · валидация" as api
+    component "Пользователи\nРоли · статусы · история" as identity
     component "Гардероб и фотографии\nВещи · характеристики · фото" as wardrobe
     component "Образы\nСостав · автор · владелец · погода" as outfits
     component "Доступ и оценки\nРазрешения · история · счётчики" as ratings
     component "AI-подбор\nВызов модели · проверка результата" as recommendations
-    component "Доступ к данным\nSpring Data · транзакции" as persistence #E8F5EF
+    component "Доступ к данным\nSpring JDBC · транзакции" as persistence #E8F5EF
 
     api --> identity
     api --> wardrobe
@@ -45,8 +45,8 @@ rectangle "Docker Compose" {
 
 cloud "Yandex Object Storage\nПриватные фотографии" as s3 #E8F5EF
 cloud "OpenAI API\nВнешний подбор" as openai #F2EDFB
-client -right-> api : вход / JWT
-wardrobe --> s3 : HTTPS / S3
+client -right-> api : HTTP / X-User-Id
+wardrobe --> s3 : HTTPS / IAM-токен
 recommendations --> openai : HTTPS
 
 @enduml

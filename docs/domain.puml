@@ -18,7 +18,7 @@ hide circle
 entity "app_user" as user #FFF5DF {
   id <<PK>>
   --
-  login
+  login: text (до 100)
   password_hash
   role: USER | STYLIST | ADMIN
   status: ACTIVE | BLOCKED
@@ -30,7 +30,7 @@ entity "app_user_history" as user_history #FFF5DF {
   user_id <<PK, FK>>
   version <<PK>>
   --
-  login
+  login: text (до 100)
   role: USER | STYLIST | ADMIN
   status: ACTIVE | BLOCKED
   modified_at
@@ -50,10 +50,10 @@ entity "wardrobe_item" as wardrobe_item {
   id <<PK>>
   --
   owner_id <<FK>>
-  name
+  name: text (до 300)
   category_id <<FK>>
-  color
-  material
+  color: text (до 100)
+  material: text (до 100)
   version
   created_at
   modified_at
@@ -62,10 +62,10 @@ entity "wardrobe_item_history" as item_history {
   wardrobe_item_id <<PK>>
   version <<PK>>
   --
-  name
+  name: text (до 300)
   category_id <<FK>>
-  color
-  material
+  color: text (до 100)
+  material: text (до 100)
   modified_at
   archived_at
 }
@@ -75,7 +75,7 @@ entity "wardrobe_item_photo" as photo #E8F5EF {
   wardrobe_item_id <<FK>>
   s3_key <<UK>>
   content_type
-  size_bytes
+  size_bytes: 1..10000000
   created_at
 }
 entity "outfit · неизменяемый" as outfit {
@@ -84,7 +84,7 @@ entity "outfit · неизменяемый" as outfit {
   owner_id <<FK>>
   author_id <<FK>>
   source: USER | STYLIST | AI
-  name
+  name: text (до 300)
   created_at
 }
 entity "outfit_weather · неизменяемый" as weather {
@@ -92,7 +92,7 @@ entity "outfit_weather · неизменяемый" as weather {
   --
   temperature_c
   precipitation_type_id <<FK>>
-  wind_speed_mps
+  wind_speed_mps >= 0
 }
 entity "precipitation_type · справочник" as precipitation #E8F5EF {
   id <<PK>>
