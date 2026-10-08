@@ -1,5 +1,6 @@
 package ru.itmo.clothesadvisor.model.user
 
+import com.fasterxml.jackson.annotation.JsonCreator
 import jakarta.persistence.Column
 import jakarta.persistence.Entity
 import jakarta.persistence.EnumType
@@ -14,9 +15,25 @@ import java.time.Instant
 import org.hibernate.annotations.JdbcTypeCode
 import org.hibernate.type.SqlTypes
 
-internal enum class UserRole { USER, STYLIST, ADMIN }
+internal enum class UserRole {
+    USER, STYLIST, ADMIN;
 
-internal enum class UserStatus { ACTIVE, BLOCKED }
+    companion object {
+        @JvmStatic
+        @JsonCreator
+        fun fromValue(value: String): UserRole = valueOf(value)
+    }
+}
+
+internal enum class UserStatus {
+    ACTIVE, BLOCKED;
+
+    companion object {
+        @JvmStatic
+        @JsonCreator
+        fun fromValue(value: String): UserStatus = valueOf(value)
+    }
+}
 
 @Entity
 @Table(name = "app_user")
