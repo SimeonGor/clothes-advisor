@@ -67,5 +67,5 @@ internal class ChatGptCredentials(private val mapper: JsonMapper, private val cl
         unavailable()
     }
 
-    private fun unavailable(): Nothing = throw AiOutfitException(503)
+    private fun unavailable(): Nothing = throw AiOutfitException(AiOutfitFailure.UNAVAILABLE)
 }
