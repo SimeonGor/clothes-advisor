@@ -1,5 +1,6 @@
 package ru.itmo.clothesadvisor.controller.outfit
 
+import io.swagger.v3.oas.annotations.Parameter
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.headers.Header
 import io.swagger.v3.oas.annotations.media.Content
@@ -14,8 +15,6 @@ import jakarta.validation.constraints.Min
 import jakarta.validation.constraints.Positive
 import java.net.URI
 import org.springframework.http.ResponseEntity
-import org.springframework.security.access.prepost.PreAuthorize
-import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -27,17 +26,16 @@ import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import ru.itmo.clothesadvisor.controller.toPageRequest
 import ru.itmo.clothesadvisor.dto.ApiErrorResponse
-import ru.itmo.clothesadvisor.dto.auth.CurrentUser
+import ru.itmo.clothesadvisor.dto.user.CurrentUser
 import ru.itmo.clothesadvisor.dto.outfit.CreateOutfitRequest
 import ru.itmo.clothesadvisor.dto.rating.CreateRatingRequest
 import ru.itmo.clothesadvisor.dto.rating.UpdateRatingRequest
 import ru.itmo.clothesadvisor.service.outfit.OutfitService
 import ru.itmo.clothesadvisor.service.rating.OutfitRatingService
 
-@Tag(name = "Образы и оценки стилиста", description = "Только STYLIST с действующим разрешением владельца; отсутствие доступа скрывается как 404.")
+@Tag(name = "Образы и оценки стилиста", description = "Действующий пользователь; доступ стилиста проверяется бизнес-правилами, отсутствие доступа скрывается как 404.")
 @RestController
 @RequestMapping("/api/stylist/clients/{ownerId}/outfits")
-@PreAuthorize("hasRole('STYLIST')")
 internal class StylistOutfitController(private val outfits: OutfitService, private val ratings: OutfitRatingService) {
     @PostMapping
     @Operation(summary = "Создать образ клиента", description = "1..50 различных положительных itemIds клиента. Ответ плоский, с myRating.")
@@ -48,7 +46,7 @@ internal class StylistOutfitController(private val outfits: OutfitService, priva
         ApiResponse(responseCode = "409", description = "Конфликт ограничений данных; пустое тело", content = [Content()]),
     )
     fun create(
-        @AuthenticationPrincipal user: CurrentUser,
+        @Parameter(hidden = true) user: CurrentUser,
         @PathVariable ownerId: Long,
         @Valid @RequestBody request: CreateOutfitRequest,
     ) = outfits.createForClient(user.id, ownerId, request).let {
@@ -63,7 +61,7 @@ internal class StylistOutfitController(private val outfits: OutfitService, priva
         ApiResponse(responseCode = "404", description = "Ресурс отсутствует, не принадлежит владельцу или доступ не предоставлен; пустое тело", content = [Content()]),
     )
     fun list(
-        @AuthenticationPrincipal user: CurrentUser,
+        @Parameter(hidden = true) user: CurrentUser,
         @PathVariable ownerId: Long,
         @RequestParam(defaultValue = "0") @Min(0) page: Int,
         @RequestParam(defaultValue = "50") @Min(1) @Max(50) size: Int,
@@ -77,7 +75,7 @@ internal class StylistOutfitController(private val outfits: OutfitService, priva
         ApiResponse(responseCode = "200", description = "Успешно", useReturnTypeSchema = true),
         ApiResponse(responseCode = "404", description = "Ресурс отсутствует, не принадлежит владельцу или доступ не предоставлен; пустое тело", content = [Content()]),
     )
-    fun get(@AuthenticationPrincipal user: CurrentUser, @PathVariable ownerId: Long, @PathVariable id: Long) =
+    fun get(@Parameter(hidden = true) user: CurrentUser, @PathVariable ownerId: Long, @PathVariable id: Long) =
         outfits.getForClient(user.id, ownerId, id)
 
     @PostMapping("/{id}/rating")
@@ -89,7 +87,7 @@ internal class StylistOutfitController(private val outfits: OutfitService, priva
         ApiResponse(responseCode = "409", description = "У стилиста уже есть активная оценка этого образа или данные конфликтуют; пустое тело", content = [Content()]),
     )
     fun createRating(
-        @AuthenticationPrincipal user: CurrentUser,
+        @Parameter(hidden = true) user: CurrentUser,
         @PathVariable ownerId: Long,
         @PathVariable id: Long,
         @Valid @RequestBody request: CreateRatingRequest,
@@ -104,7 +102,7 @@ internal class StylistOutfitController(private val outfits: OutfitService, priva
         ApiResponse(responseCode = "409", description = "Версия оценки устарела или данные конфликтуют; пустое тело", content = [Content()]),
     )
     fun updateRating(
-        @AuthenticationPrincipal user: CurrentUser,
+        @Parameter(hidden = true) user: CurrentUser,
         @PathVariable ownerId: Long,
         @PathVariable id: Long,
         @Valid @RequestBody request: UpdateRatingRequest,
@@ -119,7 +117,7 @@ internal class StylistOutfitController(private val outfits: OutfitService, priva
         ApiResponse(responseCode = "409", description = "Конфликт версии, состояния или ограничений данных; пустое тело", content = [Content()]),
     )
     fun withdrawRating(
-        @AuthenticationPrincipal user: CurrentUser,
+        @Parameter(hidden = true) user: CurrentUser,
         @PathVariable ownerId: Long,
         @PathVariable id: Long,
         @RequestParam @Positive version: Long,
@@ -136,7 +134,7 @@ internal class StylistOutfitController(private val outfits: OutfitService, priva
         ApiResponse(responseCode = "404", description = "Ресурс отсутствует, не принадлежит владельцу или доступ не предоставлен; пустое тело", content = [Content()]),
     )
     fun history(
-        @AuthenticationPrincipal user: CurrentUser,
+        @Parameter(hidden = true) user: CurrentUser,
         @PathVariable ownerId: Long,
         @PathVariable id: Long,
         @RequestParam(defaultValue = "0") @Min(0) page: Int,

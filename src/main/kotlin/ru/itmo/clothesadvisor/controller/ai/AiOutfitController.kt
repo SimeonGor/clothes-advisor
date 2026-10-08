@@ -1,5 +1,6 @@
 package ru.itmo.clothesadvisor.controller.ai
 
+import io.swagger.v3.oas.annotations.Parameter
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.headers.Header
 import io.swagger.v3.oas.annotations.media.Content
@@ -11,18 +12,15 @@ import io.swagger.v3.oas.annotations.tags.Tag
 import jakarta.validation.Valid
 import java.net.URI
 import org.springframework.http.ResponseEntity
-import org.springframework.security.access.prepost.PreAuthorize
-import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RestController
 import ru.itmo.clothesadvisor.dto.ai.CreateAiOutfitRequest
-import ru.itmo.clothesadvisor.dto.auth.CurrentUser
+import ru.itmo.clothesadvisor.dto.user.CurrentUser
 import ru.itmo.clothesadvisor.service.ai.AiOutfitService
 
-@Tag(name = "Подбор AI", description = "Только USER: подбор из своего гардероба.")
+@Tag(name = "Подбор AI", description = "Действующий пользователь; владелец определяется по X-User-Id.")
 @RestController
-@PreAuthorize("hasRole('USER')")
 internal class AiOutfitController(private val outfits: AiOutfitService) {
     @PostMapping("/api/outfits/ai")
     @Operation(summary = "Подобрать образ через AI", description = "Без candidateItemIds или с null используется весь гардероб. Вещи без фото пропускаются. После фильтрации требуется 1..20 кандидатов; используется одно фото каждой вещи. Внешний вызов до 60 секунд, без повторов. При ошибке образ не сохраняется.")
@@ -36,6 +34,6 @@ internal class AiOutfitController(private val outfits: AiOutfitService) {
         ApiResponse(responseCode = "503", description = "Хранилище или AI недоступны, подключение не настроено либо исчерпан лимит AI; пустое тело", content = [Content()]),
         ApiResponse(responseCode = "504", description = "Таймаут AI; пустое тело", content = [Content()]),
     )
-    fun create(@AuthenticationPrincipal user: CurrentUser, @Valid @RequestBody request: CreateAiOutfitRequest) =
+    fun create(@Parameter(hidden = true) user: CurrentUser, @Valid @RequestBody request: CreateAiOutfitRequest) =
         outfits.create(user.id, request).let { ResponseEntity.created(URI("/api/outfits/${it.id}")).body(it) }
 }

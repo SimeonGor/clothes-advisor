@@ -1,5 +1,6 @@
 package ru.itmo.clothesadvisor.controller.wardrobe
 
+import io.swagger.v3.oas.annotations.Parameter
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.headers.Header
 import io.swagger.v3.oas.annotations.media.Content
@@ -11,8 +12,6 @@ import io.swagger.v3.oas.annotations.tags.Tag
 import jakarta.validation.constraints.Max
 import jakarta.validation.constraints.Min
 import org.springframework.http.HttpStatus
-import org.springframework.security.access.prepost.PreAuthorize
-import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -21,13 +20,12 @@ import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
 import ru.itmo.clothesadvisor.controller.toPageRequest
-import ru.itmo.clothesadvisor.dto.auth.CurrentUser
+import ru.itmo.clothesadvisor.dto.user.CurrentUser
 import ru.itmo.clothesadvisor.service.wardrobe.AdminWardrobeService
 
-@Tag(name = "Модерация гардероба", description = "Только ADMIN: доступ без разрешения, включая заблокированных владельцев.")
+@Tag(name = "Модерация гардероба", description = "Действующий пользователь; административные ограничения проверяются бизнес-правилами.")
 @RestController
 @RequestMapping("/api/admin/users/{ownerId}/wardrobe/items")
-@PreAuthorize("hasRole('ADMIN')")
 internal class AdminWardrobeController(private val wardrobe: AdminWardrobeService) {
     @GetMapping
     @Operation(summary = "Список вещей владельца", description = "По ID по возрастанию; без X-Total-Count.")
@@ -37,7 +35,7 @@ internal class AdminWardrobeController(private val wardrobe: AdminWardrobeServic
         ApiResponse(responseCode = "404", description = "Ресурс отсутствует, не принадлежит владельцу или доступ не предоставлен; пустое тело", content = [Content()]),
     )
     fun listItems(
-        @AuthenticationPrincipal user: CurrentUser,
+        @Parameter(hidden = true) user: CurrentUser,
         @PathVariable ownerId: Long,
         @RequestParam(defaultValue = "0") @Min(0) page: Int,
         @RequestParam(defaultValue = "50") @Min(1) @Max(50) size: Int,
@@ -49,7 +47,7 @@ internal class AdminWardrobeController(private val wardrobe: AdminWardrobeServic
         ApiResponse(responseCode = "200", description = "Успешно", useReturnTypeSchema = true),
         ApiResponse(responseCode = "404", description = "Ресурс отсутствует, не принадлежит владельцу или доступ не предоставлен; пустое тело", content = [Content()]),
     )
-    fun getItem(@AuthenticationPrincipal user: CurrentUser, @PathVariable ownerId: Long, @PathVariable itemId: Long) =
+    fun getItem(@Parameter(hidden = true) user: CurrentUser, @PathVariable ownerId: Long, @PathVariable itemId: Long) =
         wardrobe.getItem(user.id, ownerId, itemId)
 
     @GetMapping("/{itemId}/photos")
@@ -58,7 +56,7 @@ internal class AdminWardrobeController(private val wardrobe: AdminWardrobeServic
         ApiResponse(responseCode = "200", description = "Успешно", useReturnTypeSchema = true),
         ApiResponse(responseCode = "404", description = "Ресурс отсутствует, не принадлежит владельцу или доступ не предоставлен; пустое тело", content = [Content()]),
     )
-    fun listPhotos(@AuthenticationPrincipal user: CurrentUser, @PathVariable ownerId: Long, @PathVariable itemId: Long) =
+    fun listPhotos(@Parameter(hidden = true) user: CurrentUser, @PathVariable ownerId: Long, @PathVariable itemId: Long) =
         wardrobe.listPhotos(user.id, ownerId, itemId)
 
     @GetMapping("/{itemId}/photos/{photoId}/content")
@@ -69,7 +67,7 @@ internal class AdminWardrobeController(private val wardrobe: AdminWardrobeServic
         ApiResponse(responseCode = "503", description = "Хранилище недоступно или подключение не настроено; пустое тело", content = [Content()]),
     )
     fun getPhotoContent(
-        @AuthenticationPrincipal user: CurrentUser,
+        @Parameter(hidden = true) user: CurrentUser,
         @PathVariable ownerId: Long,
         @PathVariable itemId: Long,
         @PathVariable photoId: Long,
@@ -82,7 +80,7 @@ internal class AdminWardrobeController(private val wardrobe: AdminWardrobeServic
         ApiResponse(responseCode = "404", description = "Ресурс отсутствует, не принадлежит владельцу или доступ не предоставлен; пустое тело", content = [Content()]),
     )
     fun deletePhoto(
-        @AuthenticationPrincipal user: CurrentUser,
+        @Parameter(hidden = true) user: CurrentUser,
         @PathVariable ownerId: Long,
         @PathVariable itemId: Long,
         @PathVariable photoId: Long,

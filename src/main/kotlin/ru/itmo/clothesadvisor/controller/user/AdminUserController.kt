@@ -1,5 +1,6 @@
 package ru.itmo.clothesadvisor.controller.user
 
+import io.swagger.v3.oas.annotations.Parameter
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.headers.Header
 import io.swagger.v3.oas.annotations.media.Content
@@ -12,8 +13,6 @@ import jakarta.validation.Valid
 import jakarta.validation.constraints.Max
 import jakarta.validation.constraints.Min
 import org.springframework.http.ResponseEntity
-import org.springframework.security.access.prepost.PreAuthorize
-import org.springframework.security.core.annotation.AuthenticationPrincipal
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PutMapping
@@ -22,14 +21,13 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import ru.itmo.clothesadvisor.controller.toPageRequest
-import ru.itmo.clothesadvisor.dto.auth.CurrentUser
+import ru.itmo.clothesadvisor.dto.user.CurrentUser
 import ru.itmo.clothesadvisor.dto.user.UpdateUserRoleAndStatusRequest
 import ru.itmo.clothesadvisor.service.user.AdminUserService
 
-@Tag(name = "Пользователи", description = "Только ADMIN: управление аккаунтами.")
+@Tag(name = "Пользователи", description = "Чтение публичное; изменение требует X-User-Id активного администратора.")
 @RestController
 @RequestMapping("/api/admin/users")
-@PreAuthorize("hasRole('ADMIN')")
 internal class AdminUserController(private val users: AdminUserService) {
     @GetMapping
     @Operation(summary = "Список аккаунтов", description = "Включая заблокированные, новые первыми.")
@@ -61,7 +59,7 @@ internal class AdminUserController(private val users: AdminUserService) {
         ApiResponse(responseCode = "409", description = "Конфликт версии, состояния или ограничений данных; пустое тело", content = [Content()]),
     )
     fun update(
-        @AuthenticationPrincipal actor: CurrentUser,
+        @Parameter(hidden = true) actor: CurrentUser,
         @PathVariable id: Long,
         @Valid @RequestBody request: UpdateUserRoleAndStatusRequest,
     ) = users.update(actor.id, id, request)
