@@ -196,6 +196,17 @@ class AuthIntegrationTests {
         listOf("user", "stylist", "admin").forEach { assertThat(users.findByLogin(it)).isNull() }
     }
 
+    @Test
+    fun `documentation is disabled without the local profile`() {
+        val token = accessToken(login(createUser().login))
+        listOf("/v3/api-docs", "/v3/api-docs.yaml", "/v3/api-docs/swagger-config",
+            "/swagger-ui.html", "/swagger-ui/index.html", "/swagger-ui/swagger-ui-bundle.js",
+        ).forEach { path ->
+            assertError(get(path), 401, "unauthorized")
+            assertThat(get(path, token).statusCode()).describedAs(path).isEqualTo(404)
+        }
+    }
+
     private fun createUser(
         role: UserRole = UserRole.USER,
         status: UserStatus = UserStatus.ACTIVE,

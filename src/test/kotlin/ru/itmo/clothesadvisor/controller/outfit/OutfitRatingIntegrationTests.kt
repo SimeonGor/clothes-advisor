@@ -500,11 +500,23 @@ class OutfitRatingIntegrationTests {
                 assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue()
                 val secondResult = executor.submit(Callable { second() })
                 assertThat(enteringSecondLock.await(10, TimeUnit.SECONDS)).isTrue()
+                assertDatabaseLockWait()
                 whileWaiting()
                 release.countDown()
                 return firstResult.get(30, TimeUnit.SECONDS) to secondResult.get(30, TimeUnit.SECONDS)
             } finally { release.countDown() }
         }
+    }
+
+    private fun assertDatabaseLockWait() {
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+        do {
+            if (jdbc.queryForObject("""SELECT EXISTS (SELECT 1 FROM pg_stat_activity
+                WHERE datname = current_database() AND cardinality(pg_blocking_pids(pid)) > 0
+                AND query LIKE '%outfit%' AND wait_event_type = 'Lock')""", Boolean::class.java) == true) return
+            Thread.yield()
+        } while (System.nanoTime() < deadline)
+        throw AssertionError("The second outfit operation never waited for a PostgreSQL row lock")
     }
 
     private fun deniedRatingAndHistory(f: Fixture, token: String, status: Int) {
