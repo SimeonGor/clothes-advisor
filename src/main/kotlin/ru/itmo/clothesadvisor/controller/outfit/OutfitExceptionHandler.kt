@@ -8,7 +8,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice
 import ru.itmo.clothesadvisor.service.outfit.InvalidOutfitRequestException
 import ru.itmo.clothesadvisor.service.rating.RatingConflictException
 
-@RestControllerAdvice(assignableTypes = [OutfitController::class, StylistOutfitController::class])
+@RestControllerAdvice(assignableTypes = [OutfitController::class, StylistOutfitController::class, AdminOutfitController::class])
 internal class OutfitExceptionHandler {
     @ExceptionHandler(InvalidOutfitRequestException::class)
     fun invalidRequest(): ResponseEntity<Void> = ResponseEntity.badRequest().build()
