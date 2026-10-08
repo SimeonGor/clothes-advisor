@@ -5,8 +5,7 @@ import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS
 import java.nio.file.Path
 import java.nio.file.StandardOpenOption.READ
-import java.nio.file.attribute.PosixFileAttributes
-import java.nio.file.attribute.PosixFilePermissions
+import java.nio.file.attribute.BasicFileAttributes
 import java.time.Clock
 import java.time.Instant
 import tools.jackson.databind.DeserializationFeature
@@ -23,13 +22,11 @@ internal class ChatGptCredentials(private val mapper: JsonMapper, private val cl
             ancestor = ancestor.resolve(part)
             if (Files.isSymbolicLink(ancestor)) unavailable()
         }
-        val owner = root.fileSystem.userPrincipalLookupService.lookupPrincipalByName(System.getProperty("user.name"))
 
-        fun attributes(path: Path, isDirectory: Boolean): PosixFileAttributes {
-            val attributes = Files.readAttributes(path, PosixFileAttributes::class.java, NOFOLLOW_LINKS)
-            if (attributes.owner() != owner || attributes.isSymbolicLink ||
-                (if (isDirectory) !attributes.isDirectory else !attributes.isRegularFile) ||
-                attributes.permissions() != PosixFilePermissions.fromString(if (isDirectory) "rwx------" else "rw-------")
+        fun attributes(path: Path, isDirectory: Boolean): BasicFileAttributes {
+            val attributes = Files.readAttributes(path, BasicFileAttributes::class.java, NOFOLLOW_LINKS)
+            if (attributes.isSymbolicLink ||
+                (if (isDirectory) !attributes.isDirectory else !attributes.isRegularFile)
             ) unavailable()
             return attributes
         }
