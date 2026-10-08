@@ -6,8 +6,12 @@ import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.Lock
 import org.springframework.data.repository.Repository
 import ru.itmo.clothesadvisor.model.user.AppUser
+import ru.itmo.clothesadvisor.model.user.UserRole
+import ru.itmo.clothesadvisor.model.user.UserStatus
 
 internal interface AppUserRepository : Repository<AppUser, Long> {
+    fun existsById(id: Long): Boolean
+    fun existsByIdAndRoleAndStatus(id: Long, role: UserRole, status: UserStatus): Boolean
     fun findById(id: Long): AppUser?
     fun findByLogin(login: String): AppUser?
     fun findAll(pageable: Pageable): Page<AppUser>

@@ -12,6 +12,7 @@ import ru.itmo.clothesadvisor.storage.wardrobe.PhotoStorageUnavailableException
 
 @RestControllerAdvice(assignableTypes = [
     WardrobeItemController::class, WardrobeItemPhotoController::class, StylistWardrobeController::class,
+    AdminWardrobeController::class,
 ])
 internal class WardrobeItemExceptionHandler {
     @ExceptionHandler(PhotoRequestException::class)
