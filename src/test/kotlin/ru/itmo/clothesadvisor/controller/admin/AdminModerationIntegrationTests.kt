@@ -78,7 +78,6 @@ internal class AdminModerationIntegrationTests : PostgresIntegrationTest() {
 
     @BeforeEach
     fun prepare() {
-        resetMutableData()
         doAnswer { call ->
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
             objects.getValue(call.getArgument(0))
@@ -353,7 +352,7 @@ internal class AdminModerationIntegrationTests : PostgresIntegrationTest() {
         val beforeHistory = ratingRows("outfit_rating_history", f)
         val beforeCurrent = ratingRows("outfit_rating", f)
         doAnswer { call ->
-            call.callRealMethod()
+            org.mockito.Mockito.mockingDetails(call.mock).mockCreationSettings.defaultAnswer.answer(call)
             assertThat(count("outfit")).isZero()
             throw DataIntegrityViolationException("Failure after delete")
         }.`when`(outfitRepository).delete(org.mockito.ArgumentMatchers.any(ru.itmo.clothesadvisor.model.outfit.Outfit::class.java)

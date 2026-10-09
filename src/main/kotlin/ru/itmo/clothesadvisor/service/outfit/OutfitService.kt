@@ -92,8 +92,8 @@ internal class OutfitService(
 
         val outfit = outfits.create(ownerId, authorId, source, request.name)
         val id = requireNotNull(outfit.id)
-        weather.save(OutfitWeather(id, request.weather.temperatureC, request.weather.precipitationTypeId, request.weather.windSpeedMps))
-        composition.saveAll(ids.mapIndexed { position, itemId -> OutfitItem(OutfitItemId(id, itemId), position) })
+        weather.insert(OutfitWeather(id, request.weather.temperatureC, request.weather.precipitationTypeId, request.weather.windSpeedMps))
+        composition.insertAll(ids.mapIndexed { position, itemId -> OutfitItem(OutfitItemId(id, itemId), position) })
         return OutfitResponse(id, ownerId, authorId, source, outfit.name, ids, request.weather, outfit.createdAt)
     }
 
@@ -103,8 +103,8 @@ internal class OutfitService(
     private fun responses(rows: List<Outfit>): List<OutfitResponse> {
         if (rows.isEmpty()) return emptyList()
         val ids = rows.map { requireNotNull(it.id) }
-        val itemsByOutfit = composition.findAllByKeyOutfitIdInOrderByPositionAsc(ids).groupBy { it.id.outfitId }
-        val weatherByOutfit = weather.findAllByOutfitIdIn(ids).associateBy { it.id }
+        val itemsByOutfit = composition.findAllByIdOutfitIdInOrderByPositionAsc(ids).groupBy { it.id.outfitId }
+        val weatherByOutfit = weather.findAllByIdIn(ids).associateBy { it.id }
         val counts = ratings.counts(ids)
         return rows.map {
             val id = requireNotNull(it.id)

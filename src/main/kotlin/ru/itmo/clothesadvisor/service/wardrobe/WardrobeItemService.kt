@@ -53,7 +53,7 @@ internal class WardrobeItemService(
         val previous = WardrobeItemHistory(item)
         item.replace(category, request.name, request.color, request.material)
         val saved = items.update(item)
-        history.save(previous)
+        history.insert(previous)
         return response(saved)
     }
 
@@ -63,7 +63,7 @@ internal class WardrobeItemService(
         checkVersion(item, expectedVersion)
         val previous = WardrobeItemHistory(item)
         items.delete(item)
-        history.save(previous)
+        history.insert(previous)
     }
 
     private fun owned(ownerId: Long, id: Long): WardrobeItem =

@@ -60,7 +60,7 @@ class WardrobeItemServiceTests {
         `when`(categories.getById(1)).thenReturn(category)
         `when`(items.update(row)).thenReturn(saved)
         var archived: WardrobeItemHistory? = null
-        doAnswer { archived = it.getArgument(0); null }.`when`(history).save(any(WardrobeItemHistory::class.java) ?: WardrobeItemHistory(row))
+        doAnswer { archived = it.getArgument(0); null }.`when`(history).insert(any(WardrobeItemHistory::class.java) ?: WardrobeItemHistory(row))
         val response = service.update(1, 9, UpdateWardrobeItemRequest(1, "Jacket", 1, "Blue", "Wool"))
         assertThat(response.modifiedAt).isEqualTo(saved.modifiedAt)
         assertThat(response.createdAt).isEqualTo(storedAt)

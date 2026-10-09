@@ -63,7 +63,7 @@ class OutfitRatingServiceTests {
         `when`(ratings.findById(key)).thenReturn(original)
         `when`(ratings.update(original, 3)).thenReturn(saved)
         var archived: OutfitRatingHistory? = null
-        doAnswer { archived = it.getArgument(0); null }.`when`(history).save(any(OutfitRatingHistory::class.java) ?: OutfitRatingHistory(original))
+        doAnswer { archived = it.getArgument(0); null }.`when`(history).insert(any(OutfitRatingHistory::class.java) ?: OutfitRatingHistory(original))
         assertThat(service.update(2, 1, 11, UpdateRatingRequest(RatingVote.LIKE, 3))).isEqualTo(RatingResponse(RatingVote.LIKE, 4))
         assertThat(archived!!.id.version).isEqualTo(3)
         assertThat(archived!!.modifiedAt).isEqualTo(storedAt)

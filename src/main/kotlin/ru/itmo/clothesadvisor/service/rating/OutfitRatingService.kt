@@ -14,7 +14,6 @@ import ru.itmo.clothesadvisor.dto.rating.UpdateRatingRequest
 import ru.itmo.clothesadvisor.model.rating.OutfitRating
 import ru.itmo.clothesadvisor.model.rating.OutfitRatingHistory
 import ru.itmo.clothesadvisor.model.rating.OutfitRatingId
-import ru.itmo.clothesadvisor.model.rating.RatingVote
 import ru.itmo.clothesadvisor.repository.outfit.OutfitRepository
 import ru.itmo.clothesadvisor.repository.rating.OutfitRatingHistoryRepository
 import ru.itmo.clothesadvisor.repository.rating.OutfitRatingRepository
@@ -49,7 +48,7 @@ internal class OutfitRatingService(
         rating.vote = request.vote
         rating.version += 1
         val saved = ratings.update(rating, request.version)
-        history.save(previous)
+        history.insert(previous)
         return saved.response()
     }
 
@@ -60,7 +59,7 @@ internal class OutfitRatingService(
         if (rating.version != version) throw RatingConflictException()
         val previous = OutfitRatingHistory(rating)
         ratings.delete(rating)
-        history.save(previous)
+        history.insert(previous)
     }
 
     fun counts(outfitIds: List<Long>): Map<Long, RatingCounts> =
@@ -73,7 +72,7 @@ internal class OutfitRatingService(
     fun history(ownerId: Long, outfitId: Long, pageable: Pageable): Page<RatingHistoryResponse> {
         outfits.findByIdAndOwnerId(outfitId, ownerId) ?: throw EntityNotFoundException()
         return history.timeline(outfitId, pageable).map {
-            RatingHistoryResponse(it.stylistId, RatingVote.valueOf(it.vote), it.version, it.modifiedAt, it.archivedAt)
+            RatingHistoryResponse(it.stylistId, it.vote, it.version, it.modifiedAt, it.archivedAt)
         }
     }
 

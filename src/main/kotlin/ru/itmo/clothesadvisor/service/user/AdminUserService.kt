@@ -3,7 +3,6 @@ package ru.itmo.clothesadvisor.service.user
 import ru.itmo.clothesadvisor.model.EntityNotFoundException
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageRequest
-import org.springframework.data.domain.Sort
 import ru.itmo.clothesadvisor.model.AccessDeniedException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -18,7 +17,7 @@ import ru.itmo.clothesadvisor.repository.user.AppUserRepository
 @Transactional(readOnly = true)
 internal class AdminUserService(private val users: AppUserRepository, private val appUsers: AppUserService) {
     fun list(page: PageRequest): Page<AdminUserResponse> =
-        users.findAll(page.withSort(Sort.Direction.DESC, "id")).map { it.toResponse() }
+        users.findAllByOrderByIdDesc(page).map { it.toResponse() }
 
     fun get(id: Long): AdminUserResponse =
         (users.findById(id) ?: throw EntityNotFoundException("User $id not found")).toResponse()

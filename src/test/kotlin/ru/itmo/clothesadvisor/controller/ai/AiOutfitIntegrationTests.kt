@@ -84,7 +84,6 @@ class AiOutfitIntegrationTests : PostgresIntegrationTest() {
 
     @BeforeEach
     fun externalCallsOutsideTransactions() {
-        resetMutableData()
         doAnswer { call ->
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
             downloaded += call.getArgument<String>(0)
@@ -396,12 +395,12 @@ class AiOutfitIntegrationTests : PostgresIntegrationTest() {
         item(owner)
         var writtenId = 0L
         doAnswer { call ->
-            call.callRealMethod()
+            org.mockito.Mockito.mockingDetails(call.mock).mockCreationSettings.defaultAnswer.answer(call)
             writtenId = jdbc.queryForObject("SELECT id FROM outfit WHERE owner_id = ?", Long::class.java, owner.id)!!
             assertThat(count("outfit_weather", "outfit_id", writtenId)).isEqualTo(1)
             assertThat(count("outfit_item", "outfit_id", writtenId)).isEqualTo(1)
             throw DataIntegrityViolationException("synthetic failure after composition write")
-        }.`when`(composition).saveAll(anyList())
+        }.`when`(composition).insertAll(anyList())
         assertEmpty(request("POST", actorId = actorId, body = body()), 409)
         assertThat(writtenId).isPositive()
         assertNoOutfits(owner)

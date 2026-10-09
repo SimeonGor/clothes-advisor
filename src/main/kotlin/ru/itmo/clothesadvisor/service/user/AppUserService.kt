@@ -53,7 +53,7 @@ internal class AppUserService(
         val previous = AppUserHistory(user)
         user.changeRoleAndStatus(role, status)
         val saved = users.update(user)
-        history.save(previous)
+        history.insert(previous)
         return saved
     }
 }

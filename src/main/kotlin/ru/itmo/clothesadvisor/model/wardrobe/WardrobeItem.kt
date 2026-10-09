@@ -1,18 +1,25 @@
 package ru.itmo.clothesadvisor.model.wardrobe
 
 import java.time.Instant
+import org.springframework.data.annotation.Id
+import org.springframework.data.relational.core.mapping.Embedded
+import org.springframework.data.relational.core.mapping.Table
 
+@Table("wardrobe_item")
 internal class WardrobeItem(
     val ownerId: Long,
     category: WardrobeCategory,
     name: String,
     color: String,
     material: String,
-    now: Instant,
+    val createdAt: Instant,
+    modifiedAt: Instant = createdAt,
 ) {
+    @Id
     var id: Long? = null
         internal set
 
+    @Embedded.Empty(prefix = "category_")
     var category: WardrobeCategory = category
         internal set
 
@@ -28,9 +35,7 @@ internal class WardrobeItem(
     var version: Long = 1
         internal set
 
-    val createdAt: Instant = now
-
-    var modifiedAt: Instant = now
+    var modifiedAt: Instant = modifiedAt
         internal set
 
     fun replace(category: WardrobeCategory, name: String, color: String, material: String) {
