@@ -10,14 +10,29 @@ import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
 
 internal interface AppUserHistoryRepository : Repository<AppUserHistory, AppUserHistoryId> {
-    fun insert(history: AppUserHistory) = insert(
-        history.id.userId, history.id.version, history.login, history.role, history.status, history.modifiedAt,
-    )
+    fun insert(history: AppUserHistory) =
+        insert(
+            history.id.userId,
+            history.id.version,
+            history.login,
+            history.role,
+            history.status,
+            history.modifiedAt,
+        )
 
     @Modifying
-    @Query("""
+    @Query(
+        """
         INSERT INTO app_user_history (user_id, version, login, role, status, modified_at)
         VALUES (:userId, :version, :login, :role::user_role, :status::user_status, :modifiedAt)
-    """)
-    fun insert(userId: Long, version: Long, login: String, role: UserRole, status: UserStatus, modifiedAt: Instant)
+    """,
+    )
+    fun insert(
+        userId: Long,
+        version: Long,
+        login: String,
+        role: UserRole,
+        status: UserStatus,
+        modifiedAt: Instant,
+    )
 }

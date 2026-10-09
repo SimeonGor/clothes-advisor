@@ -4,7 +4,11 @@ import java.time.Instant
 import org.springframework.data.annotation.Id
 import org.springframework.data.relational.core.mapping.Table
 
-internal enum class OutfitSource { USER, STYLIST, AI }
+internal enum class OutfitSource {
+    USER,
+    STYLIST,
+    AI,
+}
 
 @Table("outfit")
 internal class Outfit(

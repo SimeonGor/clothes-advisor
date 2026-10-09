@@ -1,88 +1,179 @@
 <!doctype html>
 <html lang="ru">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="theme-color" content="#f4f3ec">
-  <title>Clothes Advisor — ваш гардероб</title>
-  <link rel="stylesheet" href="/demo.css">
-  <script src="/demo.js" defer></script>
-</head>
-<body>
-  <main id="user-selection" class="welcome">
-    <section class="welcome-story">
-      <a class="brand" href="/">ca<span>clothes advisor</span></a>
-      <div><p class="eyebrow">Меньше сомнений. Больше сочетаний.</p>
-        <h1>Ваш гардероб.<br>Новый взгляд.</h1>
-        <p class="intro">Соберите любимые вещи в одном месте и найдите образ под настроение и погоду.</p>
-      </div>
-      <p class="muted">Учебный проект · Демонстрационная версия</p>
-    </section>
-    <section class="user-picker-card" aria-labelledby="user-picker-title">
-      <p class="eyebrow">Локальная демонстрация</p><h2 id="user-picker-title">Выберите тестового пользователя</h2>
-      <p class="muted">Данные аккаунта загружаются с сервера. Это локальный демо-интерфейс без проверки подлинности.</p>
-      <form id="user-picker-form">
-        <label>Пользователь<select id="user-picker" name="userId" required></select></label>
-        <p id="user-picker-status" class="status" role="status" aria-live="polite"></p>
-        <button type="submit" class="primary wide">Открыть гардероб</button>
-      </form>
-      <p class="fine">После обновления страницы потребуется снова выбрать пользователя.</p>
-    </section>
-  </main>
-
-  <div id="app" class="app-shell" hidden>
-    <aside class="sidebar">
-      <a class="brand" href="/">ca<span>clothes advisor</span></a>
-      <nav aria-label="Разделы гардероба">
-        <button id="wardrobe-tab" class="nav-button" aria-current="page">Гардероб <span>01</span></button>
-        <button id="outfits-tab" class="nav-button">Образы <span>02</span></button>
-      </nav>
-      <div class="sidebar-bottom"><p id="account" class="account"></p><button id="change-user" class="quiet">Сменить пользователя</button>
-        <p class="fine">Локальная демонстрация без проверки подлинности</p></div>
-    </aside>
-    <main class="workspace">
-      <div id="user-workspace">
-        <header class="page-header"><div><p class="eyebrow">Всё начинается с ваших вещей</p><h1 id="page-title">Мой гардероб</h1><p id="page-subtitle" class="muted">Любимые вещи, готовые к новым сочетаниям.</p></div>
-          <div class="actions"><button id="refresh" class="quiet">Обновить</button><button id="create" class="primary">+ Добавить вещь</button></div>
-        </header>
-        <p id="page-status" class="status" role="status" aria-live="polite"></p>
-        <div id="cards" class="cards"></div>
-        <div id="pagination" class="pagination" aria-label="Страницы коллекции"></div>
-      </div>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#f4f3ec" />
+    <title>Clothes Advisor — ваш гардероб</title>
+    <link rel="stylesheet" href="/demo.css" />
+    <script src="/demo.js" defer></script>
+  </head>
+  <body>
+    <main id="user-selection" class="welcome">
+      <section class="welcome-story">
+        <a class="brand" href="/">ca<span>clothes advisor</span></a>
+        <div>
+          <p class="eyebrow">Меньше сомнений. Больше сочетаний.</p>
+          <h1>Ваш гардероб.<br />Новый взгляд.</h1>
+          <p class="intro">
+            Соберите любимые вещи в одном месте и найдите образ под настроение и погоду.
+          </p>
+        </div>
+        <p class="muted">Учебный проект · Демонстрационная версия</p>
+      </section>
+      <section class="user-picker-card" aria-labelledby="user-picker-title">
+        <p class="eyebrow">Локальная демонстрация</p>
+        <h2 id="user-picker-title">Выберите тестового пользователя</h2>
+        <p class="muted">
+          Данные аккаунта загружаются с сервера. Это локальный демо-интерфейс без проверки
+          подлинности.
+        </p>
+        <form id="user-picker-form">
+          <label>Пользователь<select id="user-picker" name="userId" required></select></label>
+          <p id="user-picker-status" class="status" role="status" aria-live="polite"></p>
+          <button type="submit" class="primary wide">Открыть гардероб</button>
+        </form>
+        <p class="fine">После обновления страницы потребуется снова выбрать пользователя.</p>
+      </section>
     </main>
-  </div>
 
-  <dialog id="item-dialog" aria-labelledby="item-title">
-    <div class="dialog-heading"><div><p class="eyebrow">Личная коллекция</p><h2 id="item-title">Добавить вещь</h2></div><button type="button" class="close" data-close aria-label="Закрыть">×</button></div>
-    <form id="item-form">
-      <label>Название<input name="name" required maxlength="300" placeholder="Например, льняная рубашка"></label>
-      <div class="form-grid"><label>Категория<select name="categoryId" required></select></label><label>Цвет<input name="color" required maxlength="100" placeholder="Молочный"></label></div>
-      <label>Материал<input name="material" required maxlength="100" placeholder="Лён"></label>
-      <div id="initial-photos"><label>Фотографии<input name="photos" type="file" accept="image/jpeg,image/png" multiple></label><p class="fine">До 5 фотографий JPEG или PNG, каждая не более 10 МБ.</p></div>
-      <p id="item-status" class="status" role="status" aria-live="polite"></p>
-      <button type="submit" class="primary wide">Сохранить вещь</button>
-    </form>
-    <section id="photo-section" hidden aria-labelledby="photos-title">
-      <h3 id="photos-title">Фотографии</h3><div id="photo-gallery" class="photo-gallery"></div>
-      <form id="photo-form"><label>Добавить фотографии<input name="photos" type="file" accept="image/jpeg,image/png" multiple required></label>
-        <p class="fine">До 5 фотографий на вещь, JPEG или PNG до 10 МБ каждая.</p>
-        <p id="photo-status" class="status" role="status" aria-live="polite"></p><button type="submit" class="secondary">Загрузить фото</button></form>
-    </section>
-  </dialog>
+    <div id="app" class="app-shell" hidden>
+      <aside class="sidebar">
+        <a class="brand" href="/">ca<span>clothes advisor</span></a>
+        <nav aria-label="Разделы гардероба">
+          <button id="wardrobe-tab" class="nav-button" aria-current="page">
+            Гардероб <span>01</span>
+          </button>
+          <button id="outfits-tab" class="nav-button">Образы <span>02</span></button>
+        </nav>
+        <div class="sidebar-bottom">
+          <p id="account" class="account"></p>
+          <button id="change-user" class="quiet">Сменить пользователя</button>
+          <p class="fine">Локальная демонстрация без проверки подлинности</p>
+        </div>
+      </aside>
+      <main class="workspace">
+        <div id="user-workspace">
+          <header class="page-header">
+            <div>
+              <p class="eyebrow">Всё начинается с ваших вещей</p>
+              <h1 id="page-title">Мой гардероб</h1>
+              <p id="page-subtitle" class="muted">Любимые вещи, готовые к новым сочетаниям.</p>
+            </div>
+            <div class="actions">
+              <button id="refresh" class="quiet">Обновить</button
+              ><button id="create" class="primary">+ Добавить вещь</button>
+            </div>
+          </header>
+          <p id="page-status" class="status" role="status" aria-live="polite"></p>
+          <div id="cards" class="cards"></div>
+          <div id="pagination" class="pagination" aria-label="Страницы коллекции"></div>
+        </div>
+      </main>
+    </div>
 
-  <dialog id="outfit-dialog" aria-labelledby="outfit-title">
-    <div class="dialog-heading"><div><p class="eyebrow">Новые сочетания</p><h2 id="outfit-title">Создать образ</h2></div><button type="button" class="close" data-close aria-label="Закрыть">×</button></div>
-    <form id="outfit-form">
-      <label>Название<input name="name" required maxlength="300" placeholder="На прогулку по городу"></label>
-      <label>Способ создания<select name="mode"><option value="manual">Составить вручную</option><option value="ai">Подобрать с AI</option></select></label>
-      <div class="form-grid"><label>Температура, °C<input name="temperatureC" type="number" step="any" required value="15"></label><label>Ветер, м/с<input name="windSpeedMps" type="number" step="any" min="0" required value="0"></label></div>
-      <label>Осадки<select name="precipitationTypeId" required></select></label>
-      <fieldset><legend>Вещи для образа</legend><p id="selection-hint" class="fine"></p><p id="selection-count" class="selection-count"></p>
-        <div id="item-picker" class="item-picker"></div><div id="picker-pagination" class="pagination"></div></fieldset>
-      <p id="ai-hint" class="notice" hidden>AI использует фотографии и передаёт их OpenAI. Нужны 1–20 вещей с фотографиями; вещи без фото пропускаются. Без выбранных вещей используется весь гардероб. Подключение доступно аккаунту user. Подбор может занять до 60 секунд.</p>
-      <p id="outfit-status" class="status" role="status" aria-live="polite"></p><button type="submit" class="primary wide">Сохранить образ</button>
-    </form>
-  </dialog>
-  <noscript>Для демонстрационного интерфейса включите JavaScript.</noscript>
-</body>
+    <dialog id="item-dialog" aria-labelledby="item-title">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">Личная коллекция</p>
+          <h2 id="item-title">Добавить вещь</h2>
+        </div>
+        <button type="button" class="close" data-close aria-label="Закрыть">×</button>
+      </div>
+      <form id="item-form">
+        <label
+          >Название<input
+            name="name"
+            required
+            maxlength="300"
+            placeholder="Например, льняная рубашка"
+        /></label>
+        <div class="form-grid">
+          <label>Категория<select name="categoryId" required></select></label
+          ><label>Цвет<input name="color" required maxlength="100" placeholder="Молочный" /></label>
+        </div>
+        <label>Материал<input name="material" required maxlength="100" placeholder="Лён" /></label>
+        <div id="initial-photos">
+          <label
+            >Фотографии<input name="photos" type="file" accept="image/jpeg,image/png" multiple
+          /></label>
+          <p class="fine">До 5 фотографий JPEG или PNG, каждая не более 10 МБ.</p>
+        </div>
+        <p id="item-status" class="status" role="status" aria-live="polite"></p>
+        <button type="submit" class="primary wide">Сохранить вещь</button>
+      </form>
+      <section id="photo-section" hidden aria-labelledby="photos-title">
+        <h3 id="photos-title">Фотографии</h3>
+        <div id="photo-gallery" class="photo-gallery"></div>
+        <form id="photo-form">
+          <label
+            >Добавить фотографии<input
+              name="photos"
+              type="file"
+              accept="image/jpeg,image/png"
+              multiple
+              required
+          /></label>
+          <p class="fine">До 5 фотографий на вещь, JPEG или PNG до 10 МБ каждая.</p>
+          <p id="photo-status" class="status" role="status" aria-live="polite"></p>
+          <button type="submit" class="secondary">Загрузить фото</button>
+        </form>
+      </section>
+    </dialog>
+
+    <dialog id="outfit-dialog" aria-labelledby="outfit-title">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">Новые сочетания</p>
+          <h2 id="outfit-title">Создать образ</h2>
+        </div>
+        <button type="button" class="close" data-close aria-label="Закрыть">×</button>
+      </div>
+      <form id="outfit-form">
+        <label
+          >Название<input name="name" required maxlength="300" placeholder="На прогулку по городу"
+        /></label>
+        <label
+          >Способ создания<select name="mode">
+            <option value="manual">Составить вручную</option>
+            <option value="ai">Подобрать с AI</option>
+          </select></label
+        >
+        <div class="form-grid">
+          <label
+            >Температура, °C<input
+              name="temperatureC"
+              type="number"
+              step="any"
+              required
+              value="15" /></label
+          ><label
+            >Ветер, м/с<input
+              name="windSpeedMps"
+              type="number"
+              step="any"
+              min="0"
+              required
+              value="0"
+          /></label>
+        </div>
+        <label>Осадки<select name="precipitationTypeId" required></select></label>
+        <fieldset>
+          <legend>Вещи для образа</legend>
+          <p id="selection-hint" class="fine"></p>
+          <p id="selection-count" class="selection-count"></p>
+          <div id="item-picker" class="item-picker"></div>
+          <div id="picker-pagination" class="pagination"></div>
+        </fieldset>
+        <p id="ai-hint" class="notice" hidden>
+          AI использует фотографии и передаёт их OpenAI. Нужны 1–20 вещей с фотографиями; вещи без
+          фото пропускаются. Без выбранных вещей используется весь гардероб. Подключение доступно
+          аккаунту user. Подбор может занять до 60 секунд.
+        </p>
+        <p id="outfit-status" class="status" role="status" aria-live="polite"></p>
+        <button type="submit" class="primary wide">Сохранить образ</button>
+      </form>
+    </dialog>
+    <noscript>Для демонстрационного интерфейса включите JavaScript.</noscript>
+  </body>
 </html>

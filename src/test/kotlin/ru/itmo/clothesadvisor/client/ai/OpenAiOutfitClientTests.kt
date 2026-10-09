@@ -13,7 +13,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import org.assertj.core.api.Assertions.assertThat
-import org.assertj.core.api.Assertions.assertThatThrownBy
+import org.assertj.core.api.Assertions.catchThrowable
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -26,16 +26,22 @@ class OpenAiOutfitClientTests {
     private val mapper = JsonMapper.builder().build()
     private val http = HttpClient.newHttpClient()
     private val executor = Executors.newCachedThreadPool()
-    private val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
-        this.executor = this@OpenAiOutfitClientTests.executor
-        start()
-    }
+    private val server =
+        HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            this.executor = this@OpenAiOutfitClientTests.executor
+            start()
+        }
     private val calls = AtomicInteger()
-    private val weather = AiWeather(OutfitWeatherDto(BigDecimal("-1.23456789"), 1, BigDecimal("2.3")), "RAIN", "Rain")
-    private val candidates = listOf(7L, 9L, 11L).map {
-        AiCandidateImage(AiCandidate(it, it + 100, "TOP", "Top", "Shirt $it", "White", "Cotton"),
-            "image/png", byteArrayOf(1, 2, 3))
-    }
+    private val weather =
+        AiWeather(OutfitWeatherDto(BigDecimal("-1.23456789"), 1, BigDecimal("2.3")), "RAIN", "Rain")
+    private val candidates =
+        listOf(7L, 9L, 11L).map {
+            AiCandidateImage(
+                AiCandidate(it, it + 100, "TOP", "Top", "Shirt $it", "White", "Cotton"),
+                "image/png",
+                byteArrayOf(1, 2, 3),
+            )
+        }
 
     @AfterEach
     fun close() {
@@ -46,6 +52,8 @@ class OpenAiOutfitClientTests {
 
     @Test
     fun `real HTTP request contains strict schema weather images and configuration and preserves selected order`() {
+
+        // given
         var requestBody = ""
         var authorization = ""
         server.createContext("/v1/responses") { exchange ->
@@ -57,7 +65,12 @@ class OpenAiOutfitClientTests {
             exchange.sendResponseHeaders(200, bytes.size.toLong())
             exchange.responseBody.use { it.write(bytes) }
         }
-        assertThat(client().select(weather, candidates)).containsExactly(11, 7)
+
+        // when
+        val selectedIds = client().select(weather, candidates)
+
+        // then
+        assertThat(selectedIds).containsExactly(11, 7)
         assertThat(calls).hasValue(1)
         assertThat(authorization).isEqualTo("Bearer synthetic-test-token")
         val body = mapper.readTree(requestBody)
@@ -71,75 +84,122 @@ class OpenAiOutfitClientTests {
         assertThat(format.path("strict").asBoolean()).isTrue()
         val schema = format.path("schema")
         assertThat(schema.path("additionalProperties").asBoolean()).isFalse()
-        assertThat(schema.path("required").toList().map { it.asString() }).containsExactly("itemIds")
-        assertThat(schema.path("properties").path("itemIds").path("items").path("enum").toList().map { it.longValue() })
+        assertThat(schema.path("required").toList().map { it.asString() })
+            .containsExactly("itemIds")
+        assertThat(
+                schema.path("properties").path("itemIds").path("items").path("enum").toList().map {
+                    it.longValue()
+                },
+            )
             .containsExactly(7, 9, 11)
         val content = body.path("input")[0].path("content")
         assertThat(content).hasSize(7)
-        assertThat(content[0].path("text").asString()).contains("-1.23456789", "2.3", "RAIN", "Rain")
-        assertThat(content[1].path("text").asString()).contains("Shirt 7", "White", "Cotton", "TOP").doesNotContain("photoId")
-        assertThat(content.filter { it.path("type").asString() == "input_image" }
-            .map { it.path("image_url").asString() }).containsOnly("data:image/png;base64,AQID")
+        assertThat(content[0].path("text").asString())
+            .contains("-1.23456789", "2.3", "RAIN", "Rain")
+        assertThat(content[1].path("text").asString())
+            .contains("Shirt 7", "White", "Cotton", "TOP")
+            .doesNotContain("photoId")
+        assertThat(
+                content
+                    .filter { it.path("type").asString() == "input_image" }
+                    .map { it.path("image_url").asString() },
+            )
+            .containsOnly("data:image/png;base64,AQID")
     }
 
     @Test
     fun `refusal empty malformed and invalid IDs have sanitized distinct failures`() {
-        val replies = listOf(
-            completed("{\"itemIds\":[]}") to 422,
-            event("response.completed", """{"status":"completed","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"refusal","refusal":"private reason"}]}]}""") to 422,
-            "data: not json private provider body\n\n" to 502,
-            "" to 502,
-            "data: null\n\n" to 502,
-            event("response.completed", """{"status":"completed","output":[]}""") to 502,
-            completed("{}") to 502,
-            completed("") to 502,
-            completed("null") to 502,
-            completed("{\"itemIds\":[7.0]}") to 502,
-            completed("{\"itemIds\":[null]}") to 502,
-            completed("{\"itemIds\":[\"7\"]}") to 502,
-            completed("{\"itemIds\":[999]}") to 502,
-            completed("{\"itemIds\":[7,7]}") to 502,
-            completed("{\"itemIds\":[9223372036854775808]}") to 502,
-            completed("{\"itemIds\":[7],\"extra\":true}") to 502,
-            completed("{\"itemIds\":[7],\"itemIds\":[9]}") to 502,
-            completed("{\"itemIds\":[7]} {}") to 502,
-            completed("{\"itemIds\":[7]}").trimEnd() + " {}\n\n" to 502,
-        )
+
+        // given
+        val replies =
+            listOf(
+                completed("{\"itemIds\":[]}") to 422,
+                event(
+                    "response.completed",
+                    """{"status":"completed","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"refusal","refusal":"private reason"}]}]}""",
+                ) to 422,
+                "data: not json private provider body\n\n" to 502,
+                "" to 502,
+                "data: null\n\n" to 502,
+                event("response.completed", """{"status":"completed","output":[]}""") to 502,
+                completed("{}") to 502,
+                completed("") to 502,
+                completed("null") to 502,
+                completed("{\"itemIds\":[7.0]}") to 502,
+                completed("{\"itemIds\":[null]}") to 502,
+                completed("{\"itemIds\":[\"7\"]}") to 502,
+                completed("{\"itemIds\":[999]}") to 502,
+                completed("{\"itemIds\":[7,7]}") to 502,
+                completed("{\"itemIds\":[9223372036854775808]}") to 502,
+                completed("{\"itemIds\":[7],\"extra\":true}") to 502,
+                completed("{\"itemIds\":[7],\"itemIds\":[9]}") to 502,
+                completed("{\"itemIds\":[7]} {}") to 502,
+                completed("{\"itemIds\":[7]}").trimEnd() + " {}\n\n" to 502,
+            )
         var reply = ""
         respond { 200 to reply }
         replies.forEach { (body, status) ->
+
+            // given: the next provider reply
             reply = body
-            failure(status) { client().select(weather, candidates) }
+
+            // when
+            val failure = catchThrowable { client().select(weather, candidates) }
+
+            // then
+            assertFailure(status, failure)
         }
         assertThat(calls).hasValue(replies.size)
     }
 
     @Test
     fun `HTTP failures become unavailable without retry`() {
+
+        // given
         var status = 429
         respond { status to "private provider detail" }
         for (code in listOf(400, 401, 429, 500, 503)) {
+
+            // given: the next HTTP status
             status = code
-            failure(503) { client().select(weather, candidates) }
+
+            // when
+            val failure = catchThrowable { client().select(weather, candidates) }
+
+            // then
+            assertFailure(503, failure)
         }
         assertThat(calls).hasValue(5)
     }
 
     @Test
     fun `request timeout becomes 504 without retry`() {
+
+        // given
         val release = CountDownLatch(1)
         respond {
             release.await(5, TimeUnit.SECONDS)
             200 to completed("{\"itemIds\":[7]}")
         }
         try {
-            failure(504) { client(timeout = Duration.ofMillis(200)).select(weather, candidates) }
+
+            // when
+            val timeoutFailure = catchThrowable {
+                client(timeout = Duration.ofMillis(200)).select(weather, candidates)
+            }
+
+            // then
+            assertFailure(504, timeoutFailure)
             assertThat(calls).hasValue(1)
-        } finally { release.countDown() }
+        } finally {
+            release.countDown()
+        }
     }
 
     @Test
     fun `timeout includes body after successful response headers`() {
+
+        // given
         val release = CountDownLatch(1)
         val headers = CountDownLatch(1)
         server.createContext("/v1/responses") { exchange ->
@@ -153,98 +213,216 @@ class OpenAiOutfitClientTests {
             exchange.close()
         }
         try {
-            failure(504) { client(timeout = Duration.ofMillis(300)).select(weather, candidates) }
+
+            // when
+            val timeoutFailure = catchThrowable {
+                client(timeout = Duration.ofMillis(300)).select(weather, candidates)
+            }
+
+            // then
+            assertFailure(504, timeoutFailure)
             assertThat(headers.count).isZero()
             assertThat(calls).hasValue(1)
-        } finally { release.countDown() }
+        } finally {
+            release.countDown()
+        }
     }
 
     @Test
     fun `missing credentials or model fails without network and connection failure becomes unavailable`() {
+
+        // given
         respond { 200 to completed("{\"itemIds\":[7]}") }
-        failure(503) { client(directory = "").select(weather, candidates) }
-        failure(503) { client(model = "").select(weather, candidates) }
+
+        // when
+        val missingCredentials = catchThrowable {
+            client(directory = "").select(weather, candidates)
+        }
+
+        // then
+        assertFailure(503, missingCredentials)
+
+        // when
+        val missingModel = catchThrowable { client(model = "").select(weather, candidates) }
+
+        // then
+        assertFailure(503, missingModel)
         assertThat(calls).hasValue(0)
+
+        // given: the provider is no longer reachable
         server.stop(0)
-        failure(503) { client().select(weather, candidates) }
+
+        // when
+        val connectionFailure = catchThrowable { client().select(weather, candidates) }
+
+        // then
+        assertFailure(503, connectionFailure)
     }
 
-    private fun completed(json: String) = event("response.completed", mapper.writeValueAsString(mapOf("status" to "completed", "output" to listOf(
-        mapOf("type" to "message", "role" to "assistant", "status" to "completed", "content" to listOf(
-            mapOf("type" to "output_text", "text" to json),
-        )),
-    ))))
+    private fun completed(json: String) =
+        event(
+            "response.completed",
+            mapper.writeValueAsString(
+                mapOf(
+                    "status" to "completed",
+                    "output" to
+                        listOf(
+                            mapOf(
+                                "type" to "message",
+                                "role" to "assistant",
+                                "status" to "completed",
+                                "content" to
+                                    listOf(
+                                        mapOf("type" to "output_text", "text" to json),
+                                    ),
+                            ),
+                        ),
+                ),
+            ),
+        )
 
-    private fun event(type: String, response: String) = "event: $type\ndata: {\"type\":\"$type\",\"response\":$response}\n\n"
+    private fun event(type: String, response: String) =
+        "event: $type\ndata: {\"type\":\"$type\",\"response\":$response}\n\n"
 
     private fun delta(text: String, item: String = "message-1", output: Int = 0, content: Int = 0) =
-        "data: " + mapper.writeValueAsString(mapOf("type" to "response.output_text.delta", "delta" to text,
-            "item_id" to item, "output_index" to output, "content_index" to content)) + "\n\n"
+        "data: " +
+            mapper.writeValueAsString(
+                mapOf(
+                    "type" to "response.output_text.delta",
+                    "delta" to text,
+                    "item_id" to item,
+                    "output_index" to output,
+                    "content_index" to content,
+                ),
+            ) +
+            "\n\n"
 
     @Test
     fun `terminal text takes priority and empty terminal output uses one delta group`() {
-        var reply = delta("{\"itemIds\":[") + delta("9,7]}") + event("response.completed", """{"status":"completed","output":[]}""")
+
+        // given
+        var reply =
+            delta("{\"itemIds\":[") +
+                delta("9,7]}") +
+                event("response.completed", """{"status":"completed","output":[]}""")
         respond { 200 to reply }
-        assertThat(client().select(weather, candidates)).containsExactly(9, 7)
+
+        // when
+        val deltaSelection = client().select(weather, candidates)
+
+        // then
+        assertThat(deltaSelection).containsExactly(9, 7)
+
+        // given: the next terminal and delta combination
         reply = delta("malformed unused partial") + completed("{\"itemIds\":[11]}")
-        assertThat(client().select(weather, candidates)).containsExactly(11)
+
+        // when
+        val terminalSelection = client().select(weather, candidates)
+
+        // then
+        assertThat(terminalSelection).containsExactly(11)
+
+        // given: the next terminal and delta combination
         reply = delta("{\"itemIds\":[9]}") + completed(" \t")
-        assertThat(client().select(weather, candidates)).containsExactly(9)
+
+        // when
+        val fallbackSelection = client().select(weather, candidates)
+
+        // then
+        assertThat(fallbackSelection).containsExactly(9)
     }
 
     @Test
     fun `SSE framing accepts comments CRLF multiline data and optional field space`() {
-        val ignored = "event: ignored\ndata:\n\n: keepalive\nretry: 1000\nunknown\n\n" +
-            "event: response.created\ndata: {\"type\":\"response.created\"}\n\n"
-        val terminal = completed("{\"itemIds\":[7]}")
-            .replace("event: ", "event:")
-            .replace("data: ", "data:")
-            .replace(",\"response\":", ",\ndata: \"response\":")
+
+        // given
+        val ignored =
+            "event: ignored\ndata:\n\n: keepalive\nretry: 1000\nunknown\n\n" +
+                "event: response.created\ndata: {\"type\":\"response.created\"}\n\n"
+        val terminal =
+            completed("{\"itemIds\":[7]}")
+                .replace("event: ", "event:")
+                .replace("data: ", "data:")
+                .replace(",\"response\":", ",\ndata: \"response\":")
         respond { 200 to (ignored + terminal).replace("\n", "\r\n") }
-        assertThat(client().select(weather, candidates)).containsExactly(7)
+
+        // when
+        val selectedIds = client().select(weather, candidates)
+
+        // then
+        assertThat(selectedIds).containsExactly(7)
     }
 
     @Test
     fun `malformed UTF8 remains an input decoding failure`() {
+
+        // given
         val bytes = "data: ".toByteArray() + byteArrayOf(0xC3.toByte(), 0x28) + "\n\n".toByteArray()
-        assertThatThrownBy { OpenAiResponseStream(mapper).read(bytes.inputStream()) }
-            .isInstanceOf(MalformedInputException::class.java)
+
+        // when
+        val failure = catchThrowable { OpenAiResponseStream(mapper).read(bytes.inputStream()) }
+
+        // then
+        assertThat(failure).isInstanceOf(MalformedInputException::class.java)
     }
 
     @Test
     fun `partial streams failures mixed outputs bounds and missing delimiter never succeed`() {
+
+        // given
         val successful = completed("{\"itemIds\":[7]}")
         val prefix = delta("{\"itemIds\":[7]}")
-        val replies = listOf(
-            prefix to 502,
-            prefix + event("response.failed", """{"status":"failed"}""") to 503,
-            prefix + "data: {\"type\":\"error\",\"message\":\"private\"}\n\n" to 503,
-            prefix + event("response.incomplete", """{"status":"incomplete"}""") to 502,
-            prefix + "data: {\"type\":\"response.refusal.delta\",\"delta\":\"private\"}\n\n" to 422,
-            prefix + event("response.completed", """{"status":"completed","output":[],"error":{"code":"quota"}}""") to 503,
-            prefix + delta(" ", item = "another") + successful to 502,
-            prefix + delta(" ", output = 1) + successful to 502,
-            prefix + delta(" ", content = 1) + successful to 502,
-            "data: {\"type\":\"response.output_text.delta\",\"delta\":\"text\"}\n\n" + successful to 502,
-            successful.trimEnd() to 502,
-            successful.removeSuffix("\n") to 502,
-            successful.replace("\"type\":\"response.completed\"", "\"type\":\"response.completed\",\"type\":\"response.completed\"") to 502,
-            successful.replace("event: response.completed", "event: response.failed") to 502,
-            ":" + "x".repeat(1_048_577) + "\n\n" + successful to 502,
-            successful.replace("data: ", "data: " + " ".repeat(600_000))
-                .removeSuffix("\n\n") + "\ndata: " + " ".repeat(600_000) + "\n\n" to 502,
-            delta("x".repeat(600_000)) + delta("x".repeat(600_000)) + successful to 502,
-        )
+        val replies =
+            listOf(
+                prefix to 502,
+                prefix + event("response.failed", """{"status":"failed"}""") to 503,
+                prefix + "data: {\"type\":\"error\",\"message\":\"private\"}\n\n" to 503,
+                prefix + event("response.incomplete", """{"status":"incomplete"}""") to 502,
+                prefix + "data: {\"type\":\"response.refusal.delta\",\"delta\":\"private\"}\n\n" to
+                    422,
+                prefix +
+                    event(
+                        "response.completed",
+                        """{"status":"completed","output":[],"error":{"code":"quota"}}""",
+                    ) to 503,
+                prefix + delta(" ", item = "another") + successful to 502,
+                prefix + delta(" ", output = 1) + successful to 502,
+                prefix + delta(" ", content = 1) + successful to 502,
+                "data: {\"type\":\"response.output_text.delta\",\"delta\":\"text\"}\n\n" +
+                    successful to 502,
+                successful.trimEnd() to 502,
+                successful.removeSuffix("\n") to 502,
+                successful.replace(
+                    "\"type\":\"response.completed\"",
+                    "\"type\":\"response.completed\",\"type\":\"response.completed\"",
+                ) to 502,
+                successful.replace("event: response.completed", "event: response.failed") to 502,
+                ":" + "x".repeat(1_048_577) + "\n\n" + successful to 502,
+                successful.replace("data: ", "data: " + " ".repeat(600_000)).removeSuffix("\n\n") +
+                    "\ndata: " +
+                    " ".repeat(600_000) +
+                    "\n\n" to 502,
+                delta("x".repeat(600_000)) + delta("x".repeat(600_000)) + successful to 502,
+            )
         var reply = ""
         respond { 200 to reply }
         replies.forEach { (body, status) ->
+
+            // given: the next provider reply
             reply = body
-            failure(status) { client().select(weather, candidates) }
+
+            // when
+            val failure = catchThrowable { client().select(weather, candidates) }
+
+            // then
+            assertFailure(status, failure)
         }
     }
 
     @Test
     fun `explicit content type must be event stream`() {
+
+        // given
         var contentType = "application/json"
         server.createContext("/v1/responses") { exchange ->
             exchange.requestBody.use { it.readAllBytes() }
@@ -254,11 +432,25 @@ class OpenAiOutfitClientTests {
             exchange.responseBody.use { it.write(bytes) }
         }
         for (invalid in listOf("application/json", " ")) {
+
+            // given: an invalid content type
             contentType = invalid
-            failure(502) { client().select(weather, candidates) }
+
+            // when
+            val failure = catchThrowable { client().select(weather, candidates) }
+
+            // then
+            assertFailure(502, failure)
         }
+
+        // given: a valid event stream content type
         contentType = "text/event-stream; charset=utf-8"
-        assertThat(client().select(weather, candidates)).containsExactly(7)
+
+        // when
+        val selectedIds = client().select(weather, candidates)
+
+        // then
+        assertThat(selectedIds).containsExactly(7)
     }
 
     private fun respond(reply: () -> Pair<Int, String>) {
@@ -272,12 +464,22 @@ class OpenAiOutfitClientTests {
         }
     }
 
-    private fun client(directory: String = credentials.directory.toString(), model: String = "test-model", timeout: Duration = Duration.ofSeconds(5)) =
-        OpenAiOutfitClient(http, mapper, ChatGptCredentials(mapper, credentials.clock, directory), model,
-            URI("http://127.0.0.1:${server.address.port}/v1/responses"), timeout)
+    private fun client(
+        directory: String = credentials.directory.toString(),
+        model: String = "test-model",
+        timeout: Duration = Duration.ofSeconds(5),
+    ) =
+        OpenAiOutfitClient(
+            http,
+            mapper,
+            ChatGptCredentials(mapper, credentials.clock, directory),
+            model,
+            URI("http://127.0.0.1:${server.address.port}/v1/responses"),
+            timeout,
+        )
 
-    private fun failure(status: Int, action: () -> Any) {
-        assertThatThrownBy { action() }.isInstanceOfSatisfying(AiOutfitException::class.java) {
+    private fun assertFailure(status: Int, failure: Throwable?) {
+        assertThat(failure).isInstanceOfSatisfying(AiOutfitException::class.java) {
             assertThat(it.status).isEqualTo(status)
             assertThat(it.message).isNull()
             assertThat(it.cause).isNull()

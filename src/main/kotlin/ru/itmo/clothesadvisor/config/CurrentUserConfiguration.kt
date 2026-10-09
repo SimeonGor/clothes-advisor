@@ -15,8 +15,10 @@ import ru.itmo.clothesadvisor.repository.user.AppUserRepository
 
 internal class InvalidCurrentUserException : RuntimeException()
 
-internal class CurrentUserArgumentResolver(private val users: AppUserRepository) : HandlerMethodArgumentResolver {
-    override fun supportsParameter(parameter: MethodParameter) = parameter.parameterType == CurrentUser::class.java
+internal class CurrentUserArgumentResolver(private val users: AppUserRepository) :
+    HandlerMethodArgumentResolver {
+    override fun supportsParameter(parameter: MethodParameter) =
+        parameter.parameterType == CurrentUser::class.java
 
     override fun resolveArgument(
         parameter: MethodParameter,
@@ -24,10 +26,13 @@ internal class CurrentUserArgumentResolver(private val users: AppUserRepository)
         webRequest: NativeWebRequest,
         binderFactory: WebDataBinderFactory?,
     ): CurrentUser {
-        val id = webRequest.getHeader("X-User-Id")?.toLongOrNull()?.takeIf { it > 0 }
-            ?: throw InvalidCurrentUserException()
+        val id =
+            webRequest.getHeader("X-User-Id")?.toLongOrNull()?.takeIf { it > 0 }
+                ?: throw InvalidCurrentUserException()
         val user = users.findById(id) ?: throw EntityNotFoundException()
-        if (user.status == UserStatus.BLOCKED) throw AccessDeniedException()
+        if (user.status == UserStatus.BLOCKED) {
+            throw AccessDeniedException()
+        }
         return CurrentUser(id, user.login, user.role)
     }
 }

@@ -10,18 +10,22 @@ internal interface WardrobeItemPhotoRepository : Repository<WardrobeItemPhoto, L
 
     fun findAllByItemIdOrderByIdAsc(itemId: Long): List<WardrobeItemPhoto>
 
-    @Query("""
+    @Query(
+        """
         SELECT p.* FROM wardrobe_item_photo p JOIN wardrobe_item i ON i.id = p.wardrobe_item_id
         WHERE p.id = :id AND p.wardrobe_item_id = :itemId AND i.owner_id = :ownerId
-    """)
+    """,
+    )
     fun findByIdAndItemIdAndItemOwnerId(id: Long, itemId: Long, ownerId: Long): WardrobeItemPhoto?
 
     fun countByItemId(itemId: Long): Long
 
-    @Query("""
+    @Query(
+        """
         INSERT INTO wardrobe_item_photo (wardrobe_item_id, s3_key, content_type, size_bytes)
         VALUES (:itemId, :s3Key, :contentType, :sizeBytes) RETURNING *
-    """)
+    """,
+    )
     fun create(itemId: Long, s3Key: String, contentType: String, sizeBytes: Long): WardrobeItemPhoto
 
     @Modifying

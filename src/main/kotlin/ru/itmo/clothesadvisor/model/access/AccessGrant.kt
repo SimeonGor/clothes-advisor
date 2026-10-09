@@ -9,5 +9,4 @@ internal data class AccessGrantId(
     val stylistId: Long,
 )
 
-@Table("access_grant")
-internal class AccessGrant(@Id @Embedded.Empty val id: AccessGrantId)
+@Table("access_grant") internal class AccessGrant(@Id @Embedded.Empty val id: AccessGrantId)

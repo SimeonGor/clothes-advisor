@@ -1,11 +1,11 @@
 package ru.itmo.clothesadvisor.service.user
 
-import ru.itmo.clothesadvisor.model.EntityNotFoundException
 import jakarta.validation.ConstraintViolationException
 import jakarta.validation.Validator
 import org.springframework.dao.OptimisticLockingFailureException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import ru.itmo.clothesadvisor.model.EntityNotFoundException
 import ru.itmo.clothesadvisor.model.user.AppUser
 import ru.itmo.clothesadvisor.model.user.AppUserHistory
 import ru.itmo.clothesadvisor.model.user.UserRole
@@ -27,9 +27,12 @@ internal class AppUserService(
         role: UserRole,
         status: UserStatus = UserStatus.ACTIVE,
     ): AppUser {
-        val violations = validator.validateValue(AppUser::class.java, "login", login) +
-            validator.validateValue(AppUser::class.java, "passwordHash", passwordHash)
-        if (violations.isNotEmpty()) throw ConstraintViolationException(violations)
+        val violations =
+            validator.validateValue(AppUser::class.java, "login", login) +
+                validator.validateValue(AppUser::class.java, "passwordHash", passwordHash)
+        if (violations.isNotEmpty()) {
+            throw ConstraintViolationException(violations)
+        }
         return users.create(login, passwordHash, role, status)
     }
 
@@ -48,7 +51,9 @@ internal class AppUserService(
         if (user.version != expectedVersion) {
             throw OptimisticLockingFailureException("User $id version conflict")
         }
-        if (user.role == role && user.status == status) return user
+        if (user.role == role && user.status == status) {
+            return user
+        }
 
         val previous = AppUserHistory(user)
         user.changeRoleAndStatus(role, status)

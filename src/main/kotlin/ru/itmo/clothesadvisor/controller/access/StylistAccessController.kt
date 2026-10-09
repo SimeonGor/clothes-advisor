@@ -1,12 +1,11 @@
 package ru.itmo.clothesadvisor.controller.access
 
-import io.swagger.v3.oas.annotations.Parameter
 import io.swagger.v3.oas.annotations.Operation
+import io.swagger.v3.oas.annotations.Parameter
 import io.swagger.v3.oas.annotations.media.Content
 import io.swagger.v3.oas.annotations.responses.ApiResponse
 import io.swagger.v3.oas.annotations.responses.ApiResponses
 import io.swagger.v3.oas.annotations.tags.Tag
-
 import jakarta.validation.constraints.Max
 import jakarta.validation.constraints.Min
 import org.springframework.http.HttpStatus
@@ -22,30 +21,50 @@ import ru.itmo.clothesadvisor.controller.toPageRequest
 import ru.itmo.clothesadvisor.dto.user.CurrentUser
 import ru.itmo.clothesadvisor.service.access.AccessGrantService
 
-@Tag(name = "Доступ стилистов", description = "Действующий пользователь; владелец определяется по X-User-Id.")
+@Tag(
+    name = "Доступ стилистов",
+    description = "Действующий пользователь; владелец определяется по X-User-Id.",
+)
 @RestController
 @RequestMapping("/api/me/stylist-access")
 internal class StylistAccessController(private val access: AccessGrantService) {
     @PutMapping("/{stylistId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @Operation(summary = "Предоставить доступ стилисту", description = "Идемпотентно. Получатель должен быть активным STYLIST.")
+    @Operation(
+        summary = "Предоставить доступ стилисту",
+        description = "Идемпотентно. Получатель должен быть активным STYLIST.",
+    )
     @ApiResponses(
-        ApiResponse(responseCode = "404", description = "Получатель не найден или не является активным STYLIST; пустое тело", content = [Content()]),
+        ApiResponse(
+            responseCode = "404",
+            description = "Получатель не найден или не является активным STYLIST; пустое тело",
+            content = [Content()],
+        ),
     )
     fun grant(@Parameter(hidden = true) user: CurrentUser, @PathVariable stylistId: Long) =
         access.grant(user.id, stylistId)
 
     @DeleteMapping("/{stylistId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
-    @Operation(summary = "Отозвать доступ", description = "Идемпотентно: отсутствие разрешения не является ошибкой.")
+    @Operation(
+        summary = "Отозвать доступ",
+        description = "Идемпотентно: отсутствие разрешения не является ошибкой.",
+    )
     fun revoke(@Parameter(hidden = true) user: CurrentUser, @PathVariable stylistId: Long) =
         access.revoke(user.id, stylistId)
 
     @GetMapping
-    @Operation(summary = "Список получателей доступа", description = "Массив получателей; без X-Total-Count.")
+    @Operation(
+        summary = "Список получателей доступа",
+        description = "Массив получателей; без X-Total-Count.",
+    )
     @ApiResponses(
         ApiResponse(responseCode = "200", description = "Успешно", useReturnTypeSchema = true),
-        ApiResponse(responseCode = "400", description = "Некорректные параметры запроса", content = [Content()]),
+        ApiResponse(
+            responseCode = "400",
+            description = "Некорректные параметры запроса",
+            content = [Content()],
+        ),
     )
     fun list(
         @Parameter(hidden = true) user: CurrentUser,

@@ -7,10 +7,12 @@ import ru.itmo.clothesadvisor.model.outfit.OutfitWeather
 
 internal interface OutfitWeatherRepository : Repository<OutfitWeather, Long> {
     @Modifying
-    @Query("""
+    @Query(
+        """
         INSERT INTO outfit_weather (outfit_id, temperature_c, precipitation_type_id, wind_speed_mps)
         VALUES (:#{#weather.id}, :#{#weather.temperatureC}, :#{#weather.precipitationTypeId}, :#{#weather.windSpeedMps})
-    """)
+    """,
+    )
     fun insert(weather: OutfitWeather)
 
     fun findAllByIdIn(outfitIds: Collection<Long>): List<OutfitWeather> =

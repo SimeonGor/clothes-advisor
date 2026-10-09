@@ -5,7 +5,8 @@ import org.springframework.data.repository.Repository
 import ru.itmo.clothesadvisor.model.outfit.OutfitItem
 import ru.itmo.clothesadvisor.model.outfit.OutfitItemId
 
-internal interface OutfitItemRepository : Repository<OutfitItem, OutfitItemId>, OutfitItemBatchInsert {
+internal interface OutfitItemRepository :
+    Repository<OutfitItem, OutfitItemId>, OutfitItemBatchInsert {
     fun findAllByIdOutfitIdInOrderByPositionAsc(outfitIds: Collection<Long>): List<OutfitItem> =
         if (outfitIds.isEmpty()) emptyList() else findRows(outfitIds)
 

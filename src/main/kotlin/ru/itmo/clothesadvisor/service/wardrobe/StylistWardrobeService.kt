@@ -28,7 +28,12 @@ internal class StylistWardrobeService(
         return photos.list(ownerId, itemId)
     }
 
-    fun getPhotoContent(stylistId: Long, ownerId: Long, itemId: Long, photoId: Long): WardrobeItemPhotoContent {
+    fun getPhotoContent(
+        stylistId: Long,
+        ownerId: Long,
+        itemId: Long,
+        photoId: Long,
+    ): WardrobeItemPhotoContent {
         access.requireAccess(stylistId, ownerId)
         val content = photos.getContent(ownerId, itemId, photoId)
         access.requireAccess(stylistId, ownerId)

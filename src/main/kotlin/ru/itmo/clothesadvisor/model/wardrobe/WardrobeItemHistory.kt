@@ -13,7 +13,9 @@ internal data class WardrobeItemHistoryId(
 )
 
 @Table("wardrobe_item_history")
-internal class WardrobeItemHistory @PersistenceCreator constructor(
+internal class WardrobeItemHistory
+@PersistenceCreator
+constructor(
     @Id @Embedded.Empty val id: WardrobeItemHistoryId,
     val name: String,
     val categoryId: Long,
@@ -21,8 +23,14 @@ internal class WardrobeItemHistory @PersistenceCreator constructor(
     val material: String,
     val modifiedAt: Instant,
 ) {
-    constructor(item: WardrobeItem) : this(
+    constructor(
+        item: WardrobeItem,
+    ) : this(
         WardrobeItemHistoryId(requireNotNull(item.id), item.version),
-        item.name, requireNotNull(item.category.id), item.color, item.material, item.modifiedAt,
+        item.name,
+        requireNotNull(item.category.id),
+        item.color,
+        item.material,
+        item.modifiedAt,
     )
 }

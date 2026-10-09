@@ -1,9 +1,9 @@
 package ru.itmo.clothesadvisor.service.access
 
-import ru.itmo.clothesadvisor.model.EntityNotFoundException
-import ru.itmo.clothesadvisor.model.AccessDeniedException
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import ru.itmo.clothesadvisor.model.AccessDeniedException
+import ru.itmo.clothesadvisor.model.EntityNotFoundException
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
 import ru.itmo.clothesadvisor.repository.user.AppUserRepository
@@ -15,6 +15,8 @@ internal class AdminContentAccessService(private val users: AppUserRepository) {
         if (!users.existsByIdAndRoleAndStatus(adminId, UserRole.ADMIN, UserStatus.ACTIVE)) {
             throw AccessDeniedException("Active administrator required")
         }
-        if (!users.existsById(ownerId)) throw EntityNotFoundException()
+        if (!users.existsById(ownerId)) {
+            throw EntityNotFoundException()
+        }
     }
 }

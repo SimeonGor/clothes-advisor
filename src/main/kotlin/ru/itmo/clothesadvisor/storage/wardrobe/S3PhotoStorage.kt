@@ -46,11 +46,13 @@ internal class S3PhotoStorage(
         var future: CompletableFuture<HttpResponse<ByteArray>>? = null
         try {
             validateSize(sizeBytes, diagnostics)
+
             val request = buildRequest(key, contentType, upload)
             future = client.sendAsync(request, responseBodyHandler(sizeBytes, diagnostics))
             val response = awaitResponse(future, diagnostics.started)
             validateResponse(response, sizeBytes, diagnostics)
             diagnostics.result = "success"
+
             return response.body()
         } catch (_: InterruptedException) {
             diagnostics.result = "interrupted"
@@ -78,8 +80,11 @@ internal class S3PhotoStorage(
     }
 
     private fun buildRequest(key: String, contentType: String?, upload: ByteArray?): HttpRequest {
-        val uri = URI(properties.endpointUri.toASCIIString().trimEnd('/') +
-            "/${pathSegment(properties.bucket)}/${pathSegment(key)}")
+        val uri =
+            URI(
+                properties.endpointUri.toASCIIString().trimEnd('/') +
+                    "/${pathSegment(properties.bucket)}/${pathSegment(key)}",
+            )
         return HttpRequest.newBuilder(uri)
             .timeout(timeout)
             .header("Authorization", "Bearer ${properties.iamToken}")
@@ -89,19 +94,26 @@ internal class S3PhotoStorage(
                     header("If-None-Match", "*")
                     PUT(HttpRequest.BodyPublishers.ofByteArray(upload))
                 } else GET()
-            }.build()
+            }
+            .build()
     }
 
     private fun responseBodyHandler(sizeBytes: Long, diagnostics: ExchangeDiagnostics) =
         HttpResponse.BodyHandler<ByteArray> { info ->
             diagnostics.responseInfo.set(info)
             if (diagnostics.operation == "GET" && info.statusCode() == 200) {
-                HttpResponse.BodyHandlers.limiting(HttpResponse.BodyHandlers.ofByteArray(), sizeBytes).apply(info)
+                HttpResponse.BodyHandlers.limiting(
+                        HttpResponse.BodyHandlers.ofByteArray(),
+                        sizeBytes,
+                    )
+                    .apply(info)
             } else {
                 // Bound even discarded error/PUT bodies so a peer cannot drain forever.
                 HttpResponse.BodyHandlers.limiting(
-                    HttpResponse.BodyHandlers.replacing(ByteArray(0)), MAX_DISCARDED_RESPONSE_BYTES,
-                ).apply(info)
+                        HttpResponse.BodyHandlers.replacing(ByteArray(0)),
+                        MAX_DISCARDED_RESPONSE_BYTES,
+                    )
+                    .apply(info)
             }
         }
 
@@ -135,18 +147,36 @@ internal class S3PhotoStorage(
 
     private fun logOutcome(diagnostics: ExchangeDiagnostics) {
         val info = diagnostics.responseInfo.get()
-        val requestId = info?.headers()?.firstValue("x-amz-request-id")?.orElse(null)
-            ?.take(MAX_REQUEST_ID_LENGTH)
-            ?.map { if (it.isLetterOrDigit() && it.code < 128 || it in "-_.") it else '_' }
-            ?.joinToString("") ?: "-"
-        val message = "Object storage operation={} elapsedMs={} status={} bytes={} requestId={} result={}"
-        val arguments = arrayOf<Any>(diagnostics.operation, (System.nanoTime() - diagnostics.started) / 1_000_000,
-            info?.statusCode() ?: "-", diagnostics.byteCount ?: "-", requestId, diagnostics.result)
-        if (diagnostics.result == "success") logger.debug(message, *arguments) else logger.warn(message, *arguments)
+        val requestId =
+            info
+                ?.headers()
+                ?.firstValue("x-amz-request-id")
+                ?.orElse(null)
+                ?.take(MAX_REQUEST_ID_LENGTH)
+                ?.map { if (it.isLetterOrDigit() && it.code < 128 || it in "-_.") it else '_' }
+                ?.joinToString("") ?: "-"
+        val message =
+            "Object storage operation={} elapsedMs={} status={} bytes={} requestId={} result={}"
+        val arguments =
+            arrayOf<Any>(
+                diagnostics.operation,
+                (System.nanoTime() - diagnostics.started) / 1_000_000,
+                info?.statusCode() ?: "-",
+                diagnostics.byteCount ?: "-",
+                requestId,
+                diagnostics.result,
+            )
+        if (diagnostics.result == "success") {
+            logger.debug(message, *arguments)
+        } else {
+            logger.warn(message, *arguments)
+        }
     }
 
-    private fun pathSegment(value: String): String = URLEncoder.encode(value, StandardCharsets.UTF_8)
-        .replace("+", "%20").let { if (it == "." || it == "..") it.replace(".", "%2E") else it }
+    private fun pathSegment(value: String): String =
+        URLEncoder.encode(value, StandardCharsets.UTF_8).replace("+", "%20").let {
+            if (it == "." || it == "..") it.replace(".", "%2E") else it
+        }
 
     private class ExchangeDiagnostics(val operation: String, var byteCount: Int?) {
         val started = System.nanoTime()

@@ -1,12 +1,12 @@
 package ru.itmo.clothesadvisor.service.wardrobe
 
-import ru.itmo.clothesadvisor.model.EntityNotFoundException
 import org.springframework.data.domain.Pageable
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemPhotoContent
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemPhotoResponse
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemResponse
+import ru.itmo.clothesadvisor.model.EntityNotFoundException
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.service.access.AdminContentAccessService
 
@@ -32,7 +32,12 @@ internal class AdminWardrobeService(
         return photos.list(ownerId, itemId)
     }
 
-    fun getPhotoContent(adminId: Long, ownerId: Long, itemId: Long, photoId: Long): WardrobeItemPhotoContent {
+    fun getPhotoContent(
+        adminId: Long,
+        ownerId: Long,
+        itemId: Long,
+        photoId: Long,
+    ): WardrobeItemPhotoContent {
         access.requireAccess(adminId, ownerId)
         val content = photos.getContent(ownerId, itemId, photoId)
         access.requireAccess(adminId, ownerId)
