@@ -6,5 +6,8 @@ import org.springframework.http.ResponseEntity
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemPhotoContent
 
 internal fun WardrobeItemPhotoContent.toPhotoContentResponse(): ResponseEntity<ByteArray> =
-    ResponseEntity.ok().contentType(MediaType.parseMediaType(contentType))
-        .cacheControl(CacheControl.noStore()).header("X-Content-Type-Options", "nosniff").body(bytes)
+    ResponseEntity.ok()
+        .contentType(MediaType.parseMediaType(contentType))
+        .cacheControl(CacheControl.noStore())
+        .header("X-Content-Type-Options", "nosniff")
+        .body(bytes)

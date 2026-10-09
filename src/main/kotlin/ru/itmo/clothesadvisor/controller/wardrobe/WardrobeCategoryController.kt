@@ -5,7 +5,6 @@ import io.swagger.v3.oas.annotations.media.Content
 import io.swagger.v3.oas.annotations.responses.ApiResponse
 import io.swagger.v3.oas.annotations.responses.ApiResponses
 import io.swagger.v3.oas.annotations.tags.Tag
-
 import jakarta.validation.constraints.Max
 import jakarta.validation.constraints.Min
 import org.springframework.web.bind.annotation.GetMapping
@@ -24,11 +23,17 @@ internal class WardrobeCategoryController(private val wardrobeCategories: Wardro
     @Operation(summary = "Категории вещей", description = "Массив справочника; без X-Total-Count.")
     @ApiResponses(
         ApiResponse(responseCode = "200", description = "Успешно", useReturnTypeSchema = true),
-        ApiResponse(responseCode = "400", description = "Некорректные параметры запроса", content = [Content()]),
+        ApiResponse(
+            responseCode = "400",
+            description = "Некорректные параметры запроса",
+            content = [Content()],
+        ),
     )
     fun list(
         @RequestParam(defaultValue = "0") @Min(0) page: Int,
         @RequestParam(defaultValue = "50") @Min(1) @Max(50) size: Int,
-    ): List<WardrobeCategoryResponse> = wardrobeCategories.list(toPageRequest(page, size))
-        .map { WardrobeCategoryResponse(requireNotNull(it.id), it.code, it.name) }
+    ): List<WardrobeCategoryResponse> =
+        wardrobeCategories.list(toPageRequest(page, size)).map {
+            WardrobeCategoryResponse(requireNotNull(it.id), it.code, it.name)
+        }
 }
