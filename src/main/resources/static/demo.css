@@ -3,7 +3,7 @@
   --paper: #f4f3ec;
   --surface: #fffefa;
   --ink: #303b2c;
-  --muted: #74786b;
+  --muted: #626b5a;
   --olive: #566443;
   --line: #dedfd3;
   --soft: #e7ebdc;
@@ -459,6 +459,120 @@ legend {
   border-radius: 10px;
   padding: 16px;
   font-size: 0.8rem;
+}
+.card-image {
+  min-width: 0;
+  height: 190px;
+  background: var(--soft);
+  border-radius: 12px;
+  margin-bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-size: 0.8rem;
+  text-align: center;
+}
+.card-image img {
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+}
+.collage {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+  margin-bottom: 18px;
+}
+.collage .card-image {
+  height: 105px;
+  margin: 0;
+}
+.owner-navigation {
+  margin-bottom: 24px;
+}
+.owner-navigation:empty {
+  display: none;
+}
+.inline-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  gap: 16px;
+  padding: 20px;
+  margin-bottom: 24px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+}
+.inline-form label {
+  flex: 1 1 220px;
+  margin: 0;
+}
+.inline-form button {
+  width: auto;
+  margin: 0;
+}
+.detail-section {
+  border-top: 1px solid var(--line);
+  margin: 24px 0;
+  padding-top: 24px;
+}
+.composition-item {
+  margin: 20px 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+.composition-item > p {
+  overflow-wrap: anywhere;
+}
+.photo-image {
+  min-height: 130px;
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+}
+.photo .fine {
+  min-height: 0;
+  margin: 8px 0;
+  font-size: 0.7rem;
+}
+.photo img {
+  height: 180px;
+}
+.history-row {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--line);
+}
+.history-row strong {
+  display: block;
+  font-size: 0.9rem;
+  margin-bottom: 6px;
+}
+.history-row p {
+  margin: 8px 0 0;
+}
+.rating-summary {
+  color: var(--olive);
+  font-weight: 600;
+}
+.rating-actions {
+  margin-bottom: 20px;
+}
+.status button {
+  display: block;
+  margin-top: 10px;
+}
+#detail-title,
+#dialog-context,
+#view-eyebrow,
+.selection-count {
+  overflow-wrap: anywhere;
+}
+#detail-dialog .fine {
+  white-space: pre-line;
 }
 @media (max-width: 1000px) {
   .app-shell {
