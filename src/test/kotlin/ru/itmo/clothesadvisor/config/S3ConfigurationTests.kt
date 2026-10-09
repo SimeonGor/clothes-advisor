@@ -10,7 +10,7 @@ import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
 
 class S3ConfigurationTests {
     @Test
-    fun `configuration binds IAM and wires the adapter with its default operation deadline`() {
+    fun `configuration binds IAM and wires the adapter with redirects disabled and a connect timeout`() {
         ApplicationContextRunner().withUserConfiguration(S3Configuration::class.java, S3PhotoStorage::class.java)
             .withPropertyValues("app.s3.endpoint=https://storage.yandexcloud.net", "app.s3.bucket=test-bucket",
                 "app.s3.iam-token=synthetic-test-token")

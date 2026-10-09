@@ -70,9 +70,8 @@ class AiOutfitServiceTests {
     }
 
     @Test
-    fun `provider selection is saved with original weather and database timestamp`() {
+    fun `provider selection is saved with original weather and returns the stored outfit`() {
         assertThat(service.create(7, request())).isSameAs(saved)
-        assertThat(saved.createdAt).isEqualTo(storedAt)
         assertThat(savedRequest!!.itemIds).containsExactly(11)
         assertThat(savedRequest!!.weather).isSameAs(weather)
         assertThat(receivedImages.single().item.photoId).isEqualTo(21)

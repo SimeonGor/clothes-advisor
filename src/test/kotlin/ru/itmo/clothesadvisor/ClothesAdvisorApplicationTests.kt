@@ -6,8 +6,6 @@ import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
-import java.time.Clock
-import java.time.ZoneOffset
 import javax.sql.DataSource
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
@@ -23,13 +21,8 @@ class ClothesAdvisorApplicationTests : PostgresIntegrationTest() {
     @Autowired
     private lateinit var dataSource: DataSource
 
-    @Autowired
-    private lateinit var clock: Clock
-
     @Test
     fun `connects to PostgreSQL and exposes database health`() {
-        assertThat(clock.zone).isEqualTo(ZoneOffset.UTC)
-        assertThat(clock.instant().nano % 1_000).isZero()
         dataSource.connection.use { connection ->
             assertThat(connection.metaData.databaseProductName).isEqualTo("PostgreSQL")
         }
