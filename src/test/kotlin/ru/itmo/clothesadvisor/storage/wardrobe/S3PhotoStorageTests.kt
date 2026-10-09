@@ -17,7 +17,13 @@ import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.catchThrowable
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
+import org.mockito.Mockito.mock
+import org.mockito.Mockito.times
+import org.mockito.Mockito.verify
+import org.mockito.Mockito.`when`
 import org.slf4j.LoggerFactory
+import ru.itmo.clothesadvisor.client.iam.IamTokenProvider
+import ru.itmo.clothesadvisor.client.iam.IamTokenUnavailableException
 import ru.itmo.clothesadvisor.config.S3Configuration
 import ru.itmo.clothesadvisor.config.S3Properties
 import ru.itmo.clothesadvisor.service.wardrobe.MAX_PHOTO_BYTES
@@ -32,12 +38,14 @@ class S3PhotoStorageTests {
     private val http = S3Configuration().s3HttpClient()
     private val endpoint = "http://127.0.0.1:${server.address.port}"
     private val token = "synthetic-iam-token"
+    private val tokenProvider = mock(IamTokenProvider::class.java)
     private val calls = AtomicInteger()
     private val logger = LoggerFactory.getLogger(S3PhotoStorage::class.java) as Logger
     private val originalLevel = logger.level
     private val logs = ListAppender<ILoggingEvent>().apply { start() }
 
     init {
+        `when`(tokenProvider.accessToken()).thenReturn(token)
         logger.level = Level.DEBUG
         logger.addAppender(logs)
     }
@@ -60,6 +68,10 @@ class S3PhotoStorageTests {
         // given
         val requests = LinkedBlockingQueue<Request>()
         val photo = byteArrayOf(0, 1, 2, -1)
+        val putToken = "synthetic-put-token"
+        val getToken = "synthetic-get-token"
+        `when`(tokenProvider.accessToken()).thenReturn(putToken, getToken)
+        val storage = storage()
         server.createContext("/") { exchange ->
             calls.incrementAndGet()
             requests.add(
@@ -77,33 +89,32 @@ class S3PhotoStorageTests {
         }
 
         // when
-        storage().put("photo-id", "image/png", photo)
-
-        // when
-        val downloadedBytes = storage().get("photo-id", photo.size.toLong())
+        storage.put("photo-id", "image/png", photo)
+        val downloadedBytes = storage.get("photo-id", photo.size.toLong())
 
         // then
         assertThat(downloadedBytes).containsExactly(*photo)
         val put = requests.remove()
         assertThat(put.method).isEqualTo("PUT")
         assertThat(put.path).isEqualTo("/test-bucket/photo-id")
-        assertThat(put.authorization).isEqualTo("Bearer $token")
+        assertThat(put.authorization).isEqualTo("Bearer $putToken")
         assertThat(put.contentType).isEqualTo("image/png")
         assertThat(put.condition).isEqualTo("*")
         assertThat(put.body).containsExactly(*photo)
         val get = requests.remove()
         assertThat(get.method).isEqualTo("GET")
         assertThat(get.path).isEqualTo(put.path)
-        assertThat(get.authorization).isEqualTo(put.authorization)
+        assertThat(get.authorization).isEqualTo("Bearer $getToken")
         assertThat(get.condition).isNull()
         assertThat(get.body).isEmpty()
         assertThat(calls).hasValue(2)
+        verify(tokenProvider, times(2)).accessToken()
         assertThat(logs.list).allSatisfy { event ->
             assertThat(event.level).isEqualTo(Level.DEBUG)
             assertThat(event.formattedMessage)
                 .contains("status=200", "bytes=4", "requestId=request-123", "result=success")
             assertThat(event.formattedMessage)
-                .doesNotContain(token, endpoint, "photo-id", "Authorization")
+                .doesNotContain(putToken, getToken, endpoint, "photo-id", "Authorization")
             assertThat(event.throwableProxy).isNull()
         }
     }
@@ -394,8 +405,27 @@ class S3PhotoStorageTests {
         assertUnavailable(connectionFailure)
     }
 
+    @Test
+    fun `unavailable IAM prevents upload without leaking credentials`() {
+
+        // given
+        `when`(tokenProvider.accessToken()).thenThrow(IamTokenUnavailableException())
+        server.createContext("/") { exchange ->
+            calls.incrementAndGet()
+            reply(exchange, 200, ByteArray(0))
+        }
+
+        // when
+        val failure = catchThrowable { storage().put("key", "image/png", byteArrayOf(1)) }
+
+        // then
+        assertUnavailable(failure)
+        assertThat(calls).hasValue(0)
+        assertThat(logs.list.single().throwableProxy).isNull()
+    }
+
     private fun storage(timeout: Duration = Duration.ofSeconds(3)) =
-        S3PhotoStorage(http, S3Properties(endpoint, "test-bucket", token), timeout)
+        S3PhotoStorage(http, S3Properties(endpoint, "test-bucket"), tokenProvider, timeout)
 
     private fun assertUnavailable(failure: Throwable?) {
         assertThat(failure).isInstanceOfSatisfying(PhotoStorageUnavailableException::class.java) {

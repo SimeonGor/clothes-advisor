@@ -1,5 +1,6 @@
 .git
 .env
+authorized_key.json
 .idea
 .gradle
 build

@@ -21,7 +21,8 @@ app:
   s3:
     endpoint: ${S3_ENDPOINT:https://storage.yandexcloud.net}
     bucket: ${S3_BUCKET:}
-    iam-token: ${YANDEX_IAM_TOKEN:}
+  iam:
+    service-account-key-file: ${YANDEX_SERVICE_ACCOUNT_KEY_FILE:}
 
 spring:
   servlet:
