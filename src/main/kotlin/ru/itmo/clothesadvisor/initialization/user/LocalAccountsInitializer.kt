@@ -1,4 +1,4 @@
-package ru.itmo.clothesadvisor.initialization.auth
+package ru.itmo.clothesadvisor.initialization.user
 
 import org.springframework.boot.ApplicationArguments
 import org.springframework.boot.ApplicationRunner

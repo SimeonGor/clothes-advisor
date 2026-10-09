@@ -1,4 +1,4 @@
-package ru.itmo.clothesadvisor.initialization.auth
+package ru.itmo.clothesadvisor.initialization.user
 
 import org.junit.jupiter.api.Test
 import org.mockito.Mockito.*
