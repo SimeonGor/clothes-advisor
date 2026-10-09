@@ -12,11 +12,10 @@ import org.springframework.context.annotation.Configuration
 internal class S3Properties(
     val endpoint: String,
     val bucket: String,
-    val iamToken: String,
 ) {
     init {
-        require(bucket.isNotBlank() && iamToken.isNotBlank() && iamToken.all { it in '!'..'~' }) {
-            "Object storage bucket and IAM token must be configured correctly"
+        require(bucket.isNotBlank()) {
+            "Object storage bucket must be configured correctly"
         }
     }
 

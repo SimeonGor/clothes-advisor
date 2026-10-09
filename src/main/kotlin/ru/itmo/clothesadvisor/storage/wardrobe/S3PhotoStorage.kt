@@ -15,6 +15,7 @@ import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicReference
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Component
+import ru.itmo.clothesadvisor.client.iam.IamTokenProvider
 import ru.itmo.clothesadvisor.config.S3Properties
 import ru.itmo.clothesadvisor.service.wardrobe.MAX_PHOTO_BYTES
 
@@ -25,6 +26,7 @@ private const val MAX_REQUEST_ID_LENGTH = 128
 internal class S3PhotoStorage(
     private val client: HttpClient,
     private val properties: S3Properties,
+    private val tokenProvider: IamTokenProvider,
     private val timeout: Duration = Duration.ofSeconds(60),
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
@@ -87,7 +89,7 @@ internal class S3PhotoStorage(
             )
         return HttpRequest.newBuilder(uri)
             .timeout(timeout)
-            .header("Authorization", "Bearer ${properties.iamToken}")
+            .header("Authorization", "Bearer ${tokenProvider.accessToken()}")
             .apply {
                 if (upload != null) {
                     header("Content-Type", requireNotNull(contentType))
