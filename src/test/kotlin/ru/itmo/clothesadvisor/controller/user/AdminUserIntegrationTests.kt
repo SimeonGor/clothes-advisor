@@ -17,7 +17,6 @@ import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
@@ -31,7 +30,6 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.context.annotation.Import
 import org.springframework.data.domain.PageRequest
-import org.springframework.data.domain.Sort
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.bean.override.mockito.MockitoBean
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
@@ -53,11 +51,6 @@ class AdminUserIntegrationTests : PostgresIntegrationTest() {
     @MockitoBean private lateinit var storage: S3PhotoStorage
     private val client = HttpClient.newHttpClient()
     private val passwordHash by lazy { "!" }
-
-    @BeforeEach
-    fun clearMutableData() {
-        resetMutableData()
-    }
 
     @AfterEach
     fun closeClientAndCheckStorage() {
@@ -83,7 +76,7 @@ class AdminUserIntegrationTests : PostgresIntegrationTest() {
         assertThat(first.headers().firstValue("X-Total-Count")).hasValue("52")
         rows(first).forEach { assertFields(it) }
         assertThat(rows(first).first()["status"]).isEqualTo("BLOCKED")
-        verify(repository).findAll(PageRequest.of(0, 50, Sort.Direction.DESC, "id"))
+        verify(repository).findAllByOrderByIdDesc(PageRequest.of(0, 50))
 
         val next = request("GET", "$PATH?page=1&size=50", actorId)
         assertThat(rows(next).map { number(it, "id") }).containsExactlyElementsOf(ids.drop(50))

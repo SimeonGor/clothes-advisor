@@ -62,7 +62,7 @@ class OutfitServiceTests {
         `when`(wardrobe.countByOwnerIdAndIdIn(7, listOf(2, 1))).thenReturn(2)
         `when`(outfits.create(7, 7, OutfitSource.USER, "Daily")).thenReturn(stored)
         var savedItems = emptyList<OutfitItem>()
-        doAnswer { savedItems = it.getArgument<Iterable<OutfitItem>>(0).toList(); null }.`when`(composition).saveAll(anyList())
+        doAnswer { savedItems = it.getArgument<Iterable<OutfitItem>>(0).toList(); null }.`when`(composition).insertAll(anyList())
         val response = service.create(7, request())
         assertThat(response.createdAt).isEqualTo(storedAt)
         assertThat(savedItems.map { it.id.wardrobeItemId to it.position }).containsExactly(2L to 0, 1L to 1)

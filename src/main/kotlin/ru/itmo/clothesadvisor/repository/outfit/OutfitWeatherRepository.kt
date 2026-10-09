@@ -1,20 +1,21 @@
 package ru.itmo.clothesadvisor.repository.outfit
 
-import org.springframework.jdbc.core.JdbcTemplate
-import org.springframework.stereotype.Repository
+import org.springframework.data.jdbc.repository.query.Modifying
+import org.springframework.data.jdbc.repository.query.Query
+import org.springframework.data.repository.Repository
 import ru.itmo.clothesadvisor.model.outfit.OutfitWeather
 
-@Repository
-internal class OutfitWeatherRepository(private val jdbc: JdbcTemplate) {
-    fun save(weather: OutfitWeather) {
-        jdbc.update("INSERT INTO outfit_weather (outfit_id, temperature_c, precipitation_type_id, wind_speed_mps) VALUES (?, ?, ?, ?)",
-            weather.id, weather.temperatureC, weather.precipitationTypeId, weather.windSpeedMps)
-    }
+internal interface OutfitWeatherRepository : Repository<OutfitWeather, Long> {
+    @Modifying
+    @Query("""
+        INSERT INTO outfit_weather (outfit_id, temperature_c, precipitation_type_id, wind_speed_mps)
+        VALUES (:#{#weather.id}, :#{#weather.temperatureC}, :#{#weather.precipitationTypeId}, :#{#weather.windSpeedMps})
+    """)
+    fun insert(weather: OutfitWeather)
 
-    fun findAllByOutfitIdIn(outfitIds: Collection<Long>): List<OutfitWeather> {
-        if (outfitIds.isEmpty()) return emptyList()
-        return jdbc.query("SELECT * FROM outfit_weather WHERE outfit_id IN (${outfitIds.joinToString { "?" }})",
-            { row, _ -> OutfitWeather(row.getLong("outfit_id"), row.getBigDecimal("temperature_c"),
-                row.getLong("precipitation_type_id"), row.getBigDecimal("wind_speed_mps")) }, *outfitIds.toTypedArray())
-    }
+    fun findAllByIdIn(outfitIds: Collection<Long>): List<OutfitWeather> =
+        if (outfitIds.isEmpty()) emptyList() else findRows(outfitIds)
+
+    @Query("SELECT * FROM outfit_weather WHERE outfit_id IN (:outfitIds)")
+    fun findRows(outfitIds: Collection<Long>): List<OutfitWeather>
 }

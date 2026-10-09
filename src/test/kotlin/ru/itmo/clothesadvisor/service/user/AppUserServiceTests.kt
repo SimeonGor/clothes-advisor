@@ -58,12 +58,12 @@ class AppUserServiceTests {
         `when`(repository.findById(7)).thenReturn(original)
         `when`(repository.update(original)).thenReturn(saved)
         var archived: AppUserHistory? = null
-        doAnswer { archived = it.getArgument(0); null }.`when`(history).save(any(AppUserHistory::class.java) ?: AppUserHistory(original))
+        doAnswer { archived = it.getArgument(0); null }.`when`(history).insert(any(AppUserHistory::class.java) ?: AppUserHistory(original))
         assertThat(service.changeRoleAndStatus(7, 1, UserRole.STYLIST, UserStatus.ACTIVE)).isSameAs(saved)
         assertThat(archived!!.id).isEqualTo(AppUserHistoryId(7, 1))
         assertThat(archived!!.role).isEqualTo(UserRole.USER)
         assertThat(archived!!.modifiedAt).isEqualTo(storedAt)
-        inOrder(repository, history).apply { verify(repository).update(original); verify(history).save(archived!!) }
+        inOrder(repository, history).apply { verify(repository).update(original); verify(history).insert(archived!!) }
     }
 
     @Test

@@ -12,14 +12,16 @@ import java.util.concurrent.TimeUnit
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.assertj.core.api.Assertions.catchThrowable
-import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.mockito.Mockito.doAnswer
+import org.mockito.Mockito.mockingDetails
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.dao.OptimisticLockingFailureException
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionTemplate
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
@@ -37,16 +39,11 @@ class AppUserPersistenceTests : PostgresIntegrationTest() {
     @Autowired
     private lateinit var jdbc: JdbcTemplate
 
-    @Autowired
+    @MockitoSpyBean
     private lateinit var repository: AppUserRepository
 
     @Autowired
     private lateinit var transactionManager: PlatformTransactionManager
-
-    @BeforeEach
-    fun clearMutableData() {
-        resetMutableData()
-    }
 
     @Test
     fun `creation stores version one and equal timestamps with case sensitive login`() {
@@ -69,7 +66,7 @@ class AppUserPersistenceTests : PostgresIntegrationTest() {
     }
 
     @Test
-    fun `all enum values round trip through current and historical entities`() {
+    fun `all enum values round trip through current and historical database rows`() {
         for (role in UserRole.entries) {
             for (status in UserStatus.entries) {
                 val user = users.create("${role.name}-${status.name}", "hash", role, status)
@@ -198,15 +195,18 @@ class AppUserPersistenceTests : PostgresIntegrationTest() {
         val id = createUser().id!!
         val before = current(id)
         val loaded = CyclicBarrier(2)
+        doAnswer { call ->
+            val user = mockingDetails(call.mock).mockCreationSettings.defaultAnswer.answer(call) as AppUser
+            assertThat(user.version).isEqualTo(1)
+            loaded.await(10, TimeUnit.SECONDS)
+            user
+        }.`when`(repository).findById(id)
         val executor = Executors.newFixedThreadPool(2)
         try {
             val futures = listOf(UserRole.ADMIN, UserRole.STYLIST).map { role ->
                 executor.submit(Callable {
                     try {
                         TransactionTemplate(transactionManager).apply { timeout = 20 }.executeWithoutResult {
-                            // Both callers submit the same expected version.
-                            assertThat(requireNotNull(repository.findById(id)).version).isEqualTo(1)
-                            loaded.await(10, TimeUnit.SECONDS)
                             users.changeRoleAndStatus(id, 1, role, UserStatus.BLOCKED)
                         }
                         Attempt(role, null)

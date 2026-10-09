@@ -8,17 +8,21 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CyclicBarrier
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.assertThatThrownBy
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
+import org.mockito.Mockito.doAnswer
+import org.mockito.Mockito.mockingDetails
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.context.annotation.Import
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.dao.OptimisticLockingFailureException
 import org.springframework.jdbc.core.JdbcTemplate
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionTemplate
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
@@ -26,6 +30,7 @@ import ru.itmo.clothesadvisor.dto.wardrobe.CreateWardrobeItemRequest
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemResponse
 import ru.itmo.clothesadvisor.dto.wardrobe.UpdateWardrobeItemRequest
 import ru.itmo.clothesadvisor.model.user.UserRole
+import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItem
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.service.user.AppUserService
 
@@ -35,7 +40,7 @@ class WardrobeItemPersistenceTests : PostgresIntegrationTest() {
     @Autowired
     private lateinit var items: WardrobeItemService
 
-    @Autowired
+    @MockitoSpyBean
     private lateinit var repository: WardrobeItemRepository
 
     @Autowired
@@ -88,14 +93,21 @@ class WardrobeItemPersistenceTests : PostgresIntegrationTest() {
     fun `concurrent updates retain one winner and one exact previous snapshot`() {
         val (owner, original) = createWardrobeItem()
         val loaded = CyclicBarrier(2)
+        val synchronizeReads = AtomicBoolean(true)
+        doAnswer { call ->
+            val item = mockingDetails(call.mock).mockCreationSettings.defaultAnswer.answer(call) as WardrobeItem
+            if (synchronizeReads.get()) {
+                assertThat(item.version).isEqualTo(1)
+                loaded.await(10, TimeUnit.SECONDS)
+            }
+            item
+        }.`when`(repository).findByIdAndOwnerId(original.id, owner)
         val executor = Executors.newFixedThreadPool(2)
         try {
             val attempts = listOf("First", "Second").map { name ->
                 executor.submit(Callable {
                     try {
                         TransactionTemplate(transactionManager).apply { timeout = 20 }.executeWithoutResult {
-                            assertThat(repository.findByIdAndOwnerId(original.id, owner)!!.version).isEqualTo(1)
-                            loaded.await(10, TimeUnit.SECONDS)
                             items.update(owner, original.id, update(name))
                         }
                         name to null
@@ -104,6 +116,7 @@ class WardrobeItemPersistenceTests : PostgresIntegrationTest() {
                     }
                 })
             }.map { it.get(30, TimeUnit.SECONDS) }
+            synchronizeReads.set(false)
             val winner = attempts.single { it.second == null }.first
             assertThat(attempts.single { it.second != null }.second)
                 .isInstanceOf(OptimisticLockingFailureException::class.java)
@@ -119,27 +132,23 @@ class WardrobeItemPersistenceTests : PostgresIntegrationTest() {
     @Test
     fun `stale delete after committed update fails before writing duplicate history`() {
         val (owner, original) = createWardrobeItem()
-        val loaded = CyclicBarrier(2)
+        val loaded = CountDownLatch(1)
         val committed = CountDownLatch(1)
-        val executor = Executors.newFixedThreadPool(2)
+        val firstRead = AtomicBoolean(true)
+        doAnswer { call ->
+            val item = mockingDetails(call.mock).mockCreationSettings.defaultAnswer.answer(call) as WardrobeItem
+            if (firstRead.compareAndSet(true, false)) {
+                assertThat(item.version).isEqualTo(1)
+                loaded.countDown()
+                assertThat(committed.await(10, TimeUnit.SECONDS)).isTrue()
+            }
+            item
+        }.`when`(repository).findByIdAndOwnerId(original.id, owner)
+        val executor = Executors.newSingleThreadExecutor()
         try {
-            val updater = executor.submit(Callable {
-                try {
-                    TransactionTemplate(transactionManager).apply { timeout = 20 }.executeWithoutResult {
-                        assertThat(repository.findByIdAndOwnerId(original.id, owner)!!.version).isEqualTo(1)
-                        loaded.await(10, TimeUnit.SECONDS)
-                        items.update(owner, original.id, update("Winner"))
-                    }
-                } finally {
-                    committed.countDown()
-                }
-            })
             val deleter = executor.submit(Callable {
                 try {
                     TransactionTemplate(transactionManager).apply { timeout = 20 }.executeWithoutResult {
-                        assertThat(repository.findByIdAndOwnerId(original.id, owner)!!.version).isEqualTo(1)
-                        loaded.await(10, TimeUnit.SECONDS)
-                        assertThat(committed.await(10, TimeUnit.SECONDS)).isTrue()
                         items.delete(owner, original.id, 1)
                     }
                     null
@@ -147,12 +156,15 @@ class WardrobeItemPersistenceTests : PostgresIntegrationTest() {
                     failure
                 }
             })
-            updater.get(30, TimeUnit.SECONDS)
+            assertThat(loaded.await(10, TimeUnit.SECONDS)).isTrue()
+            items.update(owner, original.id, update("Winner"))
+            committed.countDown()
             assertThat(deleter.get(30, TimeUnit.SECONDS)).isInstanceOf(OptimisticLockingFailureException::class.java)
             val saved = items.get(owner, original.id)
             assertThat(saved).isEqualTo(original.copy(name = "Winner", version = 2, modifiedAt = saved.modifiedAt))
             assertOriginalHistory(original)
         } finally {
+            committed.countDown()
             executor.shutdownNow()
             assertThat(executor.awaitTermination(10, TimeUnit.SECONDS)).isTrue()
         }

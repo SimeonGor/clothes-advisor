@@ -39,10 +39,13 @@ import ru.itmo.clothesadvisor.config.TestTimeConfiguration
 import ru.itmo.clothesadvisor.dto.outfit.CreateOutfitRequest
 import ru.itmo.clothesadvisor.dto.outfit.OutfitWeatherDto
 import ru.itmo.clothesadvisor.dto.wardrobe.CreateWardrobeItemRequest
+import ru.itmo.clothesadvisor.model.outfit.OutfitItem
+import ru.itmo.clothesadvisor.model.outfit.OutfitItemId
 import ru.itmo.clothesadvisor.model.user.AppUser
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
 import ru.itmo.clothesadvisor.repository.outfit.OutfitRepository
+import ru.itmo.clothesadvisor.repository.outfit.OutfitItemRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.service.access.AccessGrantService
 import ru.itmo.clothesadvisor.service.outfit.OutfitService
@@ -60,6 +63,7 @@ class OutfitIntegrationTests : PostgresIntegrationTest() {
     @Autowired private lateinit var access: AccessGrantService
     @Autowired private lateinit var jdbc: JdbcTemplate
     @Autowired private lateinit var transactionManager: PlatformTransactionManager
+    @Autowired private lateinit var composition: OutfitItemRepository
     @MockitoSpyBean private lateinit var wardrobe: WardrobeItemRepository
     @MockitoSpyBean private lateinit var outfitRepository: OutfitRepository
     @MockitoBean private lateinit var storage: S3PhotoStorage
@@ -322,6 +326,27 @@ class OutfitIntegrationTests : PostgresIntegrationTest() {
         assertThat(count("outfit_item", "outfit_id", id)).isZero()
         assertThat(count("outfit_weather", "outfit_id", id)).isZero()
         ids.forEach { assertThat(items.get(owner.id!!, it).version).isEqualTo(1) }
+    }
+
+    @Test
+    fun `composition batch rejects an existing assigned identity and rolls back earlier inserts`() {
+        val owner = user()
+        val existingItem = item(owner)
+        val newItem = item(owner)
+        val outfitId = jdbc.insertOutfit(owner.id!!, listOf(existingItem))
+
+        assertThatThrownBy {
+            TransactionTemplate(transactionManager).executeWithoutResult {
+                composition.insertAll(listOf(
+                    OutfitItem(OutfitItemId(outfitId, newItem), 1),
+                    OutfitItem(OutfitItemId(outfitId, existingItem), 2),
+                ))
+            }
+        }.isInstanceOf(DataIntegrityViolationException::class.java)
+
+        assertThat(jdbc.queryForList(
+            "SELECT wardrobe_item_id, position FROM outfit_item WHERE outfit_id = ?", outfitId,
+        )).containsExactly(mapOf<String, Any>("wardrobe_item_id" to existingItem, "position" to 0))
     }
 
     @Test

@@ -15,7 +15,6 @@ import org.junit.jupiter.api.parallel.Execution
 import org.junit.jupiter.api.parallel.ExecutionMode
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.Arguments
-import org.junit.jupiter.params.provider.EnumSource
 import org.junit.jupiter.params.provider.MethodSource
 import org.junit.jupiter.params.provider.ValueSource
 import org.springframework.beans.factory.annotation.Autowired
@@ -50,12 +49,10 @@ class ReferenceDataIntegrationTests : PostgresIntegrationTest() {
         client.close()
     }
 
-    @ParameterizedTest(name = "{0}")
-    @EnumSource(UserRole::class)
-    internal fun `every active role reads exact seeded DTOs in ID order`(role: UserRole) {
-        val actorId = actorId(createUser(role))
+    @Test
+    fun `dictionaries return exact seeded DTOs in ID order`() {
         for ((path, table) in ENDPOINTS) {
-            val response = request(path, actorId)
+            val response = request(path)
             assertThat(rows(response)).isEqualTo(expectedSeeds(table))
             assertThat(response.headers().allValues("X-Total-Count")).isEmpty()
         }
@@ -64,13 +61,12 @@ class ReferenceDataIntegrationTests : PostgresIntegrationTest() {
     @ParameterizedTest(name = "{0}")
     @MethodSource("referenceEndpoints")
     fun `paging returns the requested part of a dictionary`(path: String, table: String) {
-        val actorId = actorId(createUser())
         val seeds = expectedSeeds(table)
-        assertThat(rows(request("$path?size=1", actorId))).containsExactly(seeds[0])
-        assertThat(rows(request("$path?page=1&size=1", actorId))).containsExactly(seeds[1])
-        assertThat(rows(request("$path?page=${seeds.size - 1}&size=1", actorId))).containsExactly(seeds.last())
-        assertThat(rows(request("$path?page=${seeds.size}&size=1", actorId))).isEmpty()
-        assertThat(rows(request("$path?page=${Int.MAX_VALUE}&size=1", actorId))).isEmpty()
+        assertThat(rows(request("$path?size=1"))).containsExactly(seeds[0])
+        assertThat(rows(request("$path?page=1&size=1"))).containsExactly(seeds[1])
+        assertThat(rows(request("$path?page=${seeds.size - 1}&size=1"))).containsExactly(seeds.last())
+        assertThat(rows(request("$path?page=${seeds.size}&size=1"))).isEmpty()
+        assertThat(rows(request("$path?page=${Int.MAX_VALUE}&size=1"))).isEmpty()
     }
 
     @ParameterizedTest(name = "{0}")
@@ -80,16 +76,14 @@ class ReferenceDataIntegrationTests : PostgresIntegrationTest() {
         "page=42949673&size=50", "page=2147483647&size=2",
     ])
     fun `invalid paging and overflowing offsets return bad request`(query: String) {
-        val actorId = actorId(createUser())
         for (path in ENDPOINTS.keys) {
-            assertThat(request("$path?$query", actorId).statusCode()).describedAs(path).isEqualTo(400)
+            assertThat(request("$path?$query").statusCode()).describedAs(path).isEqualTo(400)
         }
     }
 
     @ParameterizedTest(name = "{0}")
     @MethodSource("referenceEndpoints")
     fun `pages stay bounded with more than fifty records`(path: String, table: String) {
-        val actorId = actorId(createUser())
         val prefix = "TEST${UUID.randomUUID().toString().replace("-", "")}"
         try {
             jdbc.update(
@@ -97,12 +91,12 @@ class ReferenceDataIntegrationTests : PostgresIntegrationTest() {
                 prefix,
             )
             val expected = databaseRows(table)
-            val first = rows(request(path, actorId))
-            val second = rows(request("$path?page=1&size=50", actorId))
+            val first = rows(request(path))
+            val second = rows(request("$path?page=1&size=50"))
             assertThat(first).hasSize(50)
             assertThat(second).hasSize(expected.size - 50)
             assertThat(first + second).isEqualTo(expected)
-            assertThat(rows(request("$path?page=2&size=50", actorId))).isEmpty()
+            assertThat(rows(request("$path?page=2&size=50"))).isEmpty()
         } finally {
             jdbc.update("DELETE FROM $table WHERE code LIKE ?", "$prefix%")
         }
@@ -122,10 +116,9 @@ class ReferenceDataIntegrationTests : PostgresIntegrationTest() {
 
     @ParameterizedTest(name = "{0}")
     @ValueSource(strings = ["POST", "PUT", "PATCH", "DELETE"])
-    internal fun `write methods are unavailable for an caller`(method: String) {
-        val actorId = actorId(createUser())
+    internal fun `write methods are unavailable for a caller`(method: String) {
         for (path in ENDPOINTS.keys) {
-            assertThat(request(path, actorId, method).statusCode()).describedAs(path).isEqualTo(405)
+            assertThat(request(path, method = method).statusCode()).describedAs(path).isEqualTo(405)
         }
     }
 

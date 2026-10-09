@@ -2,6 +2,9 @@ package ru.itmo.clothesadvisor.model.rating
 
 import com.fasterxml.jackson.annotation.JsonCreator
 import java.time.Instant
+import org.springframework.data.annotation.Id
+import org.springframework.data.relational.core.mapping.Embedded
+import org.springframework.data.relational.core.mapping.Table
 
 internal enum class RatingVote {
     LIKE, DISLIKE;
@@ -18,8 +21,9 @@ internal data class OutfitRatingId(
     val stylistId: Long,
 )
 
+@Table("outfit_rating")
 internal class OutfitRating(
-    val id: OutfitRatingId,
+    @Id @Embedded.Empty val id: OutfitRatingId,
     var vote: RatingVote,
     val createdAt: Instant,
     var modifiedAt: Instant = createdAt,

@@ -4,6 +4,8 @@ import com.fasterxml.jackson.annotation.JsonCreator
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.Size
 import java.time.Instant
+import org.springframework.data.annotation.Id
+import org.springframework.data.relational.core.mapping.Table
 
 internal enum class UserRole {
     USER, STYLIST, ADMIN;
@@ -25,13 +27,16 @@ internal enum class UserStatus {
     }
 }
 
+@Table("app_user")
 internal class AppUser(
     login: String,
     passwordHash: String,
     role: UserRole,
     status: UserStatus,
-    now: Instant,
+    createdAt: Instant,
+    modifiedAt: Instant = createdAt,
 ) {
+    @Id
     var id: Long? = null
         internal set
 
@@ -53,10 +58,10 @@ internal class AppUser(
     var version: Long = 1
         internal set
 
-    var createdAt: Instant = now
+    var createdAt: Instant = createdAt
         internal set
 
-    var modifiedAt: Instant = now
+    var modifiedAt: Instant = modifiedAt
         internal set
 
     internal fun changeRoleAndStatus(role: UserRole, status: UserStatus) {
