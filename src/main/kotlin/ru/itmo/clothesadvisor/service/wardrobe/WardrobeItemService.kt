@@ -1,15 +1,15 @@
 package ru.itmo.clothesadvisor.service.wardrobe
 
-import ru.itmo.clothesadvisor.model.EntityNotFoundException
 import jakarta.validation.ConstraintViolationException
 import jakarta.validation.Validator
-import org.springframework.data.domain.Pageable
 import org.springframework.dao.OptimisticLockingFailureException
+import org.springframework.data.domain.Pageable
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import ru.itmo.clothesadvisor.dto.wardrobe.CreateWardrobeItemRequest
-import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemResponse
 import ru.itmo.clothesadvisor.dto.wardrobe.UpdateWardrobeItemRequest
+import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemResponse
+import ru.itmo.clothesadvisor.model.EntityNotFoundException
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItem
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItemHistory
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemHistoryRepository
@@ -28,45 +28,66 @@ internal class WardrobeItemService(
     @Transactional
     fun create(ownerId: Long, request: CreateWardrobeItemRequest): WardrobeItemResponse {
         val violations = validator.validate(request)
-        if (violations.isNotEmpty()) throw ConstraintViolationException(violations)
+        if (violations.isNotEmpty()) {
+            throw ConstraintViolationException(violations)
+        }
+
         val owner = users.findById(ownerId) ?: throw EntityNotFoundException()
         val category = categories.getById(request.categoryId)
-        return response(items.create(requireNotNull(owner.id), category, request.name, request.color, request.material))
+
+        return toResponse(
+            items.create(
+                requireNotNull(owner.id),
+                category,
+                request.name,
+                request.color,
+                request.material,
+            ),
+        )
     }
 
     fun list(ownerId: Long, pageable: Pageable): List<WardrobeItemResponse> =
-        items.findAllByOwnerIdOrderByIdAsc(ownerId, pageable).map(::response)
+        items.findAllByOwnerIdOrderByIdAsc(ownerId, pageable).map(::toResponse)
 
-    fun get(ownerId: Long, id: Long): WardrobeItemResponse = response(owned(ownerId, id))
+    fun get(ownerId: Long, id: Long): WardrobeItemResponse = toResponse(findOwnedItem(ownerId, id))
 
     @Transactional
     fun update(ownerId: Long, id: Long, request: UpdateWardrobeItemRequest): WardrobeItemResponse {
         val violations = validator.validate(request)
-        if (violations.isNotEmpty()) throw ConstraintViolationException(violations)
-        val item = owned(ownerId, id)
+        if (violations.isNotEmpty()) {
+            throw ConstraintViolationException(violations)
+        }
+
+        val item = findOwnedItem(ownerId, id)
         checkVersion(item, request.version)
         val category = categories.getById(request.categoryId)
-        if (item.name == request.name && item.category.id == request.categoryId &&
-            item.color == request.color && item.material == request.material
-        ) return response(item)
+        if (
+            item.name == request.name &&
+                item.category.id == request.categoryId &&
+                item.color == request.color &&
+                item.material == request.material
+        ) {
+            return toResponse(item)
+        }
 
         val previous = WardrobeItemHistory(item)
         item.replace(category, request.name, request.color, request.material)
         val saved = items.update(item)
         history.insert(previous)
-        return response(saved)
+
+        return toResponse(saved)
     }
 
     @Transactional
     fun delete(ownerId: Long, id: Long, expectedVersion: Long) {
-        val item = owned(ownerId, id)
+        val item = findOwnedItem(ownerId, id)
         checkVersion(item, expectedVersion)
         val previous = WardrobeItemHistory(item)
         items.delete(item)
         history.insert(previous)
     }
 
-    private fun owned(ownerId: Long, id: Long): WardrobeItem =
+    private fun findOwnedItem(ownerId: Long, id: Long): WardrobeItem =
         items.findByIdAndOwnerId(id, ownerId) ?: throw EntityNotFoundException()
 
     private fun checkVersion(item: WardrobeItem, expectedVersion: Long) {
@@ -75,8 +96,15 @@ internal class WardrobeItemService(
         }
     }
 
-    private fun response(item: WardrobeItem) = WardrobeItemResponse(
-        requireNotNull(item.id), item.name, requireNotNull(item.category.id),
-        item.color, item.material, item.version, item.createdAt, item.modifiedAt,
-    )
+    private fun toResponse(item: WardrobeItem) =
+        WardrobeItemResponse(
+            requireNotNull(item.id),
+            item.name,
+            requireNotNull(item.category.id),
+            item.color,
+            item.material,
+            item.version,
+            item.createdAt,
+            item.modifiedAt,
+        )
 }

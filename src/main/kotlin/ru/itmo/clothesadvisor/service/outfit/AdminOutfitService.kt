@@ -1,11 +1,11 @@
 package ru.itmo.clothesadvisor.service.outfit
 
-import ru.itmo.clothesadvisor.model.EntityNotFoundException
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import ru.itmo.clothesadvisor.dto.outfit.OutfitResponse
+import ru.itmo.clothesadvisor.model.EntityNotFoundException
 import ru.itmo.clothesadvisor.repository.outfit.OutfitRepository
 import ru.itmo.clothesadvisor.service.access.AdminContentAccessService
 

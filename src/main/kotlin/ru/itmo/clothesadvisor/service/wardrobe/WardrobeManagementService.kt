@@ -16,7 +16,11 @@ internal class WardrobeManagementService(
 ) {
     private val transaction = TransactionTemplate(transactionManager)
 
-    fun createWithPhotos(ownerId: Long, request: CreateWardrobeItemRequest, files: List<MultipartFile>): WardrobeItemResponse {
+    fun createWithPhotos(
+        ownerId: Long,
+        request: CreateWardrobeItemRequest,
+        files: List<MultipartFile>,
+    ): WardrobeItemResponse {
         val validated = validatePhotos(files, allowEmpty = true)
         categories.getById(request.categoryId)
         photos.upload(validated)
