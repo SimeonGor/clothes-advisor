@@ -8,22 +8,21 @@ import org.springframework.data.annotation.Id
 import org.springframework.data.relational.core.mapping.Table
 
 internal enum class UserRole {
-    USER, STYLIST, ADMIN;
+    USER,
+    STYLIST,
+    ADMIN;
 
     companion object {
-        @JvmStatic
-        @JsonCreator
-        fun fromValue(value: String): UserRole = valueOf(value)
+        @JvmStatic @JsonCreator fun fromValue(value: String): UserRole = valueOf(value)
     }
 }
 
 internal enum class UserStatus {
-    ACTIVE, BLOCKED;
+    ACTIVE,
+    BLOCKED;
 
     companion object {
-        @JvmStatic
-        @JsonCreator
-        fun fromValue(value: String): UserStatus = valueOf(value)
+        @JvmStatic @JsonCreator fun fromValue(value: String): UserStatus = valueOf(value)
     }
 }
 

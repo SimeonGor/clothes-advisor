@@ -7,6 +7,7 @@ import ru.itmo.clothesadvisor.model.weather.PrecipitationType
 
 internal interface PrecipitationTypeRepository : Repository<PrecipitationType, Long> {
     fun findById(id: Long): PrecipitationType?
+
     fun existsById(id: Long): Boolean
 
     fun findAllByOrderByIdAsc(pageable: Pageable): List<PrecipitationType> =

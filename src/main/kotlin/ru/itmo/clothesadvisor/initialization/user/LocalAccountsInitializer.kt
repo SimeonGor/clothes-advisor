@@ -13,11 +13,12 @@ internal class LocalAccountsInitializer(
     private val users: AppUserService,
 ) : ApplicationRunner {
     override fun run(args: ApplicationArguments) {
-        val accounts = listOf(
-            "user" to UserRole.USER,
-            "stylist" to UserRole.STYLIST,
-            "admin" to UserRole.ADMIN,
-        )
+        val accounts =
+            listOf(
+                "user" to UserRole.USER,
+                "stylist" to UserRole.STYLIST,
+                "admin" to UserRole.ADMIN,
+            )
         accounts.forEach { (login, role) ->
             if (users.findByLogin(login) == null) users.create(login, "!", role)
         }

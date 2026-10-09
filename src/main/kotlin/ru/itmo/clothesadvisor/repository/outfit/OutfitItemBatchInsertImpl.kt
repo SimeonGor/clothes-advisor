@@ -7,7 +7,10 @@ internal class OutfitItemBatchInsertImpl(private val jdbc: JdbcTemplate) : Outfi
     override fun insertAll(items: Iterable<OutfitItem>) {
         val rows = items.map { arrayOf<Any>(it.id.outfitId, it.id.wardrobeItemId, it.position) }
         if (rows.isNotEmpty()) {
-            jdbc.batchUpdate("INSERT INTO outfit_item (outfit_id, wardrobe_item_id, position) VALUES (?, ?, ?)", rows)
+            jdbc.batchUpdate(
+                "INSERT INTO outfit_item (outfit_id, wardrobe_item_id, position) VALUES (?, ?, ?)",
+                rows,
+            )
         }
     }
 }

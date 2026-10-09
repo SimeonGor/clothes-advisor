@@ -7,12 +7,11 @@ import org.springframework.data.relational.core.mapping.Embedded
 import org.springframework.data.relational.core.mapping.Table
 
 internal enum class RatingVote {
-    LIKE, DISLIKE;
+    LIKE,
+    DISLIKE;
 
     companion object {
-        @JvmStatic
-        @JsonCreator
-        fun fromValue(value: String): RatingVote = valueOf(value)
+        @JvmStatic @JsonCreator fun fromValue(value: String): RatingVote = valueOf(value)
     }
 }
 

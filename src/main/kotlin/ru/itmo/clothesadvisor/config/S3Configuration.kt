@@ -20,24 +20,35 @@ internal class S3Properties(
         }
     }
 
-    val endpointUri: URI = try {
-        URI(endpoint).also {
-            require(it.scheme in listOf("http", "https") && it.host != null && it.userInfo == null &&
-                it.query == null && it.fragment == null)
+    val endpointUri: URI =
+        try {
+            URI(endpoint).also {
+                require(
+                    it.scheme in listOf("http", "https") &&
+                        it.host != null &&
+                        it.userInfo == null &&
+                        it.query == null &&
+                        it.fragment == null,
+                )
+            }
+        } catch (_: IllegalArgumentException) {
+            throw IllegalArgumentException(
+                "Object storage endpoint must be a valid HTTP(S) URL without credentials, query or fragment",
+            )
+        } catch (_: java.net.URISyntaxException) {
+            throw IllegalArgumentException(
+                "Object storage endpoint must be a valid HTTP(S) URL without credentials, query or fragment",
+            )
         }
-    } catch (_: IllegalArgumentException) {
-        throw IllegalArgumentException("Object storage endpoint must be a valid HTTP(S) URL without credentials, query or fragment")
-    } catch (_: java.net.URISyntaxException) {
-        throw IllegalArgumentException("Object storage endpoint must be a valid HTTP(S) URL without credentials, query or fragment")
-    }
 }
 
 @Configuration
 @EnableConfigurationProperties(S3Properties::class)
 internal class S3Configuration {
     @Bean(destroyMethod = "close")
-    fun s3HttpClient(): HttpClient = HttpClient.newBuilder()
-        .connectTimeout(Duration.ofSeconds(5))
-        .followRedirects(HttpClient.Redirect.NEVER)
-        .build()
+    fun s3HttpClient(): HttpClient =
+        HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(5))
+            .followRedirects(HttpClient.Redirect.NEVER)
+            .build()
 }

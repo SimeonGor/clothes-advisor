@@ -8,21 +8,27 @@ import org.springframework.data.repository.Repository
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeCategory
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItem
 
-private const val SELECT_ITEM = """
+private const val SELECT_ITEM =
+    """
     SELECT i.*, c.code AS category_code, c.name AS category_name
     FROM wardrobe_item i JOIN wardrobe_category c ON c.id = i.category_id
 """
 
 internal interface WardrobeItemRepository : Repository<WardrobeItem, Long> {
-    @Query(SELECT_ITEM + """
+    @Query(
+        SELECT_ITEM +
+            """
         WHERE i.owner_id = :ownerId
             AND EXISTS (SELECT 1 FROM wardrobe_item_photo p WHERE p.wardrobe_item_id = i.id)
         ORDER BY i.id LIMIT :limit
-    """)
+    """,
+    )
     fun findOwnedItemsWithPhotos(ownerId: Long, limit: Int): List<WardrobeItem>
 
-    fun findAllByOwnerIdAndIdInOrderByIdAsc(ownerId: Long, ids: Collection<Long>): List<WardrobeItem> =
-        if (ids.isEmpty()) emptyList() else findOwnedRows(ownerId, ids)
+    fun findAllByOwnerIdAndIdInOrderByIdAsc(
+        ownerId: Long,
+        ids: Collection<Long>,
+    ): List<WardrobeItem> = if (ids.isEmpty()) emptyList() else findOwnedRows(ownerId, ids)
 
     @Query(SELECT_ITEM + " WHERE i.owner_id = :ownerId AND i.id IN (:ids) ORDER BY i.id")
     fun findOwnedRows(ownerId: Long, ids: Collection<Long>): List<WardrobeItem>
@@ -30,7 +36,10 @@ internal interface WardrobeItemRepository : Repository<WardrobeItem, Long> {
     fun lockOwnedItemsForShare(ownerId: Long, ids: Collection<Long>): List<WardrobeItem> =
         if (ids.isEmpty()) emptyList() else findOwnedRowsForShare(ownerId, ids)
 
-    @Query(SELECT_ITEM + " WHERE i.owner_id = :ownerId AND i.id IN (:ids) ORDER BY i.id FOR SHARE OF i")
+    @Query(
+        SELECT_ITEM +
+            " WHERE i.owner_id = :ownerId AND i.id IN (:ids) ORDER BY i.id FOR SHARE OF i",
+    )
     fun findOwnedRowsForShare(ownerId: Long, ids: Collection<Long>): List<WardrobeItem>
 
     @Query(SELECT_ITEM + " WHERE i.id = :id AND i.owner_id = :ownerId FOR UPDATE OF i")
@@ -51,20 +60,30 @@ internal interface WardrobeItemRepository : Repository<WardrobeItem, Long> {
     @Query(SELECT_ITEM + " WHERE i.owner_id = :ownerId ORDER BY i.id LIMIT :limit OFFSET :offset")
     fun findPage(ownerId: Long, limit: Int, offset: Long): List<WardrobeItem>
 
-    @Query("""
+    @Query(
+        """
         WITH inserted AS (
             INSERT INTO wardrobe_item (owner_id, category_id, name, color, material, version)
             VALUES (:ownerId, :#{#category.id}, :name, :color, :material, 1) RETURNING *
         )
         SELECT i.*, c.code AS category_code, c.name AS category_name
         FROM inserted i JOIN wardrobe_category c ON c.id = i.category_id
-    """)
-    fun create(ownerId: Long, category: WardrobeCategory, name: String, color: String, material: String): WardrobeItem
+    """,
+    )
+    fun create(
+        ownerId: Long,
+        category: WardrobeCategory,
+        name: String,
+        color: String,
+        material: String,
+    ): WardrobeItem
 
     fun update(item: WardrobeItem): WardrobeItem =
-        updateRow(item) ?: throw OptimisticLockingFailureException("Wardrobe item ${item.id} version conflict")
+        updateRow(item)
+            ?: throw OptimisticLockingFailureException("Wardrobe item ${item.id} version conflict")
 
-    @Query("""
+    @Query(
+        """
         WITH updated AS (
             UPDATE wardrobe_item SET category_id = :#{#item.category.id}, name = :#{#item.name},
                 color = :#{#item.color}, material = :#{#item.material},
@@ -73,7 +92,8 @@ internal interface WardrobeItemRepository : Repository<WardrobeItem, Long> {
         )
         SELECT i.*, c.code AS category_code, c.name AS category_name
         FROM updated i JOIN wardrobe_category c ON c.id = i.category_id
-    """)
+    """,
+    )
     fun updateRow(item: WardrobeItem): WardrobeItem?
 
     fun delete(item: WardrobeItem) {

@@ -13,13 +13,18 @@ internal data class OutfitRatingHistoryId(
 )
 
 @Table("outfit_rating_history")
-internal class OutfitRatingHistory @PersistenceCreator constructor(
+internal class OutfitRatingHistory
+@PersistenceCreator
+constructor(
     @Id @Embedded.Empty val id: OutfitRatingHistoryId,
     val vote: RatingVote,
     val modifiedAt: Instant,
 ) {
-    constructor(rating: OutfitRating) : this(
+    constructor(
+        rating: OutfitRating,
+    ) : this(
         OutfitRatingHistoryId(rating.id.outfitId, rating.id.stylistId, rating.version),
-        rating.vote, rating.modifiedAt,
+        rating.vote,
+        rating.modifiedAt,
     )
 }

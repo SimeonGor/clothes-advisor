@@ -12,15 +12,22 @@ internal data class AppUserHistoryId(
 )
 
 @Table("app_user_history")
-internal class AppUserHistory @PersistenceCreator constructor(
+internal class AppUserHistory
+@PersistenceCreator
+constructor(
     @Id @Embedded.Empty val id: AppUserHistoryId,
     val login: String,
     val role: UserRole,
     val status: UserStatus,
     val modifiedAt: Instant,
 ) {
-    constructor(user: AppUser) : this(
+    constructor(
+        user: AppUser,
+    ) : this(
         AppUserHistoryId(requireNotNull(user.id), user.version),
-        user.login, user.role, user.status, user.modifiedAt,
+        user.login,
+        user.role,
+        user.status,
+        user.modifiedAt,
     )
 }
