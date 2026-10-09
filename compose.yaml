@@ -26,11 +26,13 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
       S3_ENDPOINT: ${S3_ENDPOINT:-https://storage.yandexcloud.net}
       S3_BUCKET: ${S3_BUCKET:?S3_BUCKET must be set}
-      YANDEX_IAM_TOKEN: ${YANDEX_IAM_TOKEN:?YANDEX_IAM_TOKEN must be set}
+      YANDEX_SERVICE_ACCOUNT_KEY_FILE: /run/secrets/yandex-service-account-key
       OPENAI_MODEL: ${OPENAI_MODEL:-}
       CHATGPT_CREDENTIALS_DIR: /run/chatgpt
       CHATGPT_TRUST_STORE: ${CHATGPT_TRUST_STORE:-}
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
+    secrets:
+      - yandex-service-account-key
     volumes:
       - type: bind
         source: ${CHATGPT_CREDENTIALS_DIR:?Set CHATGPT_CREDENTIALS_DIR to an existing absolute path}
@@ -46,3 +48,7 @@ services:
 
 volumes:
   postgres-data:
+
+secrets:
+  yandex-service-account-key:
+    file: ${YANDEX_SERVICE_ACCOUNT_KEY_FILE:?Set YANDEX_SERVICE_ACCOUNT_KEY_FILE to an absolute file path outside the repository}
