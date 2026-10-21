@@ -1,0 +1,76 @@
+@startuml ai-selection
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName SansSerif
+skinparam defaultFontSize 14
+skinparam shadowing false
+skinparam sequenceMessageAlign center
+skinparam responseMessageBelowArrow true
+hide footbox
+
+actor "Frontend\nчерез Gateway" as client
+participant "wardrobe-service" as wardrobe
+participant "account-service" as account
+database "wardrobe_db" as db
+participant "Yandex S3" as s3
+participant "recommendation-service" as recommendation
+participant "OpenAI" as ai
+
+client -> wardrobe : POST /api/outfits/ai
+wardrobe -> account : Текущий пользователь
+account --> wardrobe : id, login, role, status
+wardrobe -> wardrobe : Проверить ACTIVE USER и личный допуск\nПопытаться занять единственный слот
+
+alt Слот уже занят
+  wardrobe --> client : 503 · без S3 и AI
+else Слот занят этим запросом
+  wardrobe -> account : Свежая проверка активности
+  account --> wardrobe : Разрешено
+  group Короткая транзакция чтения
+    wardrobe -> db : Кандидаты, первое фото, погода
+    db --> wardrobe : 1–20 кандидатов + исходные photoId
+  end
+
+  group Внешние вызовы без открытой транзакции БД
+    loop Для каждого кандидата
+      wardrobe -> account : Проверить активность
+      account --> wardrobe : Разрешено
+      wardrobe -> s3 : Получить фото
+      s3 --> wardrobe : Байты JPEG / PNG
+      wardrobe -> db : Повторно проверить метаданные
+      db --> wardrobe : Фото существует
+      wardrobe -> account : Проверить активность после S3
+      account --> wardrobe : Разрешено
+    end
+    wardrobe -> account : Проверить активность перед AI
+    account --> wardrobe : Разрешено
+    wardrobe -> recommendation : POST /internal/outfit-selections\nПогода + кандидаты + фото
+    recommendation -> ai : Подбор · таймаут 60 с · без повторов
+    ai --> recommendation : Успешно завершённый ответ
+    recommendation --> wardrobe : 200 · itemIds
+    wardrobe -> wardrobe : Проверить ID, уникальность и непустой выбор
+    wardrobe -> account : Финальная проверка активности
+    account --> wardrobe : Разрешено
+  end
+
+  note over wardrobe, account #FFF0D6
+    После этой проверки блокировка пользователя
+    не отменяет уже разрешённое сохранение.
+  end note
+
+  group Одна локальная JDBC-транзакция
+    wardrobe -> db : Заблокировать все исходные вещи\nПроверить все использованные photoId
+    db --> wardrobe : Данные существуют
+    wardrobe -> db : Образ + состав + погода
+    db --> wardrobe : Commit · сохранённые ID и даты
+  end
+  wardrobe -> wardrobe : Освободить слот
+  wardrobe --> client : 201 · OutfitResponse · Location
+end
+
+note over wardrobe, recommendation
+  Ошибка до сохранения: прервать сценарий, образа нет.
+  Ошибка записи: rollback. Слот освобождается при завершении.
+  Отмена HTTP не отменяет уже выполненный commit;
+  слепого повтора POST нет.
+end note
+@enduml
