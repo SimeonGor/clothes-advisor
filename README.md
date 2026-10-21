@@ -8,7 +8,7 @@ REST-сервис для подбора одежды из личного гар�
 
 Стек: Kotlin, Spring Boot, PostgreSQL, Spring Data JDBC, Flyway, Yandex Object Storage и OpenAI. Приложение — монолит; пакеты разделены по техническим слоям, внутри — по предметным областям.
 
-Несекретные настройки OpenAPI хранятся в `config-repository/` и выдаются локальным Config Server. Compose монтирует каталог серверу только для чтения; пароли и credentials остаются в переменных окружения и secret mounts. При недоступном Config Server приложение не запускается. Уже запущенное приложение продолжает работать со значениями, загруженными при старте; перезапустите его, чтобы получить изменения.
+Несекретные настройки OpenAPI и сервисов хранятся в `config-repository/` и выдаются локальным Config Server. Compose монтирует каталог серверу только для чтения; пароли и credentials остаются в переменных окружения и secret mounts. При недоступном Config Server приложение не запускается. Уже запущенное приложение продолжает работать со значениями, загруженными при старте; перезапустите его, чтобы получить изменения. Config Server запускается первым, затем Eureka Discovery Server; `wardrobe-service` регистрируется в Eureka под этим именем. Порт Eureka доступен только внутри Compose-сети.
 
 В этой версии нет входа и контроля доступа к API. Действующий пользователь задаётся заголовком `X-User-Id`; это не аутентификация. Приложение предназначено только для доверенного локального окружения. Проверки владельца, разрешений стилиста и другие бизнес-правила сохраняются.
 
@@ -90,16 +90,17 @@ curl http://127.0.0.1:8080/api/wardrobe/items \
 Для сборки нужен JDK 25, для интеграционных тестов — работающий Docker. Gradle запускается через wrapper:
 
 ```shell
-./gradlew bootJar                 # JAR в обоих модулях
+./gradlew bootJar                 # JAR во всех трёх модулях
 ./gradlew :config-server:bootJar   # JAR только Config Server
+./gradlew :discovery-server:bootJar # JAR только Discovery Server
 ./gradlew test                    # unit- и интеграционные тесты
 ./gradlew check                   # тесты и покрытие строк ≥70%
-./gradlew testCodeCoverageReport  # общий отчёт покрытия двух модулей
+./gradlew testCodeCoverageReport  # общий отчёт покрытия трёх модулей
 ```
 
-Код приложения находится в `wardrobe-service`, Config Server — в `config-server`. Для запуска без Docker нужны PostgreSQL и переменные окружения из `.env`: Gradle сам этот файл не читает. Сначала выполните `./gradlew :config-server:bootRun`, затем в другом терминале `./gradlew :wardrobe-service:bootRun`. Команды запускаются из корня репозитория; конкретный модуль можно указать явно: `./gradlew :wardrobe-service:test`.
+Код приложения находится в `wardrobe-service`, Config Server — в `config-server`, Eureka — в `discovery-server`. Для запуска без Docker нужны PostgreSQL и переменные окружения из `.env`: Gradle сам этот файл не читает. Сначала выполните `./gradlew :config-server:bootRun`, затем `./gradlew :discovery-server:bootRun` и в другом терминале `./gradlew :wardrobe-service:bootRun`. Команды запускаются из корня репозитория; конкретный модуль можно указать явно: `./gradlew :wardrobe-service:test`.
 
-Общий отчёт JaCoCo: `build/reports/jacoco/testCodeCoverageReport/html/index.html` и `build/reports/jacoco/testCodeCoverageReport/testCodeCoverageReport.xml`. Порог ≥70% применяется к строкам обоих модулей; классы из покрытия не исключаются. Unit-тесты сервисов используют Mockito без Spring и БД. Интеграционные тесты работают с PostgreSQL Testcontainers, готовят и проверяют данные через JDBC, очищают их после теста. HTTP-клиенты проверяются на локальных заглушках; секреты из `.env` и реальные вызовы S3/OpenAI не нужны.
+Общий отчёт JaCoCo: `build/reports/jacoco/testCodeCoverageReport/html/index.html` и `build/reports/jacoco/testCodeCoverageReport/testCodeCoverageReport.xml`. Порог ≥70% применяется к строкам трёх модулей; классы из покрытия не исключаются. Unit-тесты сервисов используют Mockito без Spring и БД. Интеграционные тесты работают с PostgreSQL Testcontainers, готовят и проверяют данные через JDBC, очищают их после теста. HTTP-клиенты проверяются на локальных заглушках; секреты из `.env` и реальные вызовы S3/OpenAI не нужны.
 
 Для Colima на macOS перед тестами:
 
