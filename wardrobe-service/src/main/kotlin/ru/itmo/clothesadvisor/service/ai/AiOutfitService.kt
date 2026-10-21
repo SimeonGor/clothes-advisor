@@ -1,23 +1,26 @@
 package ru.itmo.clothesadvisor.service.ai
 
+import java.util.Base64
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.TransactionDefinition
 import org.springframework.transaction.support.TransactionTemplate
-import ru.itmo.clothesadvisor.client.ai.AiCandidate
-import ru.itmo.clothesadvisor.client.ai.AiCandidateImage
 import ru.itmo.clothesadvisor.client.ai.AiOutfitException
 import ru.itmo.clothesadvisor.client.ai.AiOutfitFailure
-import ru.itmo.clothesadvisor.client.ai.AiWeather
 import ru.itmo.clothesadvisor.client.ai.OpenAiOutfitClient
 import ru.itmo.clothesadvisor.dto.ai.CreateAiOutfitRequest
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionCandidate
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionRequest
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionResponse
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionWeather
 import ru.itmo.clothesadvisor.dto.outfit.CreateOutfitRequest
 import ru.itmo.clothesadvisor.dto.outfit.OutfitResponse
 import ru.itmo.clothesadvisor.model.AccessDeniedException
 import ru.itmo.clothesadvisor.model.EntityNotFoundException
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
+import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItem
 import ru.itmo.clothesadvisor.repository.user.AppUserRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemPhotoRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
@@ -50,11 +53,13 @@ internal class AiOutfitService(
 
         provider.requireAvailable()
         val prepared = prepareCandidates(ownerId, request)
-        val images = loadImages(ownerId, prepared.candidates)
+        val selection =
+            OutfitSelectionRequest(prepared.weather, loadImages(ownerId, prepared.candidates))
         requireActiveUser(ownerId)
-        val selectedItemIds = provider.select(prepared.weather, images)
+        val response = provider.select(selection)
+        validateSelection(response, prepared.candidates.map { requireNotNull(it.item.id) }.toSet())
 
-        return saveOutfit(ownerId, request, prepared.candidates, selectedItemIds)
+        return saveOutfit(ownerId, request, prepared.candidates, response.itemIds)
     }
 
     private fun prepareCandidates(
@@ -95,15 +100,7 @@ internal class AiOutfitService(
         val candidates = candidateItems.mapNotNull { item ->
             val id = requireNotNull(item.id)
             photos.findFirstByItemIdOrderByIdAsc(id)?.let { photo ->
-                AiCandidate(
-                    id,
-                    requireNotNull(photo.id),
-                    item.category.code,
-                    item.category.name,
-                    item.name,
-                    item.color,
-                    item.material,
-                )
+                PreparedCandidate(item, requireNotNull(photo.id))
             }
         }
         if (candidates.size !in 1..MAX_AI_CANDIDATES) {
@@ -111,48 +108,73 @@ internal class AiOutfitService(
         }
 
         PreparedCandidates(
-            AiWeather(request.weather, precipitationType.code, precipitationType.name),
+            OutfitSelectionWeather(
+                request.weather.temperatureC,
+                request.weather.windSpeedMps,
+                precipitationType.code,
+                precipitationType.name,
+            ),
             candidates,
         )
     }
 
-    private fun loadImages(ownerId: Long, candidates: List<AiCandidate>): List<AiCandidateImage> =
+    private fun loadImages(
+        ownerId: Long,
+        candidates: List<PreparedCandidate>,
+    ): List<OutfitSelectionCandidate> =
         candidates.map { candidate ->
             requireActiveUser(ownerId)
+            val itemId = requireNotNull(candidate.item.id)
             val content =
                 try {
-                    photoContent.getContent(ownerId, candidate.id, candidate.photoId)
+                    photoContent.getContent(ownerId, itemId, candidate.photoId)
                 } catch (_: EntityNotFoundException) {
                     throw AiOutfitException(AiOutfitFailure.SOURCE_CHANGED)
                 }
             requireActiveUser(ownerId)
-            AiCandidateImage(candidate, content.contentType, content.bytes)
+            OutfitSelectionCandidate(
+                itemId = itemId,
+                name = candidate.item.name,
+                categoryCode = candidate.item.category.code,
+                categoryName = candidate.item.category.name,
+                color = candidate.item.color,
+                material = candidate.item.material,
+                contentType = content.contentType,
+                imageBase64 = Base64.getEncoder().encodeToString(content.bytes),
+            )
         }
 
     private fun saveOutfit(
         ownerId: Long,
         request: CreateAiOutfitRequest,
-        candidates: List<AiCandidate>,
+        candidates: List<PreparedCandidate>,
         selectedItemIds: List<Long>,
-    ): OutfitResponse = transaction.execute {
-        if (users.lockActiveUserForShare(ownerId) == null) {
-            throw AccessDeniedException("Access denied")
-        }
-        if (
-            items.lockOwnedItemsForShare(ownerId, candidates.map { it.id }).size != candidates.size
-        ) {
-            throw AiOutfitException(AiOutfitFailure.SOURCE_CHANGED)
-        }
-        candidates.forEach {
-            if (photos.findByIdAndItemIdAndItemOwnerId(it.photoId, it.id, ownerId) == null) {
+    ): OutfitResponse {
+        val candidateIds = candidates.map { requireNotNull(it.item.id) }
+        return transaction.execute {
+            if (users.lockActiveUserForShare(ownerId) == null) {
+                throw AccessDeniedException("Access denied")
+            }
+            if (items.lockOwnedItemsForShare(ownerId, candidateIds).size != candidates.size) {
                 throw AiOutfitException(AiOutfitFailure.SOURCE_CHANGED)
             }
-        }
+            candidates.forEach {
+                if (
+                    photos.findByIdAndItemIdAndItemOwnerId(
+                        it.photoId,
+                        requireNotNull(it.item.id),
+                        ownerId,
+                    ) == null
+                ) {
+                    throw AiOutfitException(AiOutfitFailure.SOURCE_CHANGED)
+                }
+            }
 
-        outfits.createAi(
-            ownerId,
-            CreateOutfitRequest(request.name, selectedItemIds, request.weather),
-        )
+            outfits.createAi(
+                ownerId,
+                CreateOutfitRequest(request.name, selectedItemIds, request.weather),
+            )
+        }
     }
 
     private fun requireActiveUser(ownerId: Long) {
@@ -161,7 +183,23 @@ internal class AiOutfitService(
         }
     }
 
-    private data class PreparedCandidates(val weather: AiWeather, val candidates: List<AiCandidate>)
+    private fun validateSelection(response: OutfitSelectionResponse, candidateIds: Set<Long>) {
+        val selectedIds = response.itemIds
+        if (
+            selectedIds.isEmpty() ||
+                selectedIds.distinct().size != selectedIds.size ||
+                selectedIds.any { it !in candidateIds }
+        ) {
+            throw AiOutfitException(AiOutfitFailure.INVALID_RESPONSE)
+        }
+    }
+
+    private data class PreparedCandidate(val item: WardrobeItem, val photoId: Long)
+
+    private data class PreparedCandidates(
+        val weather: OutfitSelectionWeather,
+        val candidates: List<PreparedCandidate>,
+    )
 
     companion object {
         private const val MAX_AI_CANDIDATES = 20

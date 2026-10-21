@@ -17,11 +17,13 @@ import org.mockito.Mockito.verifyNoInteractions
 import org.mockito.Mockito.`when`
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.SimpleTransactionStatus
-import ru.itmo.clothesadvisor.client.ai.AiCandidateImage
 import ru.itmo.clothesadvisor.client.ai.AiOutfitException
 import ru.itmo.clothesadvisor.client.ai.AiOutfitFailure
 import ru.itmo.clothesadvisor.client.ai.OpenAiOutfitClient
 import ru.itmo.clothesadvisor.dto.ai.CreateAiOutfitRequest
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionCandidate
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionRequest
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionResponse
 import ru.itmo.clothesadvisor.dto.outfit.CreateOutfitRequest
 import ru.itmo.clothesadvisor.dto.outfit.OutfitResponse
 import ru.itmo.clothesadvisor.dto.outfit.OutfitWeatherDto
@@ -51,13 +53,13 @@ class AiOutfitServiceTests {
     private val content = mock(WardrobeItemPhotoService::class.java)
     private var selected = listOf(11L)
     private var providerFailure: AiOutfitFailure? = null
-    private var receivedImages = emptyList<AiCandidateImage>()
+    private var receivedSelection: OutfitSelectionRequest? = null
     private val provider =
         mock(OpenAiOutfitClient::class.java) { call ->
             if (call.method.name == "select") {
-                receivedImages = call.getArgument(1)
+                receivedSelection = call.getArgument(0)
                 providerFailure?.let { throw AiOutfitException(it) }
-                selected
+                OutfitSelectionResponse(selected)
             } else RETURNS_DEFAULTS.answer(call)
         }
     private var savedRequest: CreateOutfitRequest? = null
@@ -122,8 +124,21 @@ class AiOutfitServiceTests {
         assertThat(response).isSameAs(saved)
         assertThat(savedRequest!!.itemIds).containsExactly(11)
         assertThat(savedRequest!!.weather).isSameAs(weather)
-        assertThat(receivedImages.single().item.photoId).isEqualTo(21)
-        assertThat(receivedImages.single().bytes).containsExactly(1, 2, 3)
+        assertThat(receivedSelection!!.candidates.single())
+            .isEqualTo(
+                OutfitSelectionCandidate(
+                    11,
+                    "Shirt",
+                    "TOP",
+                    "Top",
+                    "White",
+                    "Cotton",
+                    "image/png",
+                    "AQID",
+                ),
+            )
+        assertThat(receivedSelection!!.weather.precipitationCode).isEqualTo("NONE")
+        assertThat(receivedSelection!!.weather.precipitationName).isEqualTo("None")
         verify(photos).findByIdAndItemIdAndItemOwnerId(21, 11, 7)
     }
 
@@ -172,7 +187,7 @@ class AiOutfitServiceTests {
         // then
         assertThat(foreignItem).isInstanceOf(EntityNotFoundException::class.java)
         verifyNoInteractions(content, outfits)
-        assertThat(receivedImages).isEmpty()
+        assertThat(receivedSelection).isNull()
     }
 
     @Test
@@ -204,7 +219,7 @@ class AiOutfitServiceTests {
 
         // then
         assertThat(response).isSameAs(saved)
-        assertThat(receivedImages.map { it.item.id }).containsExactly(11)
+        assertThat(receivedSelection!!.candidates.map { it.itemId }).containsExactly(11)
         verify(content, never()).getContent(eq(7L), eq(12L), anyLong())
     }
 
@@ -220,7 +235,7 @@ class AiOutfitServiceTests {
         // then
         assertFailure(AiOutfitFailure.INVALID_REQUEST, failure)
         verifyNoInteractions(content, outfits)
-        assertThat(receivedImages).isEmpty()
+        assertThat(receivedSelection).isNull()
     }
 
     @Test
@@ -235,7 +250,7 @@ class AiOutfitServiceTests {
         // then
         assertFailure(AiOutfitFailure.SOURCE_CHANGED, failure)
         verifyNoInteractions(outfits)
-        assertThat(receivedImages).isEmpty()
+        assertThat(receivedSelection).isNull()
     }
 
     @Test
@@ -250,6 +265,33 @@ class AiOutfitServiceTests {
         // then
         assertFailure(AiOutfitFailure.TIMEOUT, failure)
         verify(users, never()).lockActiveUserForShare(7)
+        verifyNoInteractions(outfits)
+    }
+
+    @Test
+    fun `empty duplicate or unoffered provider IDs fail before final locks and save`() {
+
+        // given: an owned item that was not included in the request
+        val unofferedItem =
+            WardrobeItem(7, item.category, "Unselected", "Black", "Wool", storedAt).apply {
+                id = 12
+            }
+        `when`(items.findAllByOwnerIdAndIdInOrderByIdAsc(7, listOf(11)))
+            .thenReturn(listOf(item))
+
+        for (itemIds in listOf(emptyList(), listOf(11L, 11L), listOf(unofferedItem.id!!))) {
+
+            // given: invalid provider selection
+            selected = itemIds
+
+            // when
+            val failure = catchThrowable { service.create(7, request(listOf(11))) }
+
+            // then
+            assertFailure(AiOutfitFailure.INVALID_RESPONSE, failure)
+        }
+        verify(users, never()).lockActiveUserForShare(7)
+        verify(items, never()).lockOwnedItemsForShare(7, listOf(11))
         verifyNoInteractions(outfits)
     }
 

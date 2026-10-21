@@ -38,16 +38,16 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate
-import ru.itmo.clothesadvisor.client.ai.AiCandidateImage
 import ru.itmo.clothesadvisor.client.ai.AiOutfitException
 import ru.itmo.clothesadvisor.client.ai.AiOutfitFailure
-import ru.itmo.clothesadvisor.client.ai.AiWeather
 import ru.itmo.clothesadvisor.client.ai.OpenAiOutfitClient
 import ru.itmo.clothesadvisor.config.PostgresIntegrationTest
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
 import ru.itmo.clothesadvisor.config.insertItem
 import ru.itmo.clothesadvisor.config.insertUser
-import ru.itmo.clothesadvisor.dto.outfit.OutfitWeatherDto
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionRequest
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionResponse
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionWeather
 import ru.itmo.clothesadvisor.dto.wardrobe.CreateWardrobeItemRequest
 import ru.itmo.clothesadvisor.dto.wardrobe.UpdateWardrobeItemRequest
 import ru.itmo.clothesadvisor.model.user.AppUser
@@ -80,8 +80,8 @@ class AiOutfitIntegrationTests : PostgresIntegrationTest() {
     private val providerCalls = AtomicInteger()
     private val downloaded = mutableListOf<String>()
     private var onDownload: () -> Unit = {}
-    private var select: (List<AiCandidateImage>) -> List<Long> = {
-        it.map { image -> image.item.id }.reversed()
+    private var select: (OutfitSelectionRequest) -> OutfitSelectionResponse = { selection ->
+        OutfitSelectionResponse(selection.candidates.map { it.itemId }.reversed())
     }
 
     @BeforeEach
@@ -94,18 +94,20 @@ class AiOutfitIntegrationTests : PostgresIntegrationTest() {
             }
             .`when`(storage)
             .get(anyString(), anyLong())
-        val weather = AiWeather(OutfitWeatherDto(BigDecimal.ZERO, 1, BigDecimal.ONE), "", "")
+        val weather =
+            OutfitSelectionWeather(BigDecimal.ZERO, BigDecimal.ONE, "", "")
+        val selection = OutfitSelectionRequest(weather, emptyList())
         doAnswer { call ->
                 assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
                 providerCalls.incrementAndGet()
-                val actual = call.getArgument<AiWeather>(0)
-                assertThat(actual.values.temperatureC).isEqualByComparingTo(TEMPERATURE)
-                assertThat(actual.precipitationCode).isNotBlank()
-                assertThat(actual.precipitationName).isNotBlank()
-                select(call.getArgument(1))
+                val actual = call.getArgument<OutfitSelectionRequest>(0)
+                assertThat(actual.weather.temperatureC).isEqualByComparingTo(TEMPERATURE)
+                assertThat(actual.weather.precipitationCode).isNotBlank()
+                assertThat(actual.weather.precipitationName).isNotBlank()
+                select(actual)
             }
             .`when`(provider)
-            .select(anyArgument(AiWeather::class.java) ?: weather, anyList())
+            .select(anyArgument(OutfitSelectionRequest::class.java) ?: selection)
     }
 
     @AfterEach fun close() = http.close()
@@ -121,10 +123,10 @@ class AiOutfitIntegrationTests : PostgresIntegrationTest() {
         val noPhoto = item(owner, false)
         photo(first, "second-photo")
         item(user())
-        select = { images ->
-            assertThat(images.map { it.item.id }).containsExactly(first, second)
-            assertThat(images.map { it.item.photoId }).hasSize(2)
-            listOf(second, first)
+        select = { request ->
+            assertThat(request.candidates.map { it.itemId }).containsExactly(first, second)
+            assertThat(downloaded.takeLast(2)).containsExactly("photo-$first", "photo-$second")
+            OutfitSelectionResponse(listOf(second, first))
         }
         for (candidates in listOf(null, "null", "[$second,$noPhoto,$first]")) {
 
@@ -249,7 +251,7 @@ class AiOutfitIntegrationTests : PostgresIntegrationTest() {
         val owner = connectedUser()
         val actorId = actorId(owner)
         val ids = List(20) { item(owner) }
-        select = { listOf(it.last().item.id) }
+        select = { OutfitSelectionResponse(listOf(it.candidates.last().itemId)) }
 
         // when
         val maximumCandidatesStatus = request("POST", actorId = actorId, body = body()).statusCode()
@@ -468,9 +470,9 @@ class AiOutfitIntegrationTests : PostgresIntegrationTest() {
         val actorId = actorId(owner)
         val chosen = item(owner)
         val unused = item(owner)
-        select = {
+        select = { _ ->
             items.delete(owner.id!!, unused, 1)
-            listOf(chosen)
+            OutfitSelectionResponse(listOf(chosen))
         }
 
         // when
@@ -481,13 +483,13 @@ class AiOutfitIntegrationTests : PostgresIntegrationTest() {
         assertNoOutfits(owner)
 
         // given: the next inference edits rather than deletes a candidate
-        select = {
+        select = { _ ->
             items.update(
                 owner.id!!,
                 chosen,
                 UpdateWardrobeItemRequest(1, "Edited", 1, "Black", "Wool"),
             )
-            listOf(chosen)
+            OutfitSelectionResponse(listOf(chosen))
         }
 
         // when
@@ -526,7 +528,7 @@ class AiOutfitIntegrationTests : PostgresIntegrationTest() {
                         owner.role,
                         UserStatus.BLOCKED,
                     )
-                    it.map { image -> image.item.id }
+                    OutfitSelectionResponse(it.candidates.map { candidate -> candidate.itemId })
                 }
             }
 
@@ -555,10 +557,10 @@ class AiOutfitIntegrationTests : PostgresIntegrationTest() {
         val release = CountDownLatch(1)
         val providerEntered = CountDownLatch(1)
         val blockerPid = AtomicInteger()
-        select = {
+        select = { _ ->
             providerEntered.countDown()
             assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue()
-            listOf(item)
+            OutfitSelectionResponse(listOf(item))
         }
         Executors.newFixedThreadPool(2).use { executor ->
 
