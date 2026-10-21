@@ -88,13 +88,15 @@ curl http://127.0.0.1:8080/api/wardrobe/items \
 Для сборки нужен JDK 25, для интеграционных тестов — работающий Docker. Gradle запускается через wrapper:
 
 ```shell
-./gradlew bootJar           # JAR в build/libs/
+./gradlew bootJar           # JAR в wardrobe-service/build/libs/
 ./gradlew test              # unit-тесты и интеграционные тесты с PostgreSQL
 ./gradlew check             # тесты и проверка покрытия строк ≥70%
 ./gradlew jacocoTestReport  # отчёт без проверки порога
 ```
 
-Отчёты JaCoCo: `build/reports/jacoco/test/html/index.html` и `build/reports/jacoco/test/jacocoTestReport.xml`. Классы приложения из покрытия не исключаются. Unit-тесты сервисов используют Mockito без Spring и БД. Интеграционные тесты работают с PostgreSQL Testcontainers, готовят и проверяют данные через JDBC, очищают их после теста. HTTP-клиенты проверяются на локальных заглушках; секреты из `.env` и реальные вызовы S3/OpenAI не нужны.
+Приложение и тесты находятся в модуле `wardrobe-service`. Команды запускаются из корня репозитория; конкретный модуль можно указать явно: `./gradlew :wardrobe-service:test`.
+
+Отчёты JaCoCo: `wardrobe-service/build/reports/jacoco/test/html/index.html` и `wardrobe-service/build/reports/jacoco/test/jacocoTestReport.xml`. Порог ≥70% применяется ко всему текущему приложению; классы из покрытия не исключаются. Unit-тесты сервисов используют Mockito без Spring и БД. Интеграционные тесты работают с PostgreSQL Testcontainers, готовят и проверяют данные через JDBC, очищают их после теста. HTTP-клиенты проверяются на локальных заглушках; секреты из `.env` и реальные вызовы S3/OpenAI не нужны.
 
 Для Colima на macOS перед тестами:
 
