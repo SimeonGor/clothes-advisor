@@ -17,6 +17,9 @@ dependencies {
     implementation(platform("org.springframework.cloud:spring-cloud-dependencies:2025.1.3"))
     implementation("org.springframework.cloud:spring-cloud-starter-config")
     implementation("org.springframework.cloud:spring-cloud-starter-netflix-eureka-client")
+    implementation("org.springframework.cloud:spring-cloud-starter-openfeign")
+    implementation("org.springframework.cloud:spring-cloud-starter-loadbalancer")
+    implementation("org.springframework.cloud:spring-cloud-starter-circuitbreaker-resilience4j")
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.1")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
@@ -36,6 +39,26 @@ dependencies {
 
 kotlin {
     jvmToolchain(25)
+}
+
+val transportTest by sourceSets.creating
+configurations[transportTest.implementationConfigurationName]
+    .extendsFrom(configurations.testImplementation.get())
+configurations[transportTest.runtimeOnlyConfigurationName]
+    .extendsFrom(configurations.testRuntimeOnly.get())
+evaluationDependsOn(":recommendation-service")
+val recommendationMain = project(":recommendation-service")
+    .extensions.getByType<SourceSetContainer>().named("main")
+transportTest.compileClasspath += sourceSets.main.get().output + recommendationMain.get().output
+transportTest.runtimeClasspath += sourceSets.main.get().output +
+    recommendationMain.get().output + recommendationMain.get().runtimeClasspath
+
+tasks.register<Test>("transportTest") {
+    description = "Isolated maximum-payload check through production Feign and WebFlux."
+    testClassesDirs = transportTest.output.classesDirs
+    classpath = transportTest.runtimeClasspath
+    maxHeapSize = "3g"
+    inputs.file(rootProject.layout.projectDirectory.file("config-repository/recommendation-service.yml"))
 }
 
 tasks.withType<Test> {

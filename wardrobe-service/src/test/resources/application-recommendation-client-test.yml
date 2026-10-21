@@ -1,0 +1,16 @@
+spring:
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
+      - org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      RecommendationClientselectOutfitSelectionRequest:
+        minimum-number-of-calls: 2
+        sliding-window-size: 2
+  timelimiter:
+    instances:
+      RecommendationClientselectOutfitSelectionRequest:
+        timeout-duration: 1ms

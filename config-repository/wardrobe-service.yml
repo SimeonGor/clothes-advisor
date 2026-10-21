@@ -1,3 +1,25 @@
+spring:
+  cloud:
+    openfeign:
+      circuitbreaker:
+        enabled: true
+      httpclient:
+        hc5:
+          enabled: false
+    loadbalancer:
+      retry:
+        enabled: false
+    circuitbreaker:
+      resilience4j:
+        disable-time-limiter-map:
+          RecommendationClientselectOutfitSelectionRequest: true
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      RecommendationClientselectOutfitSelectionRequest:
+        ignore-exception-predicate: ru.itmo.clothesadvisor.client.recommendation.NoOutfitFailurePredicate
+
 springdoc:
   default-produces-media-type: application/json
   api-docs:

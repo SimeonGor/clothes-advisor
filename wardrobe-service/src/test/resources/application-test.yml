@@ -1,4 +1,6 @@
 spring:
+  config:
+    import: "file:../config-repository/wardrobe-service.yml"
   cloud:
     config:
       enabled: false

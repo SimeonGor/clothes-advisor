@@ -43,7 +43,7 @@ else Слот занят этим запросом
     end
     wardrobe -> account : Проверить активность перед AI
     account --> wardrobe : Разрешено
-    wardrobe -> recommendation : POST /internal/outfit-selections\nПогода + кандидаты + фото
+    wardrobe -> recommendation : POST /api/outfit-selections\nПогода + кандидаты + фото
     recommendation -> ai : Подбор · таймаут 60 с · без повторов
     ai --> recommendation : Успешно завершённый ответ
     recommendation --> wardrobe : 200 · itemIds
