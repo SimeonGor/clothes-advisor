@@ -33,6 +33,28 @@ services:
       timeout: 5s
       retries: 10
 
+  api-gateway:
+    build:
+      context: .
+      dockerfile: api-gateway/Dockerfile
+    environment:
+      CONFIG_SERVER_URL: http://config-server:8888
+      EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
+    ports:
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
+    depends_on:
+      config-server:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+      app:
+        condition: service_started
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/actuator/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   postgres:
     image: postgres:18-alpine
     environment:
@@ -76,8 +98,6 @@ services:
         read_only: true
         bind:
           create_host_path: false
-    ports:
-      - "127.0.0.1:${APP_PORT:-8080}:8080"
     depends_on:
       config-server:
         condition: service_healthy

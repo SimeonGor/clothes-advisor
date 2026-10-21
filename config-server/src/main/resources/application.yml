@@ -18,6 +18,8 @@ spring:
               name: wardrobe-service
             discovery-server:
               name: discovery-server
+            api-gateway:
+              name: api-gateway
 
 management:
   endpoints:

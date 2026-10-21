@@ -1,0 +1,50 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      server:
+        webflux:
+          default-filters:
+            - PreserveHostHeader
+          httpclient:
+            connect-timeout: 5000
+          routes:
+            - id: wardrobe-api
+              uri: lb://wardrobe-service
+              predicates:
+                - Path=/api/**
+            - id: wardrobe-docs
+              uri: lb://wardrobe-service
+              predicates:
+                - Path=/swagger-ui.html,/swagger-ui/**,/v3/api-docs,/v3/api-docs/**,/v3/api-docs.yaml
+            - id: wardrobe-ui
+              uri: lb://wardrobe-service
+              predicates:
+                - Path=/,/index.html,/demo.js,/demo.css
+
+eureka:
+  client:
+    register-with-eureka: false
+    fetch-registry: true
+    service-url:
+      defaultZone: ${EUREKA_SERVER_URL:http://localhost:8761/eureka/}
+    timeout:
+      connect-timeout: 2000
+      connect-request-timeout: 2000
+      socket-timeout: 5000
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+  health:
+    config:
+      enabled: false
