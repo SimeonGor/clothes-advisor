@@ -7,6 +7,7 @@ COPY wardrobe-service/build.gradle.kts ./wardrobe-service/
 COPY config-server/build.gradle.kts ./config-server/
 COPY discovery-server/build.gradle.kts ./discovery-server/
 COPY api-gateway/build.gradle.kts ./api-gateway/
+COPY recommendation-service/build.gradle.kts ./recommendation-service/
 COPY config-server/src/main/ ./config-server/src/main/
 RUN chmod +x ./gradlew && ./gradlew --no-daemon --max-workers=1 \
     -Pkotlin.compiler.execution.strategy=in-process :config-server:bootJar

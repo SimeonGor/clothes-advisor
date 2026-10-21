@@ -20,7 +20,7 @@ import tools.jackson.core.JacksonException
 import tools.jackson.databind.DeserializationFeature
 import tools.jackson.databind.json.JsonMapper
 
-internal enum class AiOutfitFailure(val status: Int) {
+enum class AiOutfitFailure(val status: Int) {
     INVALID_REQUEST(400),
     SOURCE_CHANGED(409),
     NO_OUTFIT(422),
@@ -29,12 +29,12 @@ internal enum class AiOutfitFailure(val status: Int) {
     TIMEOUT(504),
 }
 
-internal class AiOutfitException(val failure: AiOutfitFailure) : RuntimeException() {
+class AiOutfitException(val failure: AiOutfitFailure) : RuntimeException() {
     val status: Int
         get() = failure.status
 }
 
-internal class OpenAiOutfitClient(
+class OpenAiOutfitClient internal constructor(
     private val http: HttpClient?,
     private val mapper: JsonMapper,
     private val credentials: ChatGptCredentials,

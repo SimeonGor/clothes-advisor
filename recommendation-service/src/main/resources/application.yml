@@ -1,0 +1,21 @@
+app:
+  openai:
+    credentials-directory: ${CHATGPT_CREDENTIALS_DIR:}
+    model: ${OPENAI_MODEL:}
+    trust-store: ${CHATGPT_TRUST_STORE:}
+
+spring:
+  application:
+    name: recommendation-service
+
+---
+spring:
+  config:
+    activate:
+      on-profile: "!test"
+    import: "configserver:${CONFIG_SERVER_URL:http://localhost:8888}"
+  cloud:
+    config:
+      fail-fast: true
+      request-connect-timeout: 2000
+      request-read-timeout: 5000
