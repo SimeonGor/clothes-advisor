@@ -3,7 +3,7 @@ FROM eclipse-temurin:25-jdk AS build
 WORKDIR /workspace
 COPY . .
 RUN chmod +x ./gradlew && ./gradlew --no-daemon --max-workers=1 \
-    -Pkotlin.compiler.execution.strategy=in-process bootJar
+    -Pkotlin.compiler.execution.strategy=in-process :wardrobe-service:bootJar
 
 FROM eclipse-temurin:25-jre
 
