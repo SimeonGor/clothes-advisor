@@ -1,6 +1,11 @@
 server:
   port: ${APP_PORT:8080}
 
+spring:
+  http:
+    codecs:
+      max-in-memory-size: 300MB
+
 eureka:
   client:
     service-url:

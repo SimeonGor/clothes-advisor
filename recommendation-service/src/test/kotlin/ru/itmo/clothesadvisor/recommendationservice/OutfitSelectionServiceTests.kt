@@ -1,0 +1,112 @@
+package ru.itmo.clothesadvisor.recommendationservice
+
+import java.math.BigDecimal
+import java.util.Base64
+import org.assertj.core.api.Assertions.assertThat
+import org.assertj.core.api.Assertions.catchThrowable
+import org.junit.jupiter.api.Test
+import org.mockito.Mockito.mock
+import org.mockito.Mockito.doThrow
+import org.mockito.Mockito.verify
+import org.mockito.Mockito.verifyNoInteractions
+import org.mockito.Mockito.`when`
+import ru.itmo.clothesadvisor.client.ai.AiOutfitException
+import ru.itmo.clothesadvisor.client.ai.AiOutfitFailure
+import ru.itmo.clothesadvisor.client.ai.OpenAiOutfitClient
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionCandidate
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionRequest
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionResponse
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionWeather
+import ru.itmo.clothesadvisor.recommendationservice.service.OutfitSelectionService
+
+class OutfitSelectionServiceTests {
+    private val provider = mock(OpenAiOutfitClient::class.java)
+    private val service = OutfitSelectionService(provider)
+    private val candidate =
+        OutfitSelectionCandidate(7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", "AQID")
+    private val request = OutfitSelectionRequest(
+        OutfitSelectionWeather(BigDecimal("-1.23456789"), BigDecimal.ZERO, "NONE", "None"),
+        listOf(candidate, candidate.copy(itemId = 9)),
+    )
+
+    @Test
+    fun `valid selection keeps provider order and unchanged decimal weather`() {
+        // given
+        `when`(provider.select(request)).thenReturn(OutfitSelectionResponse(listOf(9, 7)))
+
+        // when
+        val response = service.select(request)
+
+        // then
+        assertThat(response.itemIds).containsExactly(9, 7)
+        verify(provider).select(request)
+    }
+
+    @Test
+    fun `invalid candidates weather and images fail before provider`() {
+        // given
+        val invalid = listOf(
+            request.copy(candidates = emptyList()),
+            request.copy(candidates = (1L..21).map { candidate.copy(itemId = it) }),
+            request.copy(candidates = listOf(candidate, candidate)),
+            request.copy(weather = request.weather.copy(windSpeedMps = BigDecimal("-0.01"))),
+        ) + listOf(
+            candidate.copy(itemId = 0), candidate.copy(itemId = -1),
+            candidate.copy(contentType = "image/gif"), candidate.copy(imageBase64 = ""),
+            candidate.copy(imageBase64 = "data:image/png;base64,AQID"),
+            candidate.copy(imageBase64 = "!!!!"), candidate.copy(imageBase64 = "AQI"),
+            candidate.copy(imageBase64 = "AR=="), candidate.copy(imageBase64 = "AQ-D"),
+            candidate.copy(imageBase64 = Base64.getEncoder().encodeToString(ByteArray(10_000_001))),
+        ).map { request.copy(candidates = listOf(it)) }
+
+        invalid.forEach {
+            // when
+            val failure = catchThrowable { service.select(it) }
+
+            // then
+            assertFailure(AiOutfitFailure.INVALID_REQUEST, failure)
+        }
+        verifyNoInteractions(provider)
+    }
+
+    @Test
+    fun `maximum image and twenty candidates reach provider`() {
+        // given
+        val image = Base64.getEncoder().encodeToString(ByteArray(10_000_000))
+        val maximum = request.copy(
+            candidates = (1L..20).map { candidate.copy(itemId = it, imageBase64 = image) },
+        )
+        `when`(provider.select(maximum)).thenReturn(OutfitSelectionResponse(listOf(20)))
+
+        // when
+        val result = service.select(maximum)
+
+        // then
+        assertThat(result.itemIds).containsExactly(20)
+    }
+
+    @Test
+    fun `provider failures retain their category`() {
+        // given
+        val failures = listOf(
+            AiOutfitFailure.NO_OUTFIT, AiOutfitFailure.INVALID_RESPONSE,
+            AiOutfitFailure.UNAVAILABLE, AiOutfitFailure.TIMEOUT,
+        )
+
+        failures.forEach { failure ->
+            doThrow(AiOutfitException(failure)).`when`(provider).select(request)
+
+            // when
+            val error = catchThrowable { service.select(request) }
+
+            // then
+            assertFailure(failure, error)
+        }
+    }
+
+    private fun assertFailure(expected: AiOutfitFailure, error: Throwable?) {
+        assertThat(error).isInstanceOfSatisfying(AiOutfitException::class.java) {
+            assertThat(it.failure).isEqualTo(expected)
+        }
+    }
+}
