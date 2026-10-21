@@ -1,0 +1,15 @@
+spring:
+  application:
+    name: discovery-server
+
+---
+spring:
+  config:
+    activate:
+      on-profile: "!test"
+    import: "configserver:${CONFIG_SERVER_URL:http://localhost:8888}"
+  cloud:
+    config:
+      fail-fast: true
+      request-connect-timeout: 2000
+      request-read-timeout: 5000

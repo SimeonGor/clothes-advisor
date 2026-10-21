@@ -16,6 +16,8 @@ spring:
           repositories:
             wardrobe-service:
               name: wardrobe-service
+            discovery-server:
+              name: discovery-server
 
 management:
   endpoints:

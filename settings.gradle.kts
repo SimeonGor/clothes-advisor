@@ -15,3 +15,4 @@ rootProject.name = "clothes-advisor"
 
 include("wardrobe-service")
 include("config-server")
+include("discovery-server")

@@ -27,6 +27,7 @@ kotlin {
 
 tasks.withType<Test> {
     useJUnitPlatform()
+    inputs.dir(rootProject.layout.projectDirectory.dir("config-repository"))
 }
 
 jacoco {
