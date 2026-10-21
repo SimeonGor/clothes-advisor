@@ -1,0 +1,15 @@
+spring:
+  cloud:
+    config:
+      enabled: false
+  config:
+    import: "file:../config-repository/recommendation-service.yml"
+
+eureka:
+  client:
+    enabled: false
+
+app:
+  openai:
+    credentials-directory: ""
+    model: ""
