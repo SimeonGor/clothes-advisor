@@ -3,6 +3,6 @@
 authorized_key.json
 .idea
 .gradle
-build
+**/build
 docs
 *.iml
