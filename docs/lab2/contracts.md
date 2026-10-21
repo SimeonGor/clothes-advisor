@@ -89,7 +89,7 @@ ID имеют тип Long. Непарсируемый параметр — 400; 
 
 ## Recommendation: выбор образа
 
-Типы данных описаны в [OutfitSelectionDtos](../../wardrobe-service/src/main/kotlin/ru/itmo/clothesadvisor/dto/ai/OutfitSelectionDtos.kt). Пока wardrobe вызывает AI-клиент напрямую. Проверки владельца, исходных фотографий и сохранение остаются в wardrobe; перед сохранением он отдельно проверяет результат подбора. Внутренний HTTP-маршрут и его обработка ошибок будут подключены в следующих этапах.
+Типы данных описаны в [OutfitSelectionDtos](../../recommendation-service/src/main/kotlin/ru/itmo/clothesadvisor/dto/ai/OutfitSelectionDtos.kt). Клиент и DTO находятся в модуле recommendation; wardrobe пока вызывает клиент локально через временную зависимость модулей. Проверки владельца, исходных фотографий и сохранение остаются в wardrobe; перед сохранением он отдельно проверяет результат подбора. Внутренний HTTP-маршрут и его обработка ошибок будут подключены в следующих этапах.
 
 `POST /internal/outfit-selections`, Content-Type: application/json. Синхронный запрос через Feign, без автоматических повторов. Recommendation принимает данные, а не ссылку на гардероб или URL для самостоятельного скачивания.
 
