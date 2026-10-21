@@ -17,7 +17,9 @@ import org.assertj.core.api.Assertions.catchThrowable
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
-import ru.itmo.clothesadvisor.dto.outfit.OutfitWeatherDto
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionCandidate
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionRequest
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionWeather
 import tools.jackson.databind.json.JsonMapper
 
 class OpenAiOutfitClientTests {
@@ -33,15 +35,21 @@ class OpenAiOutfitClientTests {
         }
     private val calls = AtomicInteger()
     private val weather =
-        AiWeather(OutfitWeatherDto(BigDecimal("-1.23456789"), 1, BigDecimal("2.3")), "RAIN", "Rain")
+        OutfitSelectionWeather(BigDecimal("-1.23456789"), BigDecimal("2.3"), "RAIN", "Rain")
     private val candidates =
         listOf(7L, 9L, 11L).map {
-            AiCandidateImage(
-                AiCandidate(it, it + 100, "TOP", "Top", "Shirt $it", "White", "Cotton"),
+            OutfitSelectionCandidate(
+                it,
+                "Shirt $it",
+                "TOP",
+                "Top",
+                "White",
+                "Cotton",
                 "image/png",
-                byteArrayOf(1, 2, 3),
+                "AQID",
             )
         }
+    private val selection = OutfitSelectionRequest(weather, candidates)
 
     @AfterEach
     fun close() {
@@ -67,10 +75,10 @@ class OpenAiOutfitClientTests {
         }
 
         // when
-        val selectedIds = client().select(weather, candidates)
+        val selectedIds = client().select(selection)
 
         // then
-        assertThat(selectedIds).containsExactly(11, 7)
+        assertThat(selectedIds.itemIds).containsExactly(11, 7)
         assertThat(calls).hasValue(1)
         assertThat(authorization).isEqualTo("Bearer synthetic-test-token")
         val body = mapper.readTree(requestBody)
@@ -144,7 +152,7 @@ class OpenAiOutfitClientTests {
             reply = body
 
             // when
-            val failure = catchThrowable { client().select(weather, candidates) }
+            val failure = catchThrowable { client().select(selection) }
 
             // then
             assertFailure(status, failure)
@@ -164,7 +172,7 @@ class OpenAiOutfitClientTests {
             status = code
 
             // when
-            val failure = catchThrowable { client().select(weather, candidates) }
+            val failure = catchThrowable { client().select(selection) }
 
             // then
             assertFailure(503, failure)
@@ -185,7 +193,7 @@ class OpenAiOutfitClientTests {
 
             // when
             val timeoutFailure = catchThrowable {
-                client(timeout = Duration.ofMillis(200)).select(weather, candidates)
+                client(timeout = Duration.ofMillis(200)).select(selection)
             }
 
             // then
@@ -216,7 +224,7 @@ class OpenAiOutfitClientTests {
 
             // when
             val timeoutFailure = catchThrowable {
-                client(timeout = Duration.ofMillis(300)).select(weather, candidates)
+                client(timeout = Duration.ofMillis(300)).select(selection)
             }
 
             // then
@@ -236,14 +244,14 @@ class OpenAiOutfitClientTests {
 
         // when
         val missingCredentials = catchThrowable {
-            client(directory = "").select(weather, candidates)
+            client(directory = "").select(selection)
         }
 
         // then
         assertFailure(503, missingCredentials)
 
         // when
-        val missingModel = catchThrowable { client(model = "").select(weather, candidates) }
+        val missingModel = catchThrowable { client(model = "").select(selection) }
 
         // then
         assertFailure(503, missingModel)
@@ -253,7 +261,7 @@ class OpenAiOutfitClientTests {
         server.stop(0)
 
         // when
-        val connectionFailure = catchThrowable { client().select(weather, candidates) }
+        val connectionFailure = catchThrowable { client().select(selection) }
 
         // then
         assertFailure(503, connectionFailure)
@@ -308,28 +316,28 @@ class OpenAiOutfitClientTests {
         respond { 200 to reply }
 
         // when
-        val deltaSelection = client().select(weather, candidates)
+        val deltaSelection = client().select(selection)
 
         // then
-        assertThat(deltaSelection).containsExactly(9, 7)
+        assertThat(deltaSelection.itemIds).containsExactly(9, 7)
 
         // given: the next terminal and delta combination
         reply = delta("malformed unused partial") + completed("{\"itemIds\":[11]}")
 
         // when
-        val terminalSelection = client().select(weather, candidates)
+        val terminalSelection = client().select(selection)
 
         // then
-        assertThat(terminalSelection).containsExactly(11)
+        assertThat(terminalSelection.itemIds).containsExactly(11)
 
         // given: the next terminal and delta combination
         reply = delta("{\"itemIds\":[9]}") + completed(" \t")
 
         // when
-        val fallbackSelection = client().select(weather, candidates)
+        val fallbackSelection = client().select(selection)
 
         // then
-        assertThat(fallbackSelection).containsExactly(9)
+        assertThat(fallbackSelection.itemIds).containsExactly(9)
     }
 
     @Test
@@ -347,10 +355,10 @@ class OpenAiOutfitClientTests {
         respond { 200 to (ignored + terminal).replace("\n", "\r\n") }
 
         // when
-        val selectedIds = client().select(weather, candidates)
+        val selectedIds = client().select(selection)
 
         // then
-        assertThat(selectedIds).containsExactly(7)
+        assertThat(selectedIds.itemIds).containsExactly(7)
     }
 
     @Test
@@ -412,7 +420,7 @@ class OpenAiOutfitClientTests {
             reply = body
 
             // when
-            val failure = catchThrowable { client().select(weather, candidates) }
+            val failure = catchThrowable { client().select(selection) }
 
             // then
             assertFailure(status, failure)
@@ -437,7 +445,7 @@ class OpenAiOutfitClientTests {
             contentType = invalid
 
             // when
-            val failure = catchThrowable { client().select(weather, candidates) }
+            val failure = catchThrowable { client().select(selection) }
 
             // then
             assertFailure(502, failure)
@@ -447,10 +455,10 @@ class OpenAiOutfitClientTests {
         contentType = "text/event-stream; charset=utf-8"
 
         // when
-        val selectedIds = client().select(weather, candidates)
+        val selectedIds = client().select(selection)
 
         // then
-        assertThat(selectedIds).containsExactly(7)
+        assertThat(selectedIds.itemIds).containsExactly(7)
     }
 
     private fun respond(reply: () -> Pair<Int, String>) {

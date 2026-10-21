@@ -8,14 +8,14 @@ import java.net.http.HttpResponse
 import java.net.http.HttpTimeoutException
 import java.nio.charset.CharacterCodingException
 import java.time.Duration
-import java.util.Base64
 import java.util.concurrent.Callable
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicReference
-import ru.itmo.clothesadvisor.dto.outfit.OutfitWeatherDto
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionRequest
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionResponse
 import tools.jackson.core.JacksonException
 import tools.jackson.databind.DeserializationFeature
 import tools.jackson.databind.json.JsonMapper
@@ -34,28 +34,6 @@ internal class AiOutfitException(val failure: AiOutfitFailure) : RuntimeExceptio
         get() = failure.status
 }
 
-internal data class AiCandidate(
-    val id: Long,
-    val photoId: Long,
-    val categoryCode: String,
-    val categoryName: String,
-    val name: String,
-    val color: String,
-    val material: String,
-)
-
-internal data class AiCandidateImage(
-    val item: AiCandidate,
-    val contentType: String,
-    val bytes: ByteArray,
-)
-
-internal data class AiWeather(
-    val values: OutfitWeatherDto,
-    val precipitationCode: String,
-    val precipitationName: String,
-)
-
 internal class OpenAiOutfitClient(
     private val http: HttpClient?,
     private val mapper: JsonMapper,
@@ -71,30 +49,29 @@ internal class OpenAiOutfitClient(
         credentials.accessToken()
     }
 
-    fun select(weather: AiWeather, candidates: List<AiCandidateImage>): List<Long> {
+    fun select(selection: OutfitSelectionRequest): OutfitSelectionResponse {
         if (http == null || model.isBlank()) {
             throw AiOutfitException(AiOutfitFailure.UNAVAILABLE)
         }
         val accessToken = credentials.accessToken()
-        val allowed = candidates.map { it.item.id }.toSet()
+        val allowed = selection.candidates.map { it.itemId }.toSet()
         val content =
             mutableListOf<Map<String, Any>>(
-                mapOf("type" to "input_text", "text" to mapper.writeValueAsString(weather)),
+                mapOf("type" to "input_text", "text" to mapper.writeValueAsString(selection.weather)),
             )
-        candidates.forEach { candidate ->
-            val item = candidate.item
+        selection.candidates.forEach { candidate ->
             content +=
                 mapOf(
                     "type" to "input_text",
                     "text" to
                         mapper.writeValueAsString(
                             mapOf(
-                                "id" to item.id,
-                                "categoryCode" to item.categoryCode,
-                                "categoryName" to item.categoryName,
-                                "name" to item.name,
-                                "color" to item.color,
-                                "material" to item.material,
+                                "id" to candidate.itemId,
+                                "categoryCode" to candidate.categoryCode,
+                                "categoryName" to candidate.categoryName,
+                                "name" to candidate.name,
+                                "color" to candidate.color,
+                                "material" to candidate.material,
                             ),
                         ),
                 )
@@ -102,7 +79,7 @@ internal class OpenAiOutfitClient(
                 mapOf(
                     "type" to "input_image",
                     "image_url" to
-                        "data:${candidate.contentType};base64,${Base64.getEncoder().encodeToString(candidate.bytes)}",
+                        "data:${candidate.contentType};base64,${candidate.imageBase64}",
                 )
         }
 
@@ -217,7 +194,7 @@ internal class OpenAiOutfitClient(
         http?.close()
     }
 
-    private fun parse(body: String, allowed: Set<Long>): List<Long> {
+    private fun parse(body: String, allowed: Set<Long>): OutfitSelectionResponse {
         try {
             val reader =
                 mapper
@@ -251,7 +228,7 @@ internal class OpenAiOutfitClient(
                 throw AiOutfitException(AiOutfitFailure.NO_OUTFIT)
             }
 
-            return selected
+            return OutfitSelectionResponse(selected)
         } catch (_: JacksonException) {
             throw AiOutfitException(AiOutfitFailure.INVALID_RESPONSE)
         }
