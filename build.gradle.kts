@@ -11,6 +11,7 @@ dependencies {
     jacocoAggregation(project(":wardrobe-service"))
     jacocoAggregation(project(":config-server"))
     jacocoAggregation(project(":discovery-server"))
+    jacocoAggregation(project(":api-gateway"))
 }
 
 jacoco {

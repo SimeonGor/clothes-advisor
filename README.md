@@ -35,7 +35,7 @@ cp .env.example .env
 docker compose up --build -d
 ```
 
-После старта приложения проверьте `curl http://127.0.0.1:8080/actuator/health`: ожидаемый ответ — `{"status":"UP"}`. Порты приложения и БД доступны только с локального компьютера; их можно изменить через `APP_PORT` и `DB_PORT`. Ссылки ниже рассчитаны на порт 8080.
+После старта Gateway проверьте `curl http://127.0.0.1:8080/actuator/health`: ожидаемый ответ — `{"status":"UP"}`. Единственный HTTP-порт доступен только с локального компьютера; его можно изменить через `APP_PORT`. Порт БД также доступен локально и настраивается через `DB_PORT`. Ссылки ниже рассчитаны на порт 8080.
 
 Остановка — `docker compose down`. Данные PostgreSQL сохраняются в именованном томе. `.env` с паролями и ключами не коммитится.
 
@@ -90,17 +90,18 @@ curl http://127.0.0.1:8080/api/wardrobe/items \
 Для сборки нужен JDK 25, для интеграционных тестов — работающий Docker. Gradle запускается через wrapper:
 
 ```shell
-./gradlew bootJar                 # JAR во всех трёх модулях
-./gradlew :config-server:bootJar   # JAR только Config Server
+./gradlew bootJar                 # JAR во всех четырёх модулях
+./gradlew :api-gateway:bootJar    # JAR только Gateway
+./gradlew :config-server:bootJar  # JAR только Config Server
 ./gradlew :discovery-server:bootJar # JAR только Discovery Server
 ./gradlew test                    # unit- и интеграционные тесты
 ./gradlew check                   # тесты и покрытие строк ≥70%
-./gradlew testCodeCoverageReport  # общий отчёт покрытия трёх модулей
+./gradlew testCodeCoverageReport  # общий отчёт покрытия четырёх модулей
 ```
 
-Код приложения находится в `wardrobe-service`, Config Server — в `config-server`, Eureka — в `discovery-server`. Для запуска без Docker нужны PostgreSQL и переменные окружения из `.env`: Gradle сам этот файл не читает. Сначала выполните `./gradlew :config-server:bootRun`, затем `./gradlew :discovery-server:bootRun` и в другом терминале `./gradlew :wardrobe-service:bootRun`. Команды запускаются из корня репозитория; конкретный модуль можно указать явно: `./gradlew :wardrobe-service:test`.
+Код приложения находится в `wardrobe-service`, Config Server — в `config-server`, Eureka — в `discovery-server`, единая HTTP-точка входа — в `api-gateway`. Для запуска без Docker нужны PostgreSQL и переменные окружения из `.env`: Gradle сам этот файл не читает. Сначала выполните `./gradlew :config-server:bootRun`, затем `./gradlew :discovery-server:bootRun`, `APP_PORT=8081 ./gradlew :wardrobe-service:bootRun` и `./gradlew :api-gateway:bootRun`. Backend регистрируется в Eureka; после её запуска ему может потребоваться короткое время, чтобы появиться в Gateway. Команды запускаются из корня репозитория; конкретный модуль можно указать явно: `./gradlew :wardrobe-service:test`.
 
-Общий отчёт JaCoCo: `build/reports/jacoco/testCodeCoverageReport/html/index.html` и `build/reports/jacoco/testCodeCoverageReport/testCodeCoverageReport.xml`. Порог ≥70% применяется к строкам трёх модулей; классы из покрытия не исключаются. Unit-тесты сервисов используют Mockito без Spring и БД. Интеграционные тесты работают с PostgreSQL Testcontainers, готовят и проверяют данные через JDBC, очищают их после теста. HTTP-клиенты проверяются на локальных заглушках; секреты из `.env` и реальные вызовы S3/OpenAI не нужны.
+Общий отчёт JaCoCo: `build/reports/jacoco/testCodeCoverageReport/html/index.html` и `build/reports/jacoco/testCodeCoverageReport/testCodeCoverageReport.xml`. Порог ≥70% применяется к строкам четырёх модулей; классы из покрытия не исключаются. Unit-тесты сервисов используют Mockito без Spring и БД. Интеграционные тесты работают с PostgreSQL Testcontainers, готовят и проверяют данные через JDBC, очищают их после теста. HTTP-клиенты проверяются на локальных заглушках; секреты из `.env` и реальные вызовы S3/OpenAI не нужны.
 
 Для Colima на macOS перед тестами:
 
