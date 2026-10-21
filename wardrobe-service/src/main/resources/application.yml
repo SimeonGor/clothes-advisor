@@ -1,17 +1,6 @@
 server:
   port: ${APP_PORT:8080}
 
-springdoc:
-  default-produces-media-type: application/json
-  api-docs:
-    enabled: false
-  swagger-ui:
-    enabled: false
-    persist-authorization: false
-    validator-url: ""
-  paths-to-match: /api/**
-  override-with-generic-response: false
-
 app:
   openai:
     credentials-directory: ${CHATGPT_CREDENTIALS_DIR:}
@@ -25,6 +14,8 @@ app:
     service-account-key-file: ${YANDEX_SERVICE_ACCOUNT_KEY_FILE:}
 
 spring:
+  application:
+    name: wardrobe-service
   servlet:
     multipart:
       max-file-size: 10000000B
@@ -42,3 +33,18 @@ management:
   endpoint:
     health:
       show-details: never
+  health:
+    config:
+      enabled: false
+
+---
+spring:
+  config:
+    activate:
+      on-profile: "!test"
+    import: "configserver:${CONFIG_SERVER_URL:http://localhost:8888}"
+  cloud:
+    config:
+      fail-fast: true
+      request-connect-timeout: 2000
+      request-read-timeout: 5000

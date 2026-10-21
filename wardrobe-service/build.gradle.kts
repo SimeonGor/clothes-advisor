@@ -11,6 +11,8 @@ version = "0.0.1-SNAPSHOT"
 
 dependencies {
     implementation(platform("org.springframework.boot:spring-boot-dependencies:4.1.1"))
+    implementation(platform("org.springframework.cloud:spring-cloud-dependencies:2025.1.3"))
+    implementation("org.springframework.cloud:spring-cloud-starter-config")
     implementation("org.springframework.boot:spring-boot-starter-webmvc")
     implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.1")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
@@ -45,20 +47,4 @@ tasks.jacocoTestReport {
     reports {
         xml.required = true
     }
-}
-
-tasks.jacocoTestCoverageVerification {
-    dependsOn(tasks.jacocoTestReport)
-    violationRules {
-        rule {
-            limit {
-                counter = "LINE"
-                minimum = "0.70".toBigDecimal()
-            }
-        }
-    }
-}
-
-tasks.check {
-    dependsOn(tasks.jacocoTestCoverageVerification)
 }

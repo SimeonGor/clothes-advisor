@@ -14,3 +14,4 @@ dependencyResolutionManagement {
 rootProject.name = "clothes-advisor"
 
 include("wardrobe-service")
+include("config-server")

@@ -1,0 +1,10 @@
+springdoc:
+  default-produces-media-type: application/json
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+    persist-authorization: false
+    validator-url: ""
+  paths-to-match: /api/**
+  override-with-generic-response: false
