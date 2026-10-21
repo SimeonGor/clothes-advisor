@@ -1,4 +1,13 @@
 services:
+  frontend:
+    build:
+      context: ./frontend
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/index.html"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   config-server:
     build:
       context: .
@@ -40,12 +49,15 @@ services:
     environment:
       CONFIG_SERVER_URL: http://config-server:8888
       EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
+      FRONTEND_URL: http://frontend:8080
     ports:
       - "127.0.0.1:${APP_PORT:-8080}:8080"
     depends_on:
       config-server:
         condition: service_healthy
       discovery-server:
+        condition: service_healthy
+      frontend:
         condition: service_healthy
       app:
         condition: service_started

@@ -6,3 +6,4 @@ authorized_key.json
 **/build
 docs
 *.iml
+frontend/
