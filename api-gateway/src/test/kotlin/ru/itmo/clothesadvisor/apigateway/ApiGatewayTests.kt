@@ -125,7 +125,10 @@ class ApiGatewayTests {
     @Test
     fun `UI and docs reach separate services while internal paths stay closed`() {
         // given
-        val frontendPaths = listOf("/", "/index.html", "/demo.js", "/demo.css")
+        val frontendPaths = listOf(
+            "/", "/index.html", "/demo.js", "/demo.css",
+            "/app", "/app/", "/app/today", "/app/assets/site.js",
+        )
         val docsPaths = listOf("/swagger-ui.html", "/swagger-ui/index.html", "/v3/api-docs",
             "/v3/api-docs/swagger-config", "/v3/api-docs.yaml")
         val blockedPaths = listOf("/internal/health", "/eureka/apps", "/wardrobe-service/actuator/health", "/unknown.js")
