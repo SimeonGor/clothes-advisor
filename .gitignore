@@ -2,7 +2,7 @@
 .idea/
 /.gradle/
 /.kotlin/
-/build/
+build/
 .env
 /authorized_key.json
 /docs/plans/

@@ -101,4 +101,4 @@ Kotlin 2.3.21, Java 25, Spring Boot 4.1.1 и springdoc 3.1.1 сохраняют�
 
 Сохраняются общий Swagger, запуск Compose и общий порог покрытия 70%. Kafka, отдельный файловый сервис, новая авторизация и переписывание frontend не включаются заранее. Согласование модели данных с преподавателем — отдельная проверка.
 
-Документы ЛР1 остаются в [requirements.md](../requirements.md), [architecture.puml](../architecture.puml) и [domain.puml](../domain.puml). Основание для данных — [миграции](../../src/main/resources/db/migration); для API — [контроллеры](../../src/main/kotlin/ru/itmo/clothesadvisor/controller).
+Документы ЛР1 остаются в [requirements.md](../requirements.md), [architecture.puml](../architecture.puml) и [domain.puml](../domain.puml). Основание для данных — [миграции](../../wardrobe-service/src/main/resources/db/migration); для API — [контроллеры](../../wardrobe-service/src/main/kotlin/ru/itmo/clothesadvisor/controller).
