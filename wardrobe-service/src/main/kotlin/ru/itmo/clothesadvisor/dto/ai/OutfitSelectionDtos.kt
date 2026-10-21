@@ -1,0 +1,28 @@
+package ru.itmo.clothesadvisor.dto.ai
+
+import java.math.BigDecimal
+
+internal data class OutfitSelectionRequest(
+    val weather: OutfitSelectionWeather,
+    val candidates: List<OutfitSelectionCandidate>,
+)
+
+internal data class OutfitSelectionWeather(
+    val temperatureC: BigDecimal,
+    val windSpeedMps: BigDecimal,
+    val precipitationCode: String,
+    val precipitationName: String,
+)
+
+internal data class OutfitSelectionCandidate(
+    val itemId: Long,
+    val name: String,
+    val categoryCode: String,
+    val categoryName: String,
+    val color: String,
+    val material: String,
+    val contentType: String,
+    val imageBase64: String,
+)
+
+internal data class OutfitSelectionResponse(val itemIds: List<Long>)
