@@ -1,7 +1,13 @@
 FROM eclipse-temurin:25-jdk AS build
 
 WORKDIR /workspace
-COPY . .
+COPY gradlew build.gradle.kts settings.gradle.kts ./
+COPY gradle/ ./gradle/
+COPY wardrobe-service/build.gradle.kts ./wardrobe-service/
+COPY config-server/build.gradle.kts ./config-server/
+COPY discovery-server/build.gradle.kts ./discovery-server/
+COPY api-gateway/build.gradle.kts ./api-gateway/
+COPY discovery-server/src/main/ ./discovery-server/src/main/
 RUN chmod +x ./gradlew && ./gradlew --no-daemon --max-workers=1 \
     -Pkotlin.compiler.execution.strategy=in-process :discovery-server:bootJar
 

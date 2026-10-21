@@ -32,6 +32,7 @@ class ApiGatewayTests {
     fun closeClient() {
         http.close()
         backendRequests.clear()
+        frontendRequests.clear()
     }
 
     @Test
@@ -118,24 +119,26 @@ class ApiGatewayTests {
         assertThat(missingResponse.headers().firstValue("Content-Type").orElse(""))
             .contains("application/json")
         assertThat(backendRequests.map { it.path }).containsExactly("/api/test/failure", "/api/not-found")
+        assertThat(frontendRequests).isEmpty()
     }
 
     @Test
-    fun `known UI and docs paths route while internal paths stay closed`() {
+    fun `UI and docs reach separate services while internal paths stay closed`() {
         // given
-        val routedPaths = listOf("/", "/index.html", "/demo.js", "/demo.css", "/swagger-ui.html",
-            "/swagger-ui/index.html", "/v3/api-docs", "/v3/api-docs/openapi-config", "/v3/api-docs.yaml")
+        val frontendPaths = listOf("/", "/index.html", "/demo.js", "/demo.css")
+        val docsPaths = listOf("/swagger-ui.html", "/swagger-ui/index.html", "/v3/api-docs",
+            "/v3/api-docs/swagger-config", "/v3/api-docs.yaml")
         val blockedPaths = listOf("/internal/health", "/eureka/apps", "/wardrobe-service/actuator/health", "/unknown.js")
 
         // when
-        val routed = routedPaths.map(::get)
+        val routed = (frontendPaths + docsPaths).map(::get)
         val blocked = blockedPaths.map(::get)
 
         // then
         assertThat(routed.map { it.statusCode() }).containsOnly(200)
-        assertThat(backendRequests.map { it.path }).containsExactlyElementsOf(routedPaths)
+        assertThat(frontendRequests).containsExactlyElementsOf(frontendPaths)
+        assertThat(backendRequests.map { it.path }).containsExactlyElementsOf(docsPaths)
         assertThat(blocked.map { it.statusCode() }).containsOnly(404)
-        assertThat(backendRequests).hasSize(routedPaths.size)
     }
 
     @Test
@@ -158,8 +161,10 @@ class ApiGatewayTests {
 
     companion object {
         private val backendRequests = CopyOnWriteArrayList<BackendRequest>()
+        private val frontendRequests = CopyOnWriteArrayList<String>()
         private val downloadBytes = byteArrayOf(0, 1, 2, -1, -128, 127)
         private val backend = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        private val frontend = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
 
         init {
             backend.createContext("/") { exchange ->
@@ -206,6 +211,14 @@ class ApiGatewayTests {
                 exchange.close()
             }
             backend.start()
+            frontend.createContext("/") { exchange ->
+                frontendRequests += exchange.requestURI.toString()
+                val responseBody = "frontend".encodeToByteArray()
+                exchange.sendResponseHeaders(200, responseBody.size.toLong())
+                exchange.responseBody.use { it.write(responseBody) }
+                exchange.close()
+            }
+            frontend.start()
         }
 
         @JvmStatic
@@ -214,12 +227,14 @@ class ApiGatewayTests {
             registry.add("spring.cloud.discovery.client.simple.instances.wardrobe-service[0].uri") {
                 "http://127.0.0.1:${backend.address.port}"
             }
+            registry.add("FRONTEND_URL") { "http://127.0.0.1:${frontend.address.port}" }
         }
 
         @JvmStatic
         @AfterAll
-        fun stopBackend() {
+        fun stopServers() {
             backend.stop(0)
+            frontend.stop(0)
         }
     }
 

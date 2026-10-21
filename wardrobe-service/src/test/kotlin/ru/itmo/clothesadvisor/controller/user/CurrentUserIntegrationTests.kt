@@ -44,7 +44,6 @@ class CurrentUserIntegrationTests : PostgresIntegrationTest() {
                 "/api/wardrobe/categories",
                 "/api/weather/precipitation-types",
                 "/actuator/health",
-                "/",
             )
             .forEach {
 
