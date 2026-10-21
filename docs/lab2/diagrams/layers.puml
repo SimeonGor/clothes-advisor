@@ -1,0 +1,27 @@
+@startuml layers
+!pragma layout smetana
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName SansSerif
+skinparam defaultFontSize 15
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam nodesep 35
+skinparam ranksep 42
+skinparam ArrowColor #52677F
+
+rectangle "Сервис · один Gradle-модуль" as module #F6F8FB {
+  component "controller · dto\nHTTP-запросы и ответы\nПроверка формата данных" as http #FFF5DF
+  component "service\nБизнес-сценарии и правила\nПроверки прав" as service #DDF0E5
+  component "repository\nSpring Data JDBC / R2DBC\nSQL · работа с БД" as repository #EDF4FB
+  component "client / storage\nFeign · S3 / IAM · AI\nВнешние вызовы и ошибки" as external #EDF4FB
+  component "model\nДанные и состояние\nпредметной области" as model #E9F5EF
+  component "config\nНастройка приложения" as config #F2EDFB
+
+  http --> service : вызывает
+  service --> repository : читает / сохраняет
+  service --> external : обращается
+  service ..> model : использует
+  repository ..> model : возвращает
+  config -[hidden]down-> http
+}
+@enduml

@@ -1,0 +1,46 @@
+@startuml components
+!pragma layout smetana
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName SansSerif
+skinparam defaultFontSize 14
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam packageStyle rectangle
+skinparam nodesep 35
+skinparam ranksep 45
+skinparam ArrowColor #52677F
+
+actor "USER / STYLIST / ADMIN" as user
+component "Браузер\nFrontend UI" as browser #FFF5DF
+
+node "Docker Compose · локальное окружение" as compose {
+  component "frontend\nHTML / CSS / JS\nОтдельный образ" as frontend #FFF5DF
+  rectangle "Backend-приложения" as backend #F6F8FB {
+    component "api-gateway\nВнешний HTTP-вход\nМаршрутизация · Swagger" as gateway #EDF4FB
+    component "account-service\nАккаунты · роли · доступ\nReactor + R2DBC" as account #E9F5EF
+    component "wardrobe-service\nВещи · фото · образы\nПогода · оценки · история\nReactor + JDBC" as wardrobe #E9F5EF
+    component "recommendation-service\nПодбор из готовых кандидатов\nБез БД и обратных вызовов" as recommendation #F2EDFB
+  }
+  database "account_db" as accountDb #E9F5EF
+  database "wardrobe_db" as wardrobeDb #E9F5EF
+  component "config-server\nНесекретная конфигурация" as config #EDF4FB
+  component "discovery-server\nEureka" as discovery #EDF4FB
+}
+
+cloud "Yandex Object Storage\nПриватные фотографии" as s3 #E9F5EF
+cloud "OpenAI\nЛичное подключение ChatGPT" as ai #F2EDFB
+
+user --> browser
+browser --> gateway : один HTTP-адрес
+gateway --> frontend : статика
+gateway --> account : API аккаунтов / разрешений
+gateway --> wardrobe : API вещей / образов / подбора
+wardrobe --> account : Feign · права
+wardrobe --> recommendation : Feign · кандидаты / фото / погода
+account --> accountDb
+wardrobe --> wardrobeDb
+wardrobe --> s3 : HTTPS · IAM
+recommendation --> ai : HTTPS
+backend ..> config : получают конфигурацию
+backend ..> discovery : регистрация / обнаружение
+@enduml
