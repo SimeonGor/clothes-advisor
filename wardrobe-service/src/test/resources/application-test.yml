@@ -3,6 +3,10 @@ spring:
     config:
       enabled: false
 
+eureka:
+  client:
+    enabled: false
+
 springdoc:
   default-produces-media-type: application/json
   api-docs:
