@@ -1,6 +1,7 @@
 package ru.itmo.clothesadvisor.controller.ai
 
 import com.jayway.jsonpath.JsonPath
+import io.micrometer.core.instrument.MeterRegistry
 import java.math.BigDecimal
 import java.net.URI
 import java.net.http.HttpClient
@@ -72,6 +73,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
     @Autowired private lateinit var photoService: WardrobeItemPhotoService
     @Autowired private lateinit var jdbc: JdbcTemplate
     @Autowired private lateinit var transactionManager: PlatformTransactionManager
+    @Autowired private lateinit var meters: MeterRegistry
     @MockitoBean private lateinit var storage: S3PhotoStorage
     @MockitoBean private lateinit var provider: RecommendationClient
     @MockitoSpyBean private lateinit var wardrobe: WardrobeItemRepository
@@ -124,17 +126,30 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
 
     @AfterEach fun close() = http.close()
 
-    @Test
-    fun `health remains available while selection waits`() {
+    @ParameterizedTest(name = "admission while photo download waits={0}")
+    @ValueSource(booleans = [true, false])
+    fun `busy AI requests fail before preparation while health remains available`(
+        duringDownload: Boolean,
+    ) {
         // given
         val owner = connectedUser()
         val actorId = actorId(owner)
         val itemId = item(owner)
         val entered = CountDownLatch(1)
         val release = CountDownLatch(1)
-        select = { selection ->
+        val rejectedBefore = meters.get("wardrobe.ai.rejected").counter().count()
+        val successBefore =
+            meters.get("wardrobe.ai.duration").tag("outcome", "success").timer().count()
+        val failureBefore =
+            meters.get("wardrobe.ai.duration").tag("outcome", "failure").timer().count()
+        val waitForRelease = {
             entered.countDown()
             assertThat(release.await(10, TimeUnit.SECONDS)).isTrue()
+            Unit
+        }
+        if (duringDownload) onDownload = waitForRelease
+        select = { selection ->
+            if (!duringDownload) waitForRelease()
             OutfitSelectionResponse(selection.candidates.map { it.itemId })
         }
         Executors.newSingleThreadExecutor().use { executor ->
@@ -144,6 +159,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
             try {
                 assertThat(entered.await(10, TimeUnit.SECONDS)).isTrue()
                 assertThat(creation.isDone).isFalse()
+                val busy = request("POST", actorId = actorId, body = body())
                 val health =
                     http.send(
                         HttpRequest.newBuilder(URI("http://localhost:$port/actuator/health"))
@@ -154,8 +170,20 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
                     )
 
                 // then
+                assertEmpty(busy, 503)
                 assertThat(health.statusCode()).isEqualTo(200)
                 assertThat(creation.isDone).isFalse()
+                verify(wardrobe).findOwnedItemsWithPhotos(owner.id, 21)
+                verify(photos).findFirstByItemIdOrderByIdAsc(itemId)
+                assertThat(downloaded).containsExactly("photo-$itemId")
+                assertThat(providerCalls).hasValue(if (duringDownload) 0 else 1)
+                assertThat(meters.get("wardrobe.ai.active").gauge().value()).isEqualTo(1.0)
+                assertThat(meters.get("wardrobe.ai.rejected").counter().count())
+                    .isEqualTo(rejectedBefore + 1)
+                assertThat(meters.get("wardrobe.ai.duration").tag("outcome", "success").timer().count())
+                    .isEqualTo(successBefore)
+                assertThat(meters.get("wardrobe.ai.duration").tag("outcome", "failure").timer().count())
+                    .isEqualTo(failureBefore)
 
                 // when
                 release.countDown()
@@ -173,6 +201,19 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
                         ),
                     )
                     .containsExactly(itemId)
+
+                // when
+                val next = request("POST", actorId = actorId, body = body())
+
+                // then
+                assertThat(next.statusCode()).isEqualTo(201)
+                assertThat(count("outfit", "owner_id", owner.id)).isEqualTo(2)
+                assertThat(providerCalls).hasValue(2)
+                assertThat(meters.get("wardrobe.ai.active").gauge().value()).isZero()
+                assertThat(meters.get("wardrobe.ai.duration").tag("outcome", "success").timer().count())
+                    .isEqualTo(successBefore + 2)
+                assertThat(meters.get("wardrobe.ai.duration").tag("outcome", "failure").timer().count())
+                    .isEqualTo(failureBefore)
             } finally {
                 release.countDown()
                 creation.cancel(true)

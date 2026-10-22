@@ -40,6 +40,9 @@ kotlin {
 }
 
 val transportTest by sourceSets.creating
+kotlin.target.compilations.named("transportTest") {
+    associateWith(kotlin.target.compilations.getByName("main"))
+}
 configurations[transportTest.implementationConfigurationName]
     .extendsFrom(configurations.testImplementation.get())
 configurations[transportTest.runtimeOnlyConfigurationName]
