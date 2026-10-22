@@ -2,12 +2,9 @@ package ru.itmo.clothesadvisor.service.wardrobe
 
 import org.springframework.data.domain.Pageable
 import org.springframework.stereotype.Service
-import org.springframework.transaction.annotation.Transactional
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemPhotoContent
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemPhotoResponse
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemResponse
-import ru.itmo.clothesadvisor.model.EntityNotFoundException
-import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.service.access.AdminContentAccessService
 
 @Service
@@ -15,7 +12,6 @@ internal class AdminWardrobeService(
     private val access: AdminContentAccessService,
     private val items: WardrobeItemService,
     private val photos: WardrobeItemPhotoService,
-    private val repository: WardrobeItemRepository,
 ) {
     fun listItems(adminId: Long, ownerId: Long, pageable: Pageable): List<WardrobeItemResponse> {
         access.requireAccess(adminId, ownerId)
@@ -44,10 +40,7 @@ internal class AdminWardrobeService(
         return content
     }
 
-    @Transactional
     fun deletePhoto(adminId: Long, ownerId: Long, itemId: Long, photoId: Long) {
-        access.requireAccess(adminId, ownerId)
-        repository.lockOwned(itemId, ownerId) ?: throw EntityNotFoundException()
         access.requireAccess(adminId, ownerId)
         photos.delete(ownerId, itemId, photoId)
     }

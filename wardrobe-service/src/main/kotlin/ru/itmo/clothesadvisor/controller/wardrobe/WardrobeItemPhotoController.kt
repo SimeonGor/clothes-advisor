@@ -139,7 +139,7 @@ internal class WardrobeItemPhotoController(private val photos: WardrobeItemPhoto
         @Parameter(hidden = true) user: CurrentUser,
         @PathVariable itemId: Long,
         @PathVariable photoId: Long,
-    ) = photos.getContent(user.id, itemId, photoId).toPhotoContentResponse()
+    ) = photos.getOwnContent(user.id, itemId, photoId).toPhotoContentResponse()
 
     @DeleteMapping("/{photoId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)

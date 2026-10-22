@@ -8,14 +8,11 @@ import org.springframework.web.method.support.HandlerMethodArgumentResolver
 import org.springframework.web.method.support.ModelAndViewContainer
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer
 import ru.itmo.clothesadvisor.dto.user.CurrentUser
-import ru.itmo.clothesadvisor.model.AccessDeniedException
-import ru.itmo.clothesadvisor.model.EntityNotFoundException
-import ru.itmo.clothesadvisor.model.user.UserStatus
-import ru.itmo.clothesadvisor.repository.user.AppUserRepository
+import ru.itmo.clothesadvisor.service.user.CurrentUserService
 
 internal class InvalidCurrentUserException : RuntimeException()
 
-internal class CurrentUserArgumentResolver(private val users: AppUserRepository) :
+internal class CurrentUserArgumentResolver(private val users: CurrentUserService) :
     HandlerMethodArgumentResolver {
     override fun supportsParameter(parameter: MethodParameter) =
         parameter.parameterType == CurrentUser::class.java
@@ -29,16 +26,12 @@ internal class CurrentUserArgumentResolver(private val users: AppUserRepository)
         val id =
             webRequest.getHeader("X-User-Id")?.toLongOrNull()?.takeIf { it > 0 }
                 ?: throw InvalidCurrentUserException()
-        val user = users.findById(id) ?: throw EntityNotFoundException()
-        if (user.status == UserStatus.BLOCKED) {
-            throw AccessDeniedException()
-        }
-        return CurrentUser(id, user.login, user.role)
+        return users.requireActive(id)
     }
 }
 
 @Configuration
-internal class CurrentUserConfiguration(private val users: AppUserRepository) : WebMvcConfigurer {
+internal class CurrentUserConfiguration(private val users: CurrentUserService) : WebMvcConfigurer {
     override fun addArgumentResolvers(resolvers: MutableList<HandlerMethodArgumentResolver>) {
         resolvers.add(CurrentUserArgumentResolver(users))
     }

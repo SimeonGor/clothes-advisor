@@ -19,11 +19,16 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import org.mockito.ArgumentMatchers.any as anyArgument
 import org.mockito.ArgumentMatchers.anyLong
 import org.mockito.ArgumentMatchers.anyString
 import org.mockito.Mockito.clearInvocations
 import org.mockito.Mockito.doAnswer
+import org.mockito.Mockito.mockingDetails
+import org.mockito.Mockito.times
+import org.mockito.Mockito.verify
 import org.mockito.Mockito.verifyNoInteractions
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
@@ -31,6 +36,7 @@ import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.context.annotation.Import
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.bean.override.mockito.MockitoBean
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
 import org.springframework.transaction.support.TransactionSynchronizationManager
 import ru.itmo.clothesadvisor.config.PostgresIntegrationTest
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
@@ -39,6 +45,7 @@ import ru.itmo.clothesadvisor.model.user.AppUser
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
 import ru.itmo.clothesadvisor.service.user.AppUserService
+import ru.itmo.clothesadvisor.service.user.CurrentUserService
 import ru.itmo.clothesadvisor.storage.wardrobe.PhotoStorageUnavailableException
 import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
 
@@ -48,6 +55,7 @@ class WardrobeItemPhotoIntegrationTests : PostgresIntegrationTest() {
     @LocalServerPort private var port: Int = 0
     @Autowired private lateinit var users: AppUserService
     @Autowired private lateinit var jdbc: JdbcTemplate
+    @MockitoSpyBean private lateinit var currentUsers: CurrentUserService
     @MockitoBean private lateinit var storage: S3PhotoStorage
     private val client = HttpClient.newHttpClient()
     private val objects = ConcurrentHashMap<String, ByteArray>()
@@ -56,6 +64,12 @@ class WardrobeItemPhotoIntegrationTests : PostgresIntegrationTest() {
 
     @BeforeEach
     fun storageOutsideTransactions() {
+        doAnswer { call ->
+                assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
+                mockingDetails(currentUsers).mockCreationSettings.defaultAnswer.answer(call)
+            }
+            .`when`(currentUsers)
+            .requireActive(anyLong())
         doAnswer { call ->
                 assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
                 objects[call.getArgument(0)] = call.getArgument(2)
@@ -72,6 +86,80 @@ class WardrobeItemPhotoIntegrationTests : PostgresIntegrationTest() {
     }
 
     @AfterEach fun closeClient() = client.close()
+
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `owner blocked during upload cannot create item or photo metadata`(createItem: Boolean) {
+
+        // given
+        val owner = user()
+        val ownerId = requireNotNull(owner.id)
+        val actorId = actorId(owner)
+        val itemId = if (createItem) null else create(actorId)
+        clearInvocations(currentUsers)
+        doAnswer { call ->
+                assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
+                objects[call.getArgument(0)] = call.getArgument(2)
+                jdbc.update("UPDATE app_user SET status = 'BLOCKED' WHERE id = ?", ownerId)
+                null
+            }
+            .`when`(storage)
+            .put(anyString(), anyString(), anyArgument(ByteArray::class.java) ?: byteArrayOf())
+
+        // when
+        val response =
+            if (createItem) multipart(actorId, files = listOf(png), item = ITEM)
+            else multipart(actorId, "$ITEMS/$itemId/photos", listOf(png))
+
+        // then
+        assertThat(response.statusCode()).isEqualTo(403)
+        assertThat(String(response.body())).isEqualTo("{\"error\":\"forbidden\"}")
+        assertThat(count("wardrobe_item", "owner_id", ownerId))
+            .isEqualTo(if (createItem) 0 else 1)
+        assertThat(
+                jdbc.queryForObject(
+                    """
+                    SELECT count(*) FROM wardrobe_item_photo p
+                    JOIN wardrobe_item i ON i.id = p.wardrobe_item_id WHERE i.owner_id = ?
+                    """.trimIndent(),
+                    Long::class.java,
+                    ownerId,
+                ),
+            )
+            .isZero()
+        assertThat(objects).hasSize(1)
+        verify(currentUsers, times(3)).requireActive(ownerId)
+    }
+
+    @Test
+    fun `owner blocked during download cannot receive stored bytes`() {
+
+        // given
+        val owner = user()
+        val ownerId = requireNotNull(owner.id)
+        val actorId = actorId(owner)
+        val itemId = create(actorId)
+        val photoId =
+            number(rows(multipart(actorId, "$ITEMS/$itemId/photos", listOf(png))).single(), "id")
+        clearInvocations(currentUsers)
+        doAnswer { call ->
+                assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
+                jdbc.update("UPDATE app_user SET status = 'BLOCKED' WHERE id = ?", ownerId)
+                objects.getValue(call.getArgument(0))
+            }
+            .`when`(storage)
+            .get(anyString(), anyLong())
+
+        // when
+        val response = request("GET", "$ITEMS/$itemId/photos/$photoId/content", actorId)
+
+        // then
+        assertThat(response.statusCode()).isEqualTo(403)
+        assertThat(String(response.body())).isEqualTo("{\"error\":\"forbidden\"}")
+        assertThat(count("wardrobe_item_photo", "wardrobe_item_id", itemId)).isEqualTo(1)
+        assertThat(objects).hasSize(1)
+        verify(currentUsers, times(3)).requireActive(ownerId)
+    }
 
     @Test
     fun `multipart name accepts 300 and rejects 301 before uploading photos`() {

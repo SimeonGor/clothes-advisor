@@ -6,12 +6,14 @@ import org.springframework.transaction.support.TransactionTemplate
 import org.springframework.web.multipart.MultipartFile
 import ru.itmo.clothesadvisor.dto.wardrobe.CreateWardrobeItemRequest
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemResponse
+import ru.itmo.clothesadvisor.service.user.CurrentUserService
 
 @Service
 internal class WardrobeManagementService(
     private val items: WardrobeItemService,
     private val photos: WardrobeItemPhotoService,
     private val categories: WardrobeCategoryService,
+    private val users: CurrentUserService,
     transactionManager: PlatformTransactionManager,
 ) {
     private val transaction = TransactionTemplate(transactionManager)
@@ -21,9 +23,12 @@ internal class WardrobeManagementService(
         request: CreateWardrobeItemRequest,
         files: List<MultipartFile>,
     ): WardrobeItemResponse {
+        users.requireActive(ownerId)
         val validated = validatePhotos(files, allowEmpty = true)
         categories.getById(request.categoryId)
         photos.upload(validated)
+
+        users.requireActive(ownerId)
         return transaction.execute {
             val created = items.create(ownerId, request)
             photos.saveMetadata(ownerId, created.id, validated)

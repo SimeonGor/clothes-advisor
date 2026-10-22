@@ -23,16 +23,14 @@ import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItem
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItemHistory
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemHistoryRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
-import ru.itmo.clothesadvisor.service.user.AppUserService
 
 class WardrobeItemServiceTests {
     private val items = mock(WardrobeItemRepository::class.java)
     private val history = mock(WardrobeItemHistoryRepository::class.java)
     private val categories = mock(WardrobeCategoryService::class.java)
-    private val users = mock(AppUserService::class.java)
     private val validation = Validation.buildDefaultValidatorFactory()
     private val service =
-        WardrobeItemService(items, history, categories, users, validation.validator)
+        WardrobeItemService(items, history, categories, validation.validator)
     private val storedAt = Instant.parse("2026-01-01T00:00:00Z")
     private val category = WardrobeCategory("TOP", "Top").apply { id = 1 }
 
@@ -59,7 +57,7 @@ class WardrobeItemServiceTests {
             // then
             assertThat(failure).isInstanceOf(ConstraintViolationException::class.java)
         }
-        verifyNoInteractions(items, history, categories, users)
+        verifyNoInteractions(items, history, categories)
     }
 
     @Test
