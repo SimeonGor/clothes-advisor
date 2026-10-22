@@ -132,7 +132,10 @@ class ApiGatewayTests {
     @Test
     fun `gateway serves native Swagger UI and routes only the two selected specs`() {
         // given
-        val frontendPaths = listOf("/", "/index.html", "/demo.js", "/demo.css")
+        val frontendPaths = listOf(
+            "/", "/index.html", "/demo.js", "/demo.css",
+            "/app", "/app/", "/app/today", "/app/assets/site.js",
+        )
         val assets = listOf("/swagger-ui/swagger-ui.css", "/swagger-ui/swagger-ui-bundle.js",
             "/swagger-ui/swagger-ui-standalone-preset.js", "/swagger-ui/swagger-initializer.js")
         val blockedPaths = listOf("/internal/health", "/internal/users/7",
