@@ -129,10 +129,29 @@ class StylistAccessIntegrationTests : PostgresIntegrationTest() {
 
         // when
         val granted = send("PUT", "$ACCESS/$stylist", header)
-        change(actor, "ADMIN", "BLOCKED")
 
         // then
         assertEmpty(granted, 204)
+
+        // when
+        val recipients = send("GET", ACCESS, header)
+
+        // then
+        assertThat(ids(recipients)).containsExactly(stylist)
+
+        // when
+        val adminRevoked = send("DELETE", "$ACCESS/$stylist", header)
+
+        // then
+        assertEmpty(adminRevoked, 204)
+        assertThat(pairs()).isEmpty()
+
+        // when
+        val regranted = send("PUT", "$ACCESS/$stylist", header)
+        change(actor, "ADMIN", "BLOCKED")
+
+        // then
+        assertEmpty(regranted, 204)
         assertError(send("PUT", "$ACCESS/$stylist", header), 403)
         assertError(send("DELETE", "$ACCESS/$stylist", header), 403)
         assertError(send("GET", ACCESS, header), 403)
@@ -194,8 +213,10 @@ class StylistAccessIntegrationTests : PostgresIntegrationTest() {
         val owner = user()
         val stylist = user("STYLIST")
         val unrelated = user("STYLIST")
+        val ownerIdentity = identity(owner)
+        val stylistIdentity = identity(stylist)
         storeGrant(owner, stylist)
-        assertThat(ids(send("GET", CLIENTS, stylist.toString()))).containsExactly(owner)
+        assertThat(rows(send("GET", CLIENTS, stylist.toString()))).containsExactly(ownerIdentity)
         assertThat(ids(send("GET", "$CLIENTS?stylistId=$stylist", unrelated.toString()))).isEmpty()
 
         for ((role, status) in listOf("USER" to "BLOCKED", "ADMIN" to "ACTIVE",
@@ -204,12 +225,15 @@ class StylistAccessIntegrationTests : PostgresIntegrationTest() {
             change(owner, role, status)
             val suspended = send("GET", CLIENTS, stylist.toString())
             change(owner, "USER")
+            val restoredRecipients = send("GET", ACCESS, owner.toString())
             val restored = send("GET", CLIENTS, stylist.toString())
 
             // then
             assertThat(ids(suspended)).isEmpty()
-            assertThat(ids(restored)).containsExactly(owner)
-            assertThat(pairs()).hasSize(1)
+            assertThat(rows(restoredRecipients)).containsExactly(stylistIdentity)
+            assertThat(rows(restored)).containsExactly(ownerIdentity)
+            assertThat(pairs())
+                .containsExactly(mapOf("owner_id" to owner, "stylist_id" to stylist))
         }
         for ((role, status) in listOf("STYLIST" to "BLOCKED", "USER" to "ACTIVE",
             "ADMIN" to "ACTIVE")) {
@@ -218,14 +242,17 @@ class StylistAccessIntegrationTests : PostgresIntegrationTest() {
             val suspended = send("GET", CLIENTS, stylist.toString())
             val recipients = send("GET", ACCESS, owner.toString())
             change(stylist, "STYLIST")
+            val restoredRecipients = send("GET", ACCESS, owner.toString())
             val restored = send("GET", CLIENTS, stylist.toString())
 
             // then
             if (status == "BLOCKED") assertError(suspended, 403)
             else assertThat(ids(suspended)).isEmpty()
-            assertThat(ids(recipients)).containsExactly(stylist)
-            assertThat(ids(restored)).containsExactly(owner)
-            assertThat(pairs()).hasSize(1)
+            assertThat(rows(recipients)).containsExactly(stylistIdentity)
+            assertThat(rows(restoredRecipients)).containsExactly(stylistIdentity)
+            assertThat(rows(restored)).containsExactly(ownerIdentity)
+            assertThat(pairs())
+                .containsExactly(mapOf("owner_id" to owner, "stylist_id" to stylist))
         }
     }
 
@@ -371,6 +398,16 @@ class StylistAccessIntegrationTests : PostgresIntegrationTest() {
 
     private fun ids(response: HttpResponse<String>) =
         rows(response).map { (it["id"] as Number).toLong() }
+
+    private fun identity(id: Long): Map<String, Any> =
+        mapOf(
+            "id" to id.toInt(),
+            "login" to jdbc.queryForObject(
+                "SELECT login FROM app_user WHERE id = ?",
+                String::class.java,
+                id,
+            )!!,
+        )
 
     private fun assertEmpty(response: HttpResponse<String>, status: Int) {
         assertThat(response.statusCode()).isEqualTo(status)
