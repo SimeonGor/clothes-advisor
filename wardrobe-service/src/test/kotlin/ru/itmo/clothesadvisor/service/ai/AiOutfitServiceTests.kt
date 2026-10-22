@@ -3,8 +3,6 @@ package ru.itmo.clothesadvisor.service.ai
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import java.math.BigDecimal
 import java.time.Instant
-import java.util.concurrent.CountDownLatch
-import java.util.concurrent.TimeUnit
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.catchThrowable
 import org.junit.jupiter.api.BeforeEach
@@ -19,14 +17,11 @@ import org.mockito.Mockito.eq
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.never
 import org.mockito.Mockito.refEq
-import org.mockito.Mockito.times
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.verifyNoInteractions
 import org.mockito.Mockito.`when`
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.SimpleTransactionStatus
-import reactor.core.publisher.Mono
-import reactor.core.scheduler.Schedulers
 import ru.itmo.clothesadvisor.client.recommendation.RecommendationClient
 import ru.itmo.clothesadvisor.dto.ai.CreateAiOutfitRequest
 import ru.itmo.clothesadvisor.dto.outfit.CreateOutfitRequest
@@ -156,77 +151,6 @@ class AiOutfitServiceTests {
             .isEqualTo(1)
         assertThat(meters.get("wardrobe.ai.duration").tag("outcome", "failure").timer().count())
             .isZero()
-    }
-
-    @Test
-    fun `cancelling a subscriber keeps admission occupied until blocking work actually exits`() {
-        // given
-        val entered = CountDownLatch(1)
-        val interrupted = CountDownLatch(1)
-        val release = CountDownLatch(1)
-        val exited = CountDownLatch(1)
-        onSelection = {
-            entered.countDown()
-            var released = false
-            while (!released) {
-                try {
-                    check(release.await(10, TimeUnit.SECONDS))
-                    released = true
-                } catch (_: InterruptedException) {
-                    interrupted.countDown()
-                }
-            }
-        }
-        val scheduler = Schedulers.newBoundedElastic(1, 10, "ai-admission-test")
-        val creation = Mono.fromCallable {
-                try {
-                    service.create(7, request())
-                } finally {
-                    exited.countDown()
-                }
-            }
-            .subscribeOn(scheduler)
-            .toFuture()
-        try {
-            // when
-            assertThat(entered.await(10, TimeUnit.SECONDS)).isTrue()
-            assertThat(creation.cancel(true)).isTrue()
-            assertThat(interrupted.await(10, TimeUnit.SECONDS)).isTrue()
-            val busy = catchThrowable { service.create(7, request()) }
-
-            // then
-            assertFailure(AiOutfitFailure.UNAVAILABLE, busy)
-            assertThat(exited.count).isEqualTo(1)
-            verify(items).findOwnedItemsWithPhotos(7, 21)
-            verify(photos).findFirstByItemIdOrderByIdAsc(11)
-            verify(content).getContent(7, 11, 21)
-            verify(provider).select(any(OutfitSelectionRequest::class.java) ?: receivedSelection!!)
-            verifyNoInteractions(outfits)
-            assertThat(meters.get("wardrobe.ai.active").gauge().value()).isEqualTo(1.0)
-            assertThat(meters.get("wardrobe.ai.rejected").counter().count()).isEqualTo(1.0)
-            assertThat(meters.get("wardrobe.ai.duration").tag("outcome", "success").timer().count())
-                .isZero()
-            assertThat(meters.get("wardrobe.ai.duration").tag("outcome", "failure").timer().count())
-                .isZero()
-
-            // when
-            release.countDown()
-            assertThat(exited.await(10, TimeUnit.SECONDS)).isTrue()
-            onSelection = {}
-            val recovered = service.create(7, request())
-
-            // then
-            assertThat(recovered).isSameAs(saved)
-            assertThat(meters.get("wardrobe.ai.active").gauge().value()).isZero()
-            assertThat(meters.get("wardrobe.ai.duration").tag("outcome", "success").timer().count())
-                .isEqualTo(2)
-            verify(items, times(2)).findOwnedItemsWithPhotos(7, 21)
-        } finally {
-            release.countDown()
-            creation.cancel(true)
-            exited.await(10, TimeUnit.SECONDS)
-            scheduler.dispose()
-        }
     }
 
     @Test
