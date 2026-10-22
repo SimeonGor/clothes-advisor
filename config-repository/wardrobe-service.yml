@@ -13,12 +13,21 @@ spring:
       resilience4j:
         disable-time-limiter-map:
           RecommendationClientselectOutfitSelectionRequest: true
+          AccountClientgetUserlong: true
+          AccountClientrequireStylistAccesslonglong: true
+          AccountClientrequireAdminAccesslonglong: true
 
 resilience4j:
   circuitbreaker:
     instances:
       RecommendationClientselectOutfitSelectionRequest:
         ignore-exception-predicate: ru.itmo.clothesadvisor.client.recommendation.NoOutfitFailurePredicate
+      AccountClientgetUserlong:
+        ignore-exception-predicate: ru.itmo.clothesadvisor.client.account.AccountDomainFailurePredicate
+      AccountClientrequireStylistAccesslonglong:
+        ignore-exception-predicate: ru.itmo.clothesadvisor.client.account.AccountDomainFailurePredicate
+      AccountClientrequireAdminAccesslonglong:
+        ignore-exception-predicate: ru.itmo.clothesadvisor.client.account.AccountDomainFailurePredicate
 
 springdoc:
   default-produces-media-type: application/json
