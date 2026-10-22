@@ -1,7 +1,7 @@
 plugins {
-    kotlin("jvm")
-    kotlin("plugin.spring")
-    id("org.springframework.boot")
+    kotlin("jvm") version "2.3.21"
+    kotlin("plugin.spring") version "2.3.21"
+    id("org.springframework.boot") version "4.1.1"
     jacoco
 }
 
@@ -40,10 +40,10 @@ kotlin {
 
 tasks.withType<Test> {
     useJUnitPlatform()
-    inputs.file(rootProject.layout.projectDirectory.file("config-repository/account-service.yml"))
-    inputs.dir(rootProject.layout.projectDirectory.dir("ops/account-transfer"))
+    inputs.file(layout.projectDirectory.file("../config-repository/account-service.yml"))
+    inputs.dir(layout.projectDirectory.dir("../ops/account-transfer"))
     inputs.dir(
-        rootProject.layout.projectDirectory.dir("wardrobe-service/src/main/resources/db/migration"),
+        layout.projectDirectory.dir("../wardrobe-service/src/main/resources/db/migration"),
     )
 }
 

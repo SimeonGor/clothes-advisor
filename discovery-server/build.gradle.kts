@@ -1,7 +1,7 @@
 plugins {
-    kotlin("jvm")
-    kotlin("plugin.spring")
-    id("org.springframework.boot")
+    kotlin("jvm") version "2.3.21"
+    kotlin("plugin.spring") version "2.3.21"
+    id("org.springframework.boot") version "4.1.1"
     jacoco
 }
 
@@ -28,7 +28,7 @@ kotlin {
 
 tasks.withType<Test> {
     useJUnitPlatform()
-    inputs.file(rootProject.layout.projectDirectory.file("config-repository/discovery-server.yml"))
+    inputs.file(layout.projectDirectory.file("../config-repository/discovery-server.yml"))
 }
 
 jacoco {
