@@ -28,7 +28,7 @@ kotlin {
 
 tasks.withType<Test> {
     useJUnitPlatform()
-    inputs.file(layout.projectDirectory.file("../config-repository/discovery-server.yml"))
+    inputs.file(layout.projectDirectory.file("../config-repository/discovery-server/discovery-server.yml"))
 }
 
 jacoco {

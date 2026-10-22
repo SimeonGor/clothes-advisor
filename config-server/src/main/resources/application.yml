@@ -11,7 +11,7 @@ spring:
       server:
         accept-empty: false
         native:
-          search-locations: file:../config-repository/
+          search-locations: "file:../config-repository/{application}/"
         health:
           repositories:
             wardrobe-service:

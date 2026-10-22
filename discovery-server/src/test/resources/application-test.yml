@@ -3,4 +3,4 @@ spring:
     config:
       enabled: false
   config:
-    import: "file:../config-repository/discovery-server.yml"
+    import: "file:../config-repository/discovery-server/discovery-server.yml"
