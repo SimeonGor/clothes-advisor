@@ -13,13 +13,9 @@ app:
 spring:
   application:
     name: wardrobe-service
-  mvc:
-    async:
-      request-timeout: 0ms
-  servlet:
+  webflux:
     multipart:
-      max-file-size: 10000000B
-      max-request-size: 51000000B
+      max-disk-usage-per-part: 10000000B
   datasource:
     url: ${DB_URL:jdbc:postgresql://localhost:5432/clothes_advisor}
     username: ${DB_USER:clothes_advisor}

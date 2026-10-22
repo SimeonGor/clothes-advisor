@@ -1,12 +1,13 @@
 package ru.itmo.clothesadvisor.controller
 
 import jakarta.validation.ConstraintViolationException
+import org.springframework.core.io.buffer.DataBufferLimitException
 import org.springframework.http.ResponseEntity
-import org.springframework.http.converter.HttpMessageNotReadableException
-import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
-import org.springframework.web.multipart.MaxUploadSizeExceededException
+import org.springframework.web.bind.support.WebExchangeBindException
+import org.springframework.web.method.annotation.HandlerMethodValidationException
+import org.springframework.web.server.ServerWebInputException
 import ru.itmo.clothesadvisor.config.InvalidCurrentUserException
 import ru.itmo.clothesadvisor.dto.ApiErrorResponse
 import ru.itmo.clothesadvisor.model.AccessDeniedException
@@ -21,7 +22,7 @@ internal class ApiExceptionHandler {
     @ExceptionHandler(EntityNotFoundException::class)
     fun notFound(): ResponseEntity<Void> = ResponseEntity.notFound().build()
 
-    @ExceptionHandler(MaxUploadSizeExceededException::class)
+    @ExceptionHandler(DataBufferLimitException::class)
     fun uploadTooLarge(): ResponseEntity<Void> = ResponseEntity.status(413).build()
 
     @ExceptionHandler(AccessDeniedException::class)
@@ -29,8 +30,9 @@ internal class ApiExceptionHandler {
         ResponseEntity.status(403).body(ApiErrorResponse("forbidden"))
 
     @ExceptionHandler(
-        MethodArgumentNotValidException::class,
-        HttpMessageNotReadableException::class,
+        WebExchangeBindException::class,
+        ServerWebInputException::class,
+        HandlerMethodValidationException::class,
         InvalidCurrentUserException::class,
         ConstraintViolationException::class,
     )

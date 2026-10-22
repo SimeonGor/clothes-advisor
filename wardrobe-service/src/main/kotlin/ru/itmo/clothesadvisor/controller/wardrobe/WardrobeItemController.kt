@@ -16,6 +16,7 @@ import java.net.URI
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
+import org.springframework.http.codec.multipart.Part
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -27,7 +28,6 @@ import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RequestPart
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
-import org.springframework.web.multipart.MultipartFile
 import reactor.core.publisher.Mono
 import reactor.core.scheduler.Schedulers
 import ru.itmo.clothesadvisor.controller.toPageRequest
@@ -169,13 +169,15 @@ internal class WardrobeItemController(
     fun createWithPhotos(
         @Parameter(hidden = true) user: CurrentUser,
         @Valid @RequestPart("item") request: CreateWardrobeItemRequest,
-        @RequestPart("photos", required = false) files: List<MultipartFile>?,
+        @RequestPart("photos", required = false) files: List<@JvmSuppressWildcards Part>,
     ): Mono<ResponseEntity<WardrobeItemResponse>> =
-        Mono.fromCallable {
-                val created = management.createWithPhotos(user.id, request, files.orEmpty())
-                ResponseEntity.created(URI("/api/wardrobe/items/${created.id}")).body(created)
-            }
-            .subscribeOn(Schedulers.boundedElastic())
+        readPhotoParts(files).flatMap { bytes ->
+            Mono.fromCallable {
+                    val created = management.createWithPhotos(user.id, request, bytes)
+                    ResponseEntity.created(URI("/api/wardrobe/items/${created.id}")).body(created)
+                }
+                .subscribeOn(Schedulers.boundedElastic())
+        }
 
     @GetMapping
     @Operation(summary = "Список вещей", description = "По ID по возрастанию; без X-Total-Count.")

@@ -19,6 +19,8 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
+import reactor.core.publisher.Mono
+import reactor.core.scheduler.Schedulers
 import ru.itmo.clothesadvisor.controller.toPageRequest
 import ru.itmo.clothesadvisor.dto.user.CurrentUser
 import ru.itmo.clothesadvisor.service.outfit.AdminOutfitService
@@ -65,11 +67,14 @@ internal class AdminOutfitController(private val outfits: AdminOutfitService) {
         @RequestParam(defaultValue = "0") @Min(0) page: Int,
         @RequestParam(defaultValue = "50") @Min(1) @Max(50) size: Int,
     ) =
-        outfits.list(user.id, ownerId, toPageRequest(page, size)).let {
-            ResponseEntity.ok()
-                .header("X-Total-Count", it.totalElements.toString())
-                .body(it.content)
-        }
+        Mono.fromCallable {
+                outfits.list(user.id, ownerId, toPageRequest(page, size)).let {
+                    ResponseEntity.ok()
+                        .header("X-Total-Count", it.totalElements.toString())
+                        .body(it.content)
+                }
+            }
+            .subscribeOn(Schedulers.boundedElastic())
 
     @GetMapping("/{id}")
     @Operation(
@@ -89,7 +94,11 @@ internal class AdminOutfitController(private val outfits: AdminOutfitService) {
         @Parameter(hidden = true) user: CurrentUser,
         @PathVariable ownerId: Long,
         @PathVariable id: Long,
-    ) = outfits.get(user.id, ownerId, id)
+    ) =
+        Mono.fromCallable {
+                outfits.get(user.id, ownerId, id)
+            }
+            .subscribeOn(Schedulers.boundedElastic())
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -114,5 +123,9 @@ internal class AdminOutfitController(private val outfits: AdminOutfitService) {
         @Parameter(hidden = true) user: CurrentUser,
         @PathVariable ownerId: Long,
         @PathVariable id: Long,
-    ) = outfits.delete(user.id, ownerId, id)
+    ) =
+        Mono.fromRunnable<Void> {
+                outfits.delete(user.id, ownerId, id)
+            }
+            .subscribeOn(Schedulers.boundedElastic())
 }

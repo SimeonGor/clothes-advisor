@@ -5,26 +5,21 @@ import java.util.UUID
 import javax.imageio.ImageIO
 import javax.imageio.stream.MemoryCacheImageInputStream
 import org.springframework.http.HttpStatus
-import org.springframework.web.multipart.MultipartFile
 
 internal const val MAX_PHOTO_BYTES = 10_000_000
 internal const val MAX_ITEM_PHOTOS = 5
 
 internal data class ValidatedPhoto(val s3Key: String, val contentType: String, val bytes: ByteArray)
 
-internal fun validatePhotos(files: List<MultipartFile>, allowEmpty: Boolean): List<ValidatedPhoto> {
+internal fun validatePhotos(files: List<ByteArray>, allowEmpty: Boolean): List<ValidatedPhoto> {
     if (files.size > MAX_ITEM_PHOTOS || (!allowEmpty && files.isEmpty())) {
         throw PhotoRequestException(HttpStatus.BAD_REQUEST)
     }
-    return files.map { file ->
-        if (file.size > MAX_PHOTO_BYTES) {
+    return files.map { bytes ->
+        if (bytes.size > MAX_PHOTO_BYTES) {
             throw PhotoRequestException(HttpStatus.PAYLOAD_TOO_LARGE)
         }
         try {
-            val bytes = file.inputStream.use { it.readNBytes(MAX_PHOTO_BYTES + 1) }
-            if (bytes.size > MAX_PHOTO_BYTES) {
-                throw PhotoRequestException(HttpStatus.PAYLOAD_TOO_LARGE)
-            }
             if (bytes.isEmpty()) {
                 throw PhotoRequestException(HttpStatus.BAD_REQUEST)
             }

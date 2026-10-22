@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponses
 import io.swagger.v3.oas.annotations.tags.Tag
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
+import org.springframework.http.codec.multipart.Part
 import org.springframework.web.bind.annotation.DeleteMapping
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -18,7 +19,6 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestPart
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
-import org.springframework.web.multipart.MultipartFile
 import reactor.core.publisher.Mono
 import reactor.core.scheduler.Schedulers
 import ru.itmo.clothesadvisor.dto.user.CurrentUser
@@ -76,10 +76,12 @@ internal class WardrobeItemPhotoController(private val photos: WardrobeItemPhoto
     fun add(
         @Parameter(hidden = true) user: CurrentUser,
         @PathVariable itemId: Long,
-        @RequestPart("photos") files: List<MultipartFile>,
+        @RequestPart("photos", required = false) files: List<@JvmSuppressWildcards Part>,
     ): Mono<List<WardrobeItemPhotoResponse>> =
-        Mono.fromCallable { photos.add(user.id, itemId, files) }
-            .subscribeOn(Schedulers.boundedElastic())
+        readPhotoParts(files).flatMap { bytes ->
+            Mono.fromCallable { photos.add(user.id, itemId, bytes) }
+                .subscribeOn(Schedulers.boundedElastic())
+        }
 
     @GetMapping
     @Operation(summary = "Список фотографий", description = "Метаданные без S3-ссылок.")
