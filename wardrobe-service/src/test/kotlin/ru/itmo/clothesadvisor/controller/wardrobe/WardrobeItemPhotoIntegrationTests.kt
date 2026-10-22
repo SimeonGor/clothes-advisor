@@ -41,10 +41,10 @@ import org.springframework.transaction.support.TransactionSynchronizationManager
 import ru.itmo.clothesadvisor.config.AccountBackedIntegrationTest
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
 import ru.itmo.clothesadvisor.config.insertUser
-import ru.itmo.clothesadvisor.model.user.AppUser
+import ru.itmo.clothesadvisor.config.updateUserRoleAndStatus
+import ru.itmo.clothesadvisor.dto.account.AccountUserResponse
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
-import ru.itmo.clothesadvisor.service.user.AppUserService
 import ru.itmo.clothesadvisor.service.user.CurrentUserService
 import ru.itmo.clothesadvisor.storage.wardrobe.PhotoStorageUnavailableException
 import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
@@ -53,7 +53,6 @@ import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
 @Import(TestTimeConfiguration::class)
 class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
     @LocalServerPort private var port: Int = 0
-    @Autowired private lateinit var users: AppUserService
     @Autowired private lateinit var jdbc: JdbcTemplate
     @MockitoSpyBean private lateinit var currentUsers: CurrentUserService
     @MockitoBean private lateinit var storage: S3PhotoStorage
@@ -93,7 +92,7 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
 
         // given
         val owner = user()
-        val ownerId = requireNotNull(owner.id)
+        val ownerId = owner.id
         val actorId = actorId(owner)
         val itemId = if (createItem) null else create(actorId)
         clearInvocations(currentUsers)
@@ -136,7 +135,7 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
 
         // given
         val owner = user()
-        val ownerId = requireNotNull(owner.id)
+        val ownerId = owner.id
         val actorId = actorId(owner)
         val itemId = create(actorId)
         val photoId =
@@ -355,7 +354,7 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
         }
 
         // given: the owner is now blocked
-        users.changeRoleAndStatus(owner.id!!, owner.version, owner.role, UserStatus.BLOCKED)
+        jdbc.updateUserRoleAndStatus(owner.id, owner.role, UserStatus.BLOCKED)
         for ((deniedActorId, status) in listOf(null to 400, "invalid" to 400, actorId to 403)) {
             val path = "$ITEMS/$id/photos"
 
@@ -490,7 +489,7 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
         // then
         assertThat(unknownCategoryStatus).isEqualTo(400)
         verifyNoInteractions(storage)
-        assertThat(count("wardrobe_item", "owner_id", owner.id!!)).isZero()
+        assertThat(count("wardrobe_item", "owner_id", owner.id)).isZero()
     }
 
     @Test
@@ -578,7 +577,7 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
         // then
         assertThat(failed.statusCode()).isEqualTo(503)
         assertThat(failed.body()).isEmpty()
-        assertThat(count("wardrobe_item", "owner_id", owner.id!!)).isZero()
+        assertThat(count("wardrobe_item", "owner_id", owner.id)).isZero()
 
         // given
         val id = create(actorId)
@@ -638,7 +637,7 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
 
         // then
         assertThat(rollbackStatus).isEqualTo(409)
-        assertThat(count("wardrobe_item", "owner_id", owner.id!!)).isEqualTo(1)
+        assertThat(count("wardrobe_item", "owner_id", owner.id)).isEqualTo(1)
         assertThat(
                 jdbc.queryForObject(
                     """
@@ -791,10 +790,10 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
         }
     }
 
-    private fun user(role: UserRole = UserRole.USER): AppUser =
+    private fun user(role: UserRole = UserRole.USER): AccountUserResponse =
         jdbc.insertUser(UUID.randomUUID().toString(), "!", role)
 
-    private fun actorId(user: AppUser): String = requireNotNull(user.id).toString()
+    private fun actorId(user: AccountUserResponse): String = user.id.toString()
 
     private fun create(actorId: String): Long =
         number(objectBody(request("POST", ITEMS, actorId, ITEM)), "id")

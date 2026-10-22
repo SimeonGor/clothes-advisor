@@ -32,7 +32,6 @@ import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemResponse
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItem
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
-import ru.itmo.clothesadvisor.service.user.AppUserService
 
 @SpringBootTest
 @Import(TestTimeConfiguration::class)
@@ -40,8 +39,6 @@ class WardrobeItemPersistenceTests : PostgresIntegrationTest() {
     @Autowired private lateinit var items: WardrobeItemService
 
     @MockitoSpyBean private lateinit var repository: WardrobeItemRepository
-
-    @Autowired private lateinit var users: AppUserService
 
     @Autowired private lateinit var jdbc: JdbcTemplate
 
@@ -249,7 +246,7 @@ class WardrobeItemPersistenceTests : PostgresIntegrationTest() {
     }
 
     private fun createWardrobeItem(): Pair<Long, WardrobeItemResponse> {
-        val owner = jdbc.insertUser(UUID.randomUUID().toString(), "test-hash", UserRole.USER).id!!
+        val owner = jdbc.insertUser(UUID.randomUUID().toString(), "test-hash", UserRole.USER).id
         return owner to
             items.create(owner, CreateWardrobeItemRequest("Shirt", 1, "White", "Cotton"))
     }

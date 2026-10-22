@@ -36,19 +36,19 @@ import ru.itmo.clothesadvisor.config.insertAccessGrant
 import ru.itmo.clothesadvisor.config.insertItem
 import ru.itmo.clothesadvisor.config.insertOutfit
 import ru.itmo.clothesadvisor.config.insertUser
+import ru.itmo.clothesadvisor.config.updateUserRoleAndStatus
+import ru.itmo.clothesadvisor.dto.account.AccountUserResponse
 import ru.itmo.clothesadvisor.dto.outfit.CreateOutfitRequest
 import ru.itmo.clothesadvisor.dto.outfit.OutfitWeatherDto
 import ru.itmo.clothesadvisor.dto.wardrobe.CreateWardrobeItemRequest
 import ru.itmo.clothesadvisor.model.outfit.OutfitItem
 import ru.itmo.clothesadvisor.model.outfit.OutfitItemId
-import ru.itmo.clothesadvisor.model.user.AppUser
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
 import ru.itmo.clothesadvisor.repository.outfit.OutfitItemRepository
 import ru.itmo.clothesadvisor.repository.outfit.OutfitRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.service.outfit.OutfitService
-import ru.itmo.clothesadvisor.service.user.AppUserService
 import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemService
 import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
 
@@ -56,7 +56,6 @@ import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
 @Import(TestTimeConfiguration::class)
 class OutfitIntegrationTests : AccountBackedIntegrationTest() {
     @LocalServerPort private var port: Int = 0
-    @Autowired private lateinit var users: AppUserService
     @Autowired private lateinit var items: WardrobeItemService
     @Autowired private lateinit var outfits: OutfitService
     @Autowired private lateinit var jdbc: JdbcTemplate
@@ -132,7 +131,7 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
         val expectedWeather = OutfitWeatherDto(BigDecimal(TEMPERATURE), 1, BigDecimal(WIND))
 
         // when
-        val storedOutfit = outfits.get(owner.id!!, id)
+        val storedOutfit = outfits.get(owner.id, id)
 
         // then
         assertThat(storedOutfit.weather).isEqualTo(expectedWeather)
@@ -201,7 +200,7 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
         ids.forEach { itemId ->
 
             // when
-            val retainedItem = items.get(owner.id!!, itemId)
+            val retainedItem = items.get(owner.id, itemId)
 
             // then
             assertThat(retainedItem.version).isEqualTo(1)
@@ -213,7 +212,7 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
         // given
         val owner = user()
         val stylist = user(UserRole.STYLIST)
-        jdbc.insertAccessGrant(owner.id!!, stylist.id!!)
+        jdbc.insertAccessGrant(owner.id, stylist.id)
         val actorId = actorId(stylist)
         val path = stylistPath(owner)
         val item = item(owner)
@@ -274,7 +273,7 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
         assertThat(dto(ownerRead)).isEqualTo(original - "myRating")
 
         // when
-        users.changeRoleAndStatus(stylist.id!!, stylist.version, UserRole.USER, UserStatus.ACTIVE)
+        jdbc.updateUserRoleAndStatus(stylist.id, UserRole.USER, UserStatus.ACTIVE)
         val readAfterRoleChange = request("GET", "$OUTFITS/$id", ownerActorId)
 
         // then
@@ -351,7 +350,7 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
         }
 
         // given
-        jdbc.insertAccessGrant(foreign.id!!, stylist.id!!)
+        jdbc.insertAccessGrant(foreign.id, stylist.id)
 
         // when
         val foreignClientRead = request("GET", "${stylistPath(foreign)}/$id", stylistActorId)
@@ -364,8 +363,8 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
 
         // then
         assertThat(rows(foreignList)).isEmpty()
-        assertThat(count("outfit", "owner_id", owner.id!!)).isEqualTo(1)
-        assertThat(count("outfit", "owner_id", foreign.id!!)).isZero()
+        assertThat(count("outfit", "owner_id", owner.id)).isEqualTo(1)
+        assertThat(count("outfit", "owner_id", foreign.id)).isZero()
     }
 
     @Test
@@ -373,11 +372,9 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
         // given
         val owner = user()
         val stylist = user(UserRole.STYLIST)
-        var currentOwner = owner
-        var currentStylist = stylist
         val actorId = actorId(stylist)
         val ids = listOf(item(owner))
-        jdbc.insertAccessGrant(owner.id!!, stylist.id!!)
+        jdbc.insertAccessGrant(owner.id, stylist.id)
         val path = stylistPath(owner)
         val id = number(dto(request("POST", path, actorId, body(ids))), "id")
         fun requestStylistRoutes() =
@@ -392,47 +389,42 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
                 assertThat(response.statusCode()).isEqualTo(status)
                 if (status == 404) assertThat(response.body()).isEmpty()
             }
-            assertThat(count("outfit", "owner_id", owner.id!!)).isEqualTo(1)
+            assertThat(count("outfit", "owner_id", owner.id)).isEqualTo(1)
         }
 
         // when
-        jdbc.update("DELETE FROM access_grant WHERE owner_id = ? AND stylist_id = ?", owner.id!!, stylist.id!!)
+        jdbc.update("DELETE FROM access_grant WHERE owner_id = ? AND stylist_id = ?", owner.id, stylist.id)
         val revokedResponses = requestStylistRoutes()
 
         // then
         assertDenied(revokedResponses, 404)
 
         // when
-        jdbc.insertAccessGrant(owner.id!!, stylist.id!!)
-        currentOwner =
-            users.changeRoleAndStatus(
-                owner.id!!,
-                currentOwner.version,
-                UserRole.USER,
-                UserStatus.BLOCKED,
-            )
+        jdbc.insertAccessGrant(owner.id, stylist.id)
+        jdbc.updateUserRoleAndStatus(
+            owner.id,
+            UserRole.USER,
+            UserStatus.BLOCKED,
+        )
         val blockedOwnerResponses = requestStylistRoutes()
 
         // then
         assertDenied(blockedOwnerResponses, 404)
 
         // when
-        currentOwner =
-            users.changeRoleAndStatus(
-                owner.id!!,
-                currentOwner.version,
-                UserRole.STYLIST,
-                UserStatus.ACTIVE,
-            )
+        jdbc.updateUserRoleAndStatus(
+            owner.id,
+            UserRole.STYLIST,
+            UserStatus.ACTIVE,
+        )
         val changedOwnerRoleResponses = requestStylistRoutes()
 
         // then
         assertDenied(changedOwnerRoleResponses, 404)
 
         // when
-        users.changeRoleAndStatus(
-            owner.id!!,
-            currentOwner.version,
+        jdbc.updateUserRoleAndStatus(
+            owner.id,
             UserRole.USER,
             UserStatus.ACTIVE,
         )
@@ -442,22 +434,19 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
         assertThat(restoredOwnerResponse.statusCode()).isEqualTo(200)
 
         // when
-        currentStylist =
-            users.changeRoleAndStatus(
-                stylist.id!!,
-                currentStylist.version,
-                UserRole.STYLIST,
-                UserStatus.BLOCKED,
-            )
+        jdbc.updateUserRoleAndStatus(
+            stylist.id,
+            UserRole.STYLIST,
+            UserStatus.BLOCKED,
+        )
         val blockedStylistResponses = requestStylistRoutes()
 
         // then
         assertDenied(blockedStylistResponses, 403)
 
         // when
-        users.changeRoleAndStatus(
-            stylist.id!!,
-            currentStylist.version,
+        jdbc.updateUserRoleAndStatus(
+            stylist.id,
             UserRole.USER,
             UserStatus.ACTIVE,
         )
@@ -474,8 +463,7 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
         val actorId = actorId(owner)
         val ids = listOf(item(owner))
         val id = number(dto(request("POST", actorId = actorId, body = body(ids))), "id")
-        var current =
-            users.changeRoleAndStatus(owner.id!!, owner.version, owner.role, UserStatus.BLOCKED)
+        jdbc.updateUserRoleAndStatus(owner.id, owner.role, UserStatus.BLOCKED)
         for ((credential, status) in listOf(null to 400, actorId to 403)) {
             for ((method, path) in
                 listOf(
@@ -495,18 +483,16 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
         }
 
         // when
-        current =
-            users.changeRoleAndStatus(
-                owner.id!!,
-                current.version,
-                UserRole.STYLIST,
-                UserStatus.ACTIVE,
-            )
+        jdbc.updateUserRoleAndStatus(
+            owner.id,
+            UserRole.STYLIST,
+            UserStatus.ACTIVE,
+        )
         val restoredOwnerResponse = request("GET", actorId = actorId)
 
         // then
         assertThat(restoredOwnerResponse.statusCode()).isEqualTo(200)
-        assertThat(count("outfit", "owner_id", current.id!!)).isEqualTo(1)
+        assertThat(count("outfit", "owner_id", owner.id)).isEqualTo(1)
     }
 
     @Test
@@ -556,7 +542,7 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
             // then
             assertThat(response.statusCode()).describedAs(invalidBody).isEqualTo(400)
         }
-        assertThat(count("outfit", "owner_id", owner.id!!)).isZero()
+        assertThat(count("outfit", "owner_id", owner.id)).isZero()
         assertThat(tables.map { jdbc.queryForObject("SELECT count(*) FROM $it", Long::class.java) })
             .isEqualTo(before)
 
@@ -576,14 +562,14 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
         val ownerActorId = actorId(owner)
         val stylistActorId = actorId(stylist)
         val input = input(listOf(item(owner)))
-        jdbc.insertAccessGrant(owner.id!!, stylist.id!!)
+        jdbc.insertAccessGrant(owner.id, stylist.id)
         val expected =
             List(53) {
-                    jdbc.insertOutfit(owner.id!!, listOf(requireNotNull(input.itemIds.single())))
+                    jdbc.insertOutfit(owner.id, listOf(requireNotNull(input.itemIds.single())))
                 }
                 .reversed()
         val foreign = user()
-        jdbc.insertOutfit(foreign.id!!, listOf(item(foreign)))
+        jdbc.insertOutfit(foreign.id, listOf(item(foreign)))
         for ((path, actorId) in
             listOf(OUTFITS to ownerActorId, stylistPath(owner) to stylistActorId)) {
 
@@ -643,7 +629,7 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
             UUID.randomUUID().toString(),
             java.sql.Timestamp.from(TestTimeConfiguration.FIXED_TIME),
         )
-        val outfit = outfits.create(owner.id!!, input(listOf(item)))
+        val outfit = outfits.create(owner.id, input(listOf(item)))
 
         // when
         val referencedItemDeletion =
@@ -653,7 +639,7 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
         assertEmpty(referencedItemDeletion, 409)
 
         // when
-        val retainedItem = items.get(owner.id!!, item)
+        val retainedItem = items.get(owner.id, item)
 
         // then
         assertThat(retainedItem.version).isEqualTo(1)
@@ -686,7 +672,7 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
         // when
         val failure = catchThrowable {
             TransactionTemplate(transactionManager).executeWithoutResult {
-                id = outfits.create(owner.id!!, input(ids)).id
+                id = outfits.create(owner.id, input(ids)).id
                 assertThat(count("outfit_item", "outfit_id", id)).isEqualTo(2)
                 assertThat(count("outfit_weather", "outfit_id", id)).isEqualTo(1)
                 error("forced rollback")
@@ -703,7 +689,7 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
         ids.forEach { itemId ->
 
             // when
-            val retainedItem = items.get(owner.id!!, itemId)
+            val retainedItem = items.get(owner.id, itemId)
 
             // then
             assertThat(retainedItem.version).isEqualTo(1)
@@ -716,7 +702,7 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
         val owner = user()
         val existingItem = item(owner)
         val newItem = item(owner)
-        val outfitId = jdbc.insertOutfit(owner.id!!, listOf(existingItem))
+        val outfitId = jdbc.insertOutfit(owner.id, listOf(existingItem))
 
         // when
         val failure = catchThrowable {
@@ -749,7 +735,7 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
         val owner = user()
         val actorId = actorId(owner)
         val ids = List(2) { item(owner) }
-        val outfit = outfits.create(owner.id!!, input(ids))
+        val outfit = outfits.create(owner.id, input(ids))
         val loaded = CountDownLatch(1)
         val release = CountDownLatch(1)
         val secondLock = CountDownLatch(1)
@@ -767,7 +753,7 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
                 entity
             }
             .`when`(outfitRepository)
-            .findLockedByIdAndOwnerId(outfit.id, owner.id!!)
+            .findLockedByIdAndOwnerId(outfit.id, owner.id)
 
         // when
         Executors.newFixedThreadPool(2).use { executor ->
@@ -803,7 +789,7 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
         ids.forEach { itemId ->
 
             // when
-            val retainedItem = items.get(owner.id!!, itemId)
+            val retainedItem = items.get(owner.id, itemId)
 
             // then
             assertThat(retainedItem.version).isEqualTo(1)
@@ -834,12 +820,12 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
                                 .apply { timeout = 20 }
                                 .executeWithoutResult {
                                     assertThat(
-                                            wardrobe.findByIdAndOwnerId(item, owner.id!!)!!.version,
+                                            wardrobe.findByIdAndOwnerId(item, owner.id)!!.version,
                                         )
                                         .isEqualTo(1)
                                     loaded.countDown()
                                     assertThat(created.await(10, TimeUnit.SECONDS)).isTrue()
-                                    items.delete(owner.id!!, item, 1)
+                                    items.delete(owner.id, item, 1)
                                 }
                             null
                         } catch (failure: Exception) {
@@ -849,7 +835,7 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
                 )
             try {
                 assertThat(loaded.await(10, TimeUnit.SECONDS)).isTrue()
-                outfits.create(owner.id!!, input(listOf(item)))
+                outfits.create(owner.id, input(listOf(item)))
             } finally {
                 created.countDown()
             }
@@ -860,14 +846,14 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
         }
 
         // when
-        val retainedItem = items.get(owner.id!!, item)
+        val retainedItem = items.get(owner.id, item)
 
         // then
         assertThat(retainedItem.version).isEqualTo(1)
         assertThat(count("wardrobe_item_history", "wardrobe_item_id", item)).isZero()
 
         // when
-        val retainedOutfits = outfits.list(owner.id!!, PageRequest.of(0, 50))
+        val retainedOutfits = outfits.list(owner.id, PageRequest.of(0, 50))
 
         // then
         assertThat(retainedOutfits.totalElements).isEqualTo(1)
@@ -888,7 +874,7 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
                 count
             }
             .`when`(wardrobe)
-            .countByOwnerIdAndIdIn(owner.id!!, listOf(item))
+            .countByOwnerIdAndIdIn(owner.id, listOf(item))
 
         // when
         Executors.newSingleThreadExecutor().use { executor ->
@@ -898,7 +884,7 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
                 )
             try {
                 assertThat(validated.await(10, TimeUnit.SECONDS)).isTrue()
-                items.delete(owner.id!!, item, 1)
+                items.delete(owner.id, item, 1)
             } finally {
                 deleted.countDown()
             }
@@ -909,7 +895,7 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
         }
 
         // then
-        assertThat(count("outfit", "owner_id", owner.id!!)).isZero()
+        assertThat(count("outfit", "owner_id", owner.id)).isZero()
         assertThat(count("outfit_item", "wardrobe_item_id", item)).isZero()
         assertThat(count("wardrobe_item_history", "wardrobe_item_id", item)).isEqualTo(1)
     }
@@ -919,7 +905,7 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
         // given
         val owner = user()
         val actorId = actorId(owner)
-        val original = outfits.create(owner.id!!, input(listOf(item(owner))))
+        val original = outfits.create(owner.id, input(listOf(item(owner))))
         val loaded = CountDownLatch(1)
         val deleted = CountDownLatch(1)
         doAnswer { call ->
@@ -930,14 +916,14 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
                 page
             }
             .`when`(outfitRepository)
-            .findAllByOwnerIdOrderByIdDesc(owner.id!!, PageRequest.of(0, 50))
+            .findAllByOwnerIdOrderByIdDesc(owner.id, PageRequest.of(0, 50))
 
         // when
         Executors.newSingleThreadExecutor().use { executor ->
             val reading = executor.submit(Callable { request("GET", actorId = actorId) })
             try {
                 assertThat(loaded.await(10, TimeUnit.SECONDS)).isTrue()
-                outfits.delete(owner.id!!, original.id)
+                outfits.delete(owner.id, original.id)
             } finally {
                 deleted.countDown()
             }
@@ -959,15 +945,15 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
         assertEmpty(missingOutfit, 404)
     }
 
-    private fun user(role: UserRole = UserRole.USER): AppUser =
+    private fun user(role: UserRole = UserRole.USER): AccountUserResponse =
         jdbc.insertUser(UUID.randomUUID().toString(), "!", role)
 
-    private fun item(owner: AppUser): Long =
-        jdbc.insertItem(owner.id!!, CreateWardrobeItemRequest("Shirt", 1, "White", "Cotton")).id
+    private fun item(owner: AccountUserResponse): Long =
+        jdbc.insertItem(owner.id, CreateWardrobeItemRequest("Shirt", 1, "White", "Cotton")).id
 
-    private fun actorId(user: AppUser): String = requireNotNull(user.id).toString()
+    private fun actorId(user: AccountUserResponse): String = user.id.toString()
 
-    private fun stylistPath(owner: AppUser) = "/api/stylist/clients/${owner.id}/outfits"
+    private fun stylistPath(owner: AccountUserResponse) = "/api/stylist/clients/${owner.id}/outfits"
 
     private fun input(ids: List<Long>) =
         CreateOutfitRequest(

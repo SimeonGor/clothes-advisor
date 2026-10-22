@@ -45,13 +45,13 @@ import ru.itmo.clothesadvisor.config.insertItem
 import ru.itmo.clothesadvisor.config.insertOutfit
 import ru.itmo.clothesadvisor.config.insertRating
 import ru.itmo.clothesadvisor.config.insertUser
+import ru.itmo.clothesadvisor.config.updateUserRoleAndStatus
+import ru.itmo.clothesadvisor.dto.account.AccountUserResponse
 import ru.itmo.clothesadvisor.dto.wardrobe.CreateWardrobeItemRequest
-import ru.itmo.clothesadvisor.model.user.AppUser
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
 import ru.itmo.clothesadvisor.repository.outfit.OutfitRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
-import ru.itmo.clothesadvisor.service.user.AppUserService
 import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemService
 import ru.itmo.clothesadvisor.storage.wardrobe.PhotoStorageUnavailableException
 import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
@@ -60,7 +60,6 @@ import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
 @Import(TestTimeConfiguration::class)
 internal class AdminModerationIntegrationTests : AccountBackedIntegrationTest() {
     @LocalServerPort private var port: Int = 0
-    @Autowired private lateinit var users: AppUserService
     @Autowired private lateinit var items: WardrobeItemService
     @Autowired private lateinit var jdbc: JdbcTemplate
     @Autowired private lateinit var transactionManager: PlatformTransactionManager
@@ -354,7 +353,7 @@ internal class AdminModerationIntegrationTests : AccountBackedIntegrationTest() 
         val fixtureState = fixture()
 
         // given: the actor or owner has the next role and status
-        users.changeRoleAndStatus(fixtureState.owner.id!!, 1, role, status)
+        jdbc.updateUserRoleAndStatus(fixtureState.owner.id, role, status)
         val actorId = actorId(fixtureState.admin)
         assertThat(count("access_grant")).isZero()
         for ((method, path) in routes(fixtureState)) {
@@ -391,15 +390,15 @@ internal class AdminModerationIntegrationTests : AccountBackedIntegrationTest() 
         val actorId = actorId(fixtureState.admin)
 
         // given: the actor or owner has the next role and status
-        users.changeRoleAndStatus(fixtureState.admin.id!!, 1, UserRole.ADMIN, UserStatus.BLOCKED)
+        jdbc.updateUserRoleAndStatus(fixtureState.admin.id, UserRole.ADMIN, UserStatus.BLOCKED)
         denied(actorId, 403)
 
         // given: the actor or owner has the next role and status
-        users.changeRoleAndStatus(fixtureState.admin.id!!, 2, UserRole.USER, UserStatus.ACTIVE)
+        jdbc.updateUserRoleAndStatus(fixtureState.admin.id, UserRole.USER, UserStatus.ACTIVE)
         denied(actorId, 403)
 
         // given: the actor or owner has the next role and status
-        users.changeRoleAndStatus(fixtureState.admin.id!!, 3, UserRole.ADMIN, UserStatus.ACTIVE)
+        jdbc.updateUserRoleAndStatus(fixtureState.admin.id, UserRole.ADMIN, UserStatus.ACTIVE)
 
         // when
         val restoredAdminStatus = request("GET", outfitPath(fixtureState), actorId).statusCode()
@@ -418,7 +417,7 @@ internal class AdminModerationIntegrationTests : AccountBackedIntegrationTest() 
         val fixtureState = fixture()
         val other = fixture()
         val actorId = actorId(fixtureState.admin)
-        for (ownerId in listOf(Long.MAX_VALUE, other.owner.id!!)) {
+        for (ownerId in listOf(Long.MAX_VALUE, other.owner.id)) {
             for ((method, path) in routes(fixtureState)) {
                 if (
                     ownerId != Long.MAX_VALUE &&
@@ -521,7 +520,7 @@ internal class AdminModerationIntegrationTests : AccountBackedIntegrationTest() 
                 assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
 
                 // given: the actor or owner has the next role and status
-                users.changeRoleAndStatus(fixtureState.admin.id!!, 1, role, status)
+                jdbc.updateUserRoleAndStatus(fixtureState.admin.id, role, status)
                 image
             }
             .`when`(storage)
@@ -605,14 +604,14 @@ internal class AdminModerationIntegrationTests : AccountBackedIntegrationTest() 
                     mockingDetails(itemRepository).mockCreationSettings.defaultAnswer.answer(call)
                 }
                 .`when`(itemRepository)
-                .lockOwned(fixtureState.item, fixtureState.owner.id!!)
+                .lockOwned(fixtureState.item, fixtureState.owner.id)
         } else {
             doAnswer { call ->
                     enteringLock.countDown()
                     mockingDetails(outfitRepository).mockCreationSettings.defaultAnswer.answer(call)
                 }
                 .`when`(outfitRepository)
-                .findLockedByIdAndOwnerId(fixtureState.outfit, fixtureState.owner.id!!)
+                .findLockedByIdAndOwnerId(fixtureState.outfit, fixtureState.owner.id)
         }
         Executors.newFixedThreadPool(2).use { executor ->
 
@@ -644,7 +643,7 @@ internal class AdminModerationIntegrationTests : AccountBackedIntegrationTest() 
                 assertDatabaseLockWait(table)
 
                 // given: the actor or owner has the next role and status
-                users.changeRoleAndStatus(fixtureState.admin.id!!, 1, role, status)
+                jdbc.updateUserRoleAndStatus(fixtureState.admin.id, role, status)
                 release.countDown()
                 holder.get(20, TimeUnit.SECONDS)
 
@@ -652,7 +651,7 @@ internal class AdminModerationIntegrationTests : AccountBackedIntegrationTest() 
                 val response = deletion.get(20, TimeUnit.SECONDS)
                 assertEmpty(response, 204)
                 verify(accounts)
-                    .requireAdminAccess(fixtureState.admin.id!!, fixtureState.owner.id!!)
+                    .requireAdminAccess(fixtureState.admin.id, fixtureState.owner.id)
 
                 // when
                 val nextRequest =
@@ -706,7 +705,7 @@ internal class AdminModerationIntegrationTests : AccountBackedIntegrationTest() 
                 result
             }
             .`when`(outfitRepository)
-            .findLockedByIdAndOwnerId(fixtureState.outfit, fixtureState.owner.id!!)
+            .findLockedByIdAndOwnerId(fixtureState.outfit, fixtureState.owner.id)
         Executors.newFixedThreadPool(2).use { executor ->
 
             // when
@@ -823,8 +822,8 @@ internal class AdminModerationIntegrationTests : AccountBackedIntegrationTest() 
         val first = user(UserRole.STYLIST)
         val second = user(UserRole.STYLIST)
         for (stylist in listOf(first, second)) {
-            jdbc.insertAccessGrant(fixtureState.owner.id!!, stylist.id!!)
-            jdbc.insertRating(fixtureState.outfit, stylist.id!!)
+            jdbc.insertAccessGrant(fixtureState.owner.id, stylist.id)
+            jdbc.insertRating(fixtureState.outfit, stylist.id)
         }
         jdbc.update(
             """INSERT INTO outfit_rating_history (outfit_id, stylist_id, vote, version, modified_at)
@@ -883,10 +882,10 @@ internal class AdminModerationIntegrationTests : AccountBackedIntegrationTest() 
     private fun user(role: UserRole = UserRole.USER) =
         jdbc.insertUser(UUID.randomUUID().toString(), passwordHash, role)
 
-    private fun item(owner: AppUser) =
-        jdbc.insertItem(owner.id!!, CreateWardrobeItemRequest("Shirt", 1, "White", "Cotton")).id
+    private fun item(owner: AccountUserResponse) =
+        jdbc.insertItem(owner.id, CreateWardrobeItemRequest("Shirt", 1, "White", "Cotton")).id
 
-    private fun outfit(owner: AppUser, item: Long) = jdbc.insertOutfit(owner.id!!, listOf(item))
+    private fun outfit(owner: AccountUserResponse, item: Long) = jdbc.insertOutfit(owner.id, listOf(item))
 
     private fun itemsPath(fixtureState: Fixture) =
         "/api/admin/users/${fixtureState.owner.id}/wardrobe/items"
@@ -914,7 +913,7 @@ internal class AdminModerationIntegrationTests : AccountBackedIntegrationTest() 
             "DELETE" to outfitPath(fixtureState),
         )
 
-    private fun actorId(user: AppUser): String = requireNotNull(user.id).toString()
+    private fun actorId(user: AccountUserResponse): String = user.id.toString()
 
     private fun request(
         method: String,
@@ -961,8 +960,8 @@ internal class AdminModerationIntegrationTests : AccountBackedIntegrationTest() 
         jdbc.queryForObject("SELECT count(*) FROM $table", Long::class.java)!!
 
     private data class Fixture(
-        val admin: AppUser,
-        val owner: AppUser,
+        val admin: AccountUserResponse,
+        val owner: AccountUserResponse,
         val item: Long,
         val photo: Long,
         val outfit: Long,

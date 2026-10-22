@@ -41,6 +41,7 @@ import ru.itmo.clothesadvisor.config.insertAccessGrant
 import ru.itmo.clothesadvisor.config.insertItem
 import ru.itmo.clothesadvisor.config.insertOutfit
 import ru.itmo.clothesadvisor.config.insertUser
+import ru.itmo.clothesadvisor.config.updateUserRoleAndStatus
 import ru.itmo.clothesadvisor.dto.account.AccountUserResponse
 import ru.itmo.clothesadvisor.dto.outfit.CreateOutfitRequest
 import ru.itmo.clothesadvisor.dto.outfit.OutfitWeatherDto
@@ -52,7 +53,6 @@ import ru.itmo.clothesadvisor.model.outfit.Outfit
 import ru.itmo.clothesadvisor.model.rating.OutfitRatingHistory
 import ru.itmo.clothesadvisor.model.rating.OutfitRatingId
 import ru.itmo.clothesadvisor.model.rating.RatingVote
-import ru.itmo.clothesadvisor.model.user.AppUser
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
 import ru.itmo.clothesadvisor.repository.outfit.OutfitRepository
@@ -60,7 +60,6 @@ import ru.itmo.clothesadvisor.repository.rating.OutfitRatingHistoryRepository
 import ru.itmo.clothesadvisor.repository.rating.OutfitRatingRepository
 import ru.itmo.clothesadvisor.service.outfit.OutfitService
 import ru.itmo.clothesadvisor.service.rating.OutfitRatingService
-import ru.itmo.clothesadvisor.service.user.AppUserService
 import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemService
 import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
 
@@ -68,7 +67,6 @@ import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
 @Import(TestTimeConfiguration::class)
 class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
     @LocalServerPort private var port: Int = 0
-    @Autowired private lateinit var users: AppUserService
     @Autowired private lateinit var items: WardrobeItemService
     @Autowired private lateinit var outfits: OutfitService
     @Autowired private lateinit var ratings: OutfitRatingService
@@ -201,7 +199,7 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
         // then
         assertEmpty(foreignUpdate, 404)
         assertThat(current(fixtureState))
-            .containsExactly(snapshot(fixtureState.stylist.id!!, "DISLIKE", 3))
+            .containsExactly(snapshot(fixtureState.stylist.id, "DISLIKE", 3))
         assertThat(archived(fixtureState)).containsExactly(first, second)
         assertThat(
                 jdbc.queryForObject(
@@ -252,7 +250,7 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
             Timestamp.from(oldTime),
             Timestamp.from(oldTime),
             fixtureState.id,
-            fixtureState.stylist.id!!,
+            fixtureState.stylist.id,
         )
         val last = current(fixtureState).first { it.stylistId == fixtureState.stylist.id }
 
@@ -275,9 +273,9 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
         // then
         assertEmpty(repeatedWithdrawal, 404)
         assertThat(current(fixtureState))
-            .containsExactly(snapshot(fixtureState.other.id!!, "LIKE", 1))
+            .containsExactly(snapshot(fixtureState.other.id, "LIKE", 1))
         assertThat(archived(fixtureState))
-            .containsExactly(snapshot(fixtureState.stylist.id!!, "LIKE", 1), last)
+            .containsExactly(snapshot(fixtureState.stylist.id, "LIKE", 1), last)
 
         // when
         val withdrawnCard =
@@ -341,7 +339,7 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
                     "SELECT created_at = modified_at FROM outfit_rating WHERE outfit_id = ? AND stylist_id = ?",
                     Boolean::class.java,
                     fixtureState.id,
-                    fixtureState.stylist.id!!,
+                    fixtureState.stylist.id,
                 ),
             )
             .isTrue()
@@ -383,15 +381,15 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
         assertRating(secondRecast, 201, "LIKE", 5)
         assertThat(archived(fixtureState))
             .containsExactly(
-                snapshot(fixtureState.stylist.id!!, "LIKE", 1),
+                snapshot(fixtureState.stylist.id, "LIKE", 1),
                 last,
-                snapshot(fixtureState.stylist.id!!, "LIKE", 3),
-                snapshot(fixtureState.stylist.id!!, "DISLIKE", 4),
+                snapshot(fixtureState.stylist.id, "LIKE", 3),
+                snapshot(fixtureState.stylist.id, "DISLIKE", 4),
             )
         assertThat(current(fixtureState))
             .containsExactly(
-                snapshot(fixtureState.stylist.id!!, "LIKE", 5),
-                snapshot(fixtureState.other.id!!, "LIKE", 1),
+                snapshot(fixtureState.stylist.id, "LIKE", 5),
+                snapshot(fixtureState.other.id, "LIKE", 1),
             )
     }
 
@@ -407,21 +405,21 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
                 .sortedDescending()
         for (id in ids) {
             ratings.create(
-                fixtureState.stylist.id!!,
-                fixtureState.owner.id!!,
+                fixtureState.stylist.id,
+                fixtureState.owner.id,
                 id,
                 CreateRatingRequest(RatingVote.LIKE),
             )
             ratings.create(
-                fixtureState.other.id!!,
-                fixtureState.owner.id!!,
+                fixtureState.other.id,
+                fixtureState.owner.id,
                 id,
                 CreateRatingRequest(RatingVote.DISLIKE),
             )
         }
         ratings.update(
-            fixtureState.stylist.id!!,
-            fixtureState.owner.id!!,
+            fixtureState.stylist.id,
+            fixtureState.owner.id,
             fixtureState.id,
             UpdateRatingRequest(RatingVote.DISLIKE, 1),
         )
@@ -460,7 +458,7 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
         val listed = rows(listResponse)
         assertThat(listed.map { number(it, "id") }).isEqualTo(ids)
         verify(ratingRepository).counts(ids)
-        verify(ratingRepository).findAllByIdOutfitIdInAndIdStylistId(ids, fixtureState.stylist.id!!)
+        verify(ratingRepository).findAllByIdOutfitIdInAndIdStylistId(ids, fixtureState.stylist.id)
         assertThat(listed.map { number(it, "likes") }).containsExactly(1, 1, 0)
         assertThat(listed.map { number(it, "dislikes") }).containsExactly(1, 1, 2)
         assertThat(listed.map { it["myRating"] })
@@ -471,10 +469,9 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
             )
 
         // given
-        jdbc.update("DELETE FROM access_grant WHERE owner_id = ? AND stylist_id = ?", fixtureState.owner.id!!, fixtureState.other.id!!)
-        users.changeRoleAndStatus(
-            fixtureState.other.id!!,
-            fixtureState.other.version,
+        jdbc.update("DELETE FROM access_grant WHERE owner_id = ? AND stylist_id = ?", fixtureState.owner.id, fixtureState.other.id)
+        jdbc.updateUserRoleAndStatus(
+            fixtureState.other.id,
             UserRole.STYLIST,
             UserStatus.BLOCKED,
         )
@@ -590,15 +587,15 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
         val self =
             outfits
                 .createForClient(
-                    fixtureState.stylist.id!!,
-                    fixtureState.owner.id!!,
+                    fixtureState.stylist.id,
+                    fixtureState.owner.id,
                     input(item(fixtureState.owner)),
                 )
                 .outfit
                 .id
         val foreign = user()
         val foreignOutfit = outfit(foreign)
-        jdbc.insertAccessGrant(foreign.id!!, fixtureState.stylist.id!!)
+        jdbc.insertAccessGrant(foreign.id, fixtureState.stylist.id)
         for (method in listOf("POST", "PUT", "DELETE")) {
 
             // given
@@ -653,50 +650,45 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
         }
 
         // when
-        jdbc.update("DELETE FROM access_grant WHERE owner_id = ? AND stylist_id = ?", fixtureState.owner.id!!, fixtureState.stylist.id!!)
+        jdbc.update("DELETE FROM access_grant WHERE owner_id = ? AND stylist_id = ?", fixtureState.owner.id, fixtureState.stylist.id)
         val revokedResponses = requestRatingAndHistory(fixtureState, actorId)
 
         // then
         assertDeniedRatingAndHistory(revokedResponses, 404)
 
         // when
-        jdbc.insertAccessGrant(fixtureState.owner.id!!, fixtureState.stylist.id!!)
-        var owner =
-            users.changeRoleAndStatus(
-                fixtureState.owner.id!!,
-                fixtureState.owner.version,
-                UserRole.USER,
-                UserStatus.BLOCKED,
-            )
+        jdbc.insertAccessGrant(fixtureState.owner.id, fixtureState.stylist.id)
+        jdbc.updateUserRoleAndStatus(
+            fixtureState.owner.id,
+            UserRole.USER,
+            UserStatus.BLOCKED,
+        )
         val blockedOwnerResponses = requestRatingAndHistory(fixtureState, actorId)
 
         // then
         assertDeniedRatingAndHistory(blockedOwnerResponses, 404)
 
         // when
-        owner =
-            users.changeRoleAndStatus(owner.id!!, owner.version, UserRole.ADMIN, UserStatus.ACTIVE)
+        jdbc.updateUserRoleAndStatus(fixtureState.owner.id, UserRole.ADMIN, UserStatus.ACTIVE)
         val changedOwnerRoleResponses = requestRatingAndHistory(fixtureState, actorId)
 
         // then
         assertDeniedRatingAndHistory(changedOwnerRoleResponses, 404)
 
         // when
-        users.changeRoleAndStatus(owner.id!!, owner.version, UserRole.USER, UserStatus.ACTIVE)
-        val stylist =
-            users.changeRoleAndStatus(
-                fixtureState.stylist.id!!,
-                fixtureState.stylist.version,
-                UserRole.STYLIST,
-                UserStatus.BLOCKED,
-            )
+        jdbc.updateUserRoleAndStatus(fixtureState.owner.id, UserRole.USER, UserStatus.ACTIVE)
+        jdbc.updateUserRoleAndStatus(
+            fixtureState.stylist.id,
+            UserRole.STYLIST,
+            UserStatus.BLOCKED,
+        )
         val blockedStylistResponses = requestRatingAndHistory(fixtureState, actorId)
 
         // then
         assertDeniedRatingAndHistory(blockedStylistResponses, 403)
 
         // when
-        users.changeRoleAndStatus(stylist.id!!, stylist.version, UserRole.USER, UserStatus.ACTIVE)
+        jdbc.updateUserRoleAndStatus(fixtureState.stylist.id, UserRole.USER, UserStatus.ACTIVE)
         val changedStylistRoleResponses = requestRatingAndHistory(fixtureState, actorId)
 
         // then
@@ -711,14 +703,14 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
         val fixtureState = fixture()
         for (stylist in listOf(fixtureState.stylist, fixtureState.other)) {
             ratings.create(
-                stylist.id!!,
-                fixtureState.owner.id!!,
+                stylist.id,
+                fixtureState.owner.id,
                 fixtureState.id,
                 CreateRatingRequest(RatingVote.LIKE),
             )
             ratings.update(
-                stylist.id!!,
-                fixtureState.owner.id!!,
+                stylist.id,
+                fixtureState.owner.id,
                 fixtureState.id,
                 UpdateRatingRequest(RatingVote.DISLIKE, 1),
             )
@@ -738,14 +730,14 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
             "UPDATE outfit_rating_history SET modified_at = ? WHERE outfit_id = ? AND stylist_id = ?",
             Timestamp.from(latest),
             fixtureState.id,
-            fixtureState.stylist.id!!,
+            fixtureState.stylist.id,
         )
         val expected =
             listOf(
-                fixtureState.stylist.id!! to 1L,
-                fixtureState.other.id!! to 2L,
-                fixtureState.other.id!! to 1L,
-                fixtureState.stylist.id!! to 2L,
+                fixtureState.stylist.id to 1L,
+                fixtureState.other.id to 2L,
+                fixtureState.other.id to 1L,
+                fixtureState.stylist.id to 2L,
             )
         val ownerPath = "/api/outfits/${fixtureState.id}/ratings/history"
         val ownerActorId = actorId(fixtureState.owner)
@@ -845,7 +837,7 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
         assertThat(ownerClientHistory.statusCode()).isEqualTo(404)
 
         // given
-        jdbc.update("DELETE FROM access_grant WHERE owner_id = ? AND stylist_id = ?", fixtureState.owner.id!!, fixtureState.stylist.id!!)
+        jdbc.update("DELETE FROM access_grant WHERE owner_id = ? AND stylist_id = ?", fixtureState.owner.id, fixtureState.stylist.id)
 
         // when
         val revokedHistory =
@@ -855,7 +847,7 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
         assertEmpty(revokedHistory, 404)
 
         // given
-        outfits.delete(fixtureState.owner.id!!, fixtureState.id)
+        outfits.delete(fixtureState.owner.id, fixtureState.id)
 
         // when
         val deletedOwnerHistory = request("GET", ownerPath, ownerActorId)
@@ -876,14 +868,14 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
         // given
         val fixtureState = fixture()
         ratings.create(
-            fixtureState.stylist.id!!,
-            fixtureState.owner.id!!,
+            fixtureState.stylist.id,
+            fixtureState.owner.id,
             fixtureState.id,
             CreateRatingRequest(RatingVote.LIKE),
         )
         ratings.update(
-            fixtureState.stylist.id!!,
-            fixtureState.owner.id!!,
+            fixtureState.stylist.id,
+            fixtureState.owner.id,
             fixtureState.id,
             UpdateRatingRequest(RatingVote.DISLIKE, 1),
         )
@@ -897,7 +889,7 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
                 row
             }
             .`when`(outfitRepository)
-            .findByIdAndOwnerId(fixtureState.id, fixtureState.owner.id!!)
+            .findByIdAndOwnerId(fixtureState.id, fixtureState.owner.id)
         val actorId = actorId(fixtureState.owner)
 
         // when
@@ -914,7 +906,7 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
                 )
             try {
                 assertThat(loaded.await(10, TimeUnit.SECONDS)).isTrue()
-                outfits.delete(fixtureState.owner.id!!, fixtureState.id)
+                outfits.delete(fixtureState.owner.id, fixtureState.id)
             } finally {
                 release.countDown()
             }
@@ -933,14 +925,14 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
         // given
         val fixtureState = fixture()
         ratings.create(
-            fixtureState.stylist.id!!,
-            fixtureState.owner.id!!,
+            fixtureState.stylist.id,
+            fixtureState.owner.id,
             fixtureState.id,
             CreateRatingRequest(RatingVote.LIKE),
         )
         ratings.create(
-            fixtureState.other.id!!,
-            fixtureState.owner.id!!,
+            fixtureState.other.id,
+            fixtureState.owner.id,
             fixtureState.id,
             CreateRatingRequest(RatingVote.DISLIKE),
         )
@@ -949,7 +941,7 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
             SELECT outfit_id, stylist_id, version, 'DISLIKE', modified_at, modified_at FROM outfit_rating
             WHERE outfit_id = ? AND stylist_id = ?""",
             fixtureState.id,
-            fixtureState.stylist.id!!,
+            fixtureState.stylist.id,
         )
         val before = current(fixtureState)
         val previous = archived(fixtureState)
@@ -989,7 +981,7 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
         assertEmpty(deletionConflict, 409)
 
         // when
-        val retainedOutfit = outfits.get(fixtureState.owner.id!!, fixtureState.id)
+        val retainedOutfit = outfits.get(fixtureState.owner.id, fixtureState.id)
 
         // then
         assertThat(retainedOutfit.id).isEqualTo(fixtureState.id)
@@ -1005,18 +997,18 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
         // given
         val fixtureState = fixture()
         ratings.create(
-            fixtureState.stylist.id!!,
-            fixtureState.owner.id!!,
+            fixtureState.stylist.id,
+            fixtureState.owner.id,
             fixtureState.id,
             CreateRatingRequest(RatingVote.LIKE),
         )
         val before = current(fixtureState)
-        val original = outfits.get(fixtureState.owner.id!!, fixtureState.id)
+        val original = outfits.get(fixtureState.owner.id, fixtureState.id)
         val outfit =
-            outfitRepository.findByIdAndOwnerId(fixtureState.id, fixtureState.owner.id!!)!!
+            outfitRepository.findByIdAndOwnerId(fixtureState.id, fixtureState.owner.id)!!
         val rating =
             ratingRepository.findById(
-                OutfitRatingId(fixtureState.id, fixtureState.stylist.id!!),
+                OutfitRatingId(fixtureState.id, fixtureState.stylist.id),
             )!!
         val failAfterWrites = doAnswer { call ->
             val repository =
@@ -1026,7 +1018,7 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
             assertThat(current(fixtureState))
                 .isEqualTo(
                     if (operation == "update")
-                        listOf(snapshot(fixtureState.stylist.id!!, "DISLIKE", 2))
+                        listOf(snapshot(fixtureState.stylist.id, "DISLIKE", 2))
                     else emptyList<Snapshot>(),
                 )
             assertThat(archived(fixtureState)).isEqualTo(before)
@@ -1043,18 +1035,18 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
         // when
         val failure = catchThrowable {
             when (operation) {
-                "delete" -> outfits.delete(fixtureState.owner.id!!, fixtureState.id)
+                "delete" -> outfits.delete(fixtureState.owner.id, fixtureState.id)
                 "withdraw" ->
                     ratings.withdraw(
-                        fixtureState.stylist.id!!,
-                        fixtureState.owner.id!!,
+                        fixtureState.stylist.id,
+                        fixtureState.owner.id,
                         fixtureState.id,
                         1,
                     )
                 else ->
                     ratings.update(
-                        fixtureState.stylist.id!!,
-                        fixtureState.owner.id!!,
+                        fixtureState.stylist.id,
+                        fixtureState.owner.id,
                         fixtureState.id,
                         UpdateRatingRequest(RatingVote.DISLIKE, 1),
                     )
@@ -1069,7 +1061,7 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
         assertThat(archived(fixtureState)).isEmpty()
 
         // when
-        val retainedOutfit = outfits.get(fixtureState.owner.id!!, fixtureState.id)
+        val retainedOutfit = outfits.get(fixtureState.owner.id, fixtureState.id)
 
         // then
         assertThat(retainedOutfit).isEqualTo(original)
@@ -1080,24 +1072,24 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
         // given
         val fixtureState = fixture()
         ratings.create(
-            fixtureState.stylist.id!!,
-            fixtureState.owner.id!!,
+            fixtureState.stylist.id,
+            fixtureState.owner.id,
             fixtureState.id,
             CreateRatingRequest(RatingVote.LIKE),
         )
         ratings.update(
-            fixtureState.stylist.id!!,
-            fixtureState.owner.id!!,
+            fixtureState.stylist.id,
+            fixtureState.owner.id,
             fixtureState.id,
             UpdateRatingRequest(RatingVote.DISLIKE, 1),
         )
         ratings.create(
-            fixtureState.other.id!!,
-            fixtureState.owner.id!!,
+            fixtureState.other.id,
+            fixtureState.owner.id,
             fixtureState.id,
             CreateRatingRequest(RatingVote.LIKE),
         )
-        jdbc.update("DELETE FROM access_grant WHERE owner_id = ? AND stylist_id = ?", fixtureState.owner.id!!, fixtureState.other.id!!)
+        jdbc.update("DELETE FROM access_grant WHERE owner_id = ? AND stylist_id = ?", fixtureState.owner.id, fixtureState.other.id)
         val expected =
             (archived(fixtureState) + current(fixtureState)).sortedWith(
                 compareBy({ it.stylistId }, { it.version }),
@@ -1127,8 +1119,8 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
         val fixtureState = fixture()
         if (method != "POST")
             ratings.create(
-                fixtureState.stylist.id!!,
-                fixtureState.owner.id!!,
+                fixtureState.stylist.id,
+                fixtureState.owner.id,
                 fixtureState.id,
                 CreateRatingRequest(RatingVote.LIKE),
             )
@@ -1155,8 +1147,8 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
         assertEmpty(deletion, 204)
         assertThat(current(fixtureState)).isEmpty()
         val expected =
-            listOf(snapshot(fixtureState.stylist.id!!, "LIKE", 1)) +
-                if (method == "PUT") listOf(snapshot(fixtureState.stylist.id!!, "DISLIKE", 2))
+            listOf(snapshot(fixtureState.stylist.id, "LIKE", 1)) +
+                if (method == "PUT") listOf(snapshot(fixtureState.stylist.id, "DISLIKE", 2))
                 else emptyList()
         assertThat(archived(fixtureState)).isEqualTo(expected)
     }
@@ -1170,8 +1162,8 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
         val fixtureState = fixture()
         if (method != "POST")
             ratings.create(
-                fixtureState.stylist.id!!,
-                fixtureState.owner.id!!,
+                fixtureState.stylist.id,
+                fixtureState.owner.id,
                 fixtureState.id,
                 CreateRatingRequest(RatingVote.LIKE),
             )
@@ -1192,7 +1184,7 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
         assertThat(current(fixtureState)).isEmpty()
         assertThat(archived(fixtureState))
             .isEqualTo(
-                if (method != "POST") listOf(snapshot(fixtureState.stylist.id!!, "LIKE", 1))
+                if (method != "POST") listOf(snapshot(fixtureState.stylist.id, "LIKE", 1))
                 else emptyList<Snapshot>(),
             )
     }
@@ -1204,8 +1196,8 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
         val fixtureState = fixture()
         if (update)
             ratings.create(
-                fixtureState.stylist.id!!,
-                fixtureState.owner.id!!,
+                fixtureState.stylist.id,
+                fixtureState.owner.id,
                 fixtureState.id,
                 CreateRatingRequest(RatingVote.LIKE),
             )
@@ -1245,14 +1237,14 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
         assertThat(current(fixtureState))
             .containsExactly(
                 snapshot(
-                    fixtureState.stylist.id!!,
+                    fixtureState.stylist.id,
                     if (update) "DISLIKE" else "LIKE",
                     if (update) 2 else 1,
                 ),
             )
         assertThat(archived(fixtureState))
             .isEqualTo(
-                if (update) listOf(snapshot(fixtureState.stylist.id!!, "LIKE", 1))
+                if (update) listOf(snapshot(fixtureState.stylist.id, "LIKE", 1))
                 else emptyList<Snapshot>(),
             )
     }
@@ -1274,8 +1266,8 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
         // given
         val fixtureState = fixture()
         ratings.create(
-            fixtureState.stylist.id!!,
-            fixtureState.owner.id!!,
+            fixtureState.stylist.id,
+            fixtureState.owner.id,
             fixtureState.id,
             CreateRatingRequest(RatingVote.LIKE),
         )
@@ -1300,11 +1292,11 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
             }
         assertThat(current(fixtureState))
             .isEqualTo(
-                expectedVote?.let { listOf(snapshot(fixtureState.stylist.id!!, it, 2)) }
+                expectedVote?.let { listOf(snapshot(fixtureState.stylist.id, it, 2)) }
                     ?: emptyList<Snapshot>(),
             )
         assertThat(archived(fixtureState))
-            .containsExactly(snapshot(fixtureState.stylist.id!!, "LIKE", 1))
+            .containsExactly(snapshot(fixtureState.stylist.id, "LIKE", 1))
     }
 
     @ParameterizedTest
@@ -1316,8 +1308,8 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
         val fixtureState = fixture()
         if (method != "POST")
             ratings.create(
-                fixtureState.stylist.id!!,
-                fixtureState.owner.id!!,
+                fixtureState.stylist.id,
+                fixtureState.owner.id,
                 fixtureState.id,
                 CreateRatingRequest(RatingVote.LIKE),
             )
@@ -1330,7 +1322,7 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
                 fixtureState,
                 { request("POST", ratingPath(fixtureState), otherActorId, vote("DISLIKE")) },
                 { mutateRating(fixtureState, method, actorId) },
-                { jdbc.update("DELETE FROM access_grant WHERE owner_id = ? AND stylist_id = ?", fixtureState.owner.id!!, fixtureState.stylist.id!!) },
+                { jdbc.update("DELETE FROM access_grant WHERE owner_id = ? AND stylist_id = ?", fixtureState.owner.id, fixtureState.stylist.id) },
             )
 
         // then
@@ -1343,15 +1335,15 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
         assertThat(current(fixtureState).filter { it.stylistId == fixtureState.stylist.id })
             .isEqualTo(
                 when (method) {
-                    "POST" -> listOf(snapshot(fixtureState.stylist.id!!, "LIKE", 1))
-                    "PUT" -> listOf(snapshot(fixtureState.stylist.id!!, "DISLIKE", 2))
+                    "POST" -> listOf(snapshot(fixtureState.stylist.id, "LIKE", 1))
+                    "PUT" -> listOf(snapshot(fixtureState.stylist.id, "DISLIKE", 2))
                     else -> emptyList<Snapshot>()
                 },
             )
         assertThat(archived(fixtureState))
             .isEqualTo(
                 if (method == "POST") emptyList<Snapshot>()
-                else listOf(snapshot(fixtureState.stylist.id!!, "LIKE", 1)),
+                else listOf(snapshot(fixtureState.stylist.id, "LIKE", 1)),
             )
 
         // when
@@ -1403,7 +1395,7 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
                 row
             }
             .`when`(outfitRepository)
-            .findLockedByIdAndOwnerId(fixtureState.id, fixtureState.owner.id!!)
+            .findLockedByIdAndOwnerId(fixtureState.id, fixtureState.owner.id)
         Executors.newFixedThreadPool(2).use { executor ->
             val firstResult = executor.submit(Callable { first() })
             try {
@@ -1460,18 +1452,18 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
         val owner = user()
         val stylist = user(UserRole.STYLIST)
         val other = user(UserRole.STYLIST)
-        jdbc.insertAccessGrant(owner.id!!, stylist.id!!)
-        jdbc.insertAccessGrant(owner.id!!, other.id!!)
+        jdbc.insertAccessGrant(owner.id, stylist.id)
+        jdbc.insertAccessGrant(owner.id, other.id)
         return Fixture(owner, stylist, other, outfit(owner))
     }
 
-    private fun user(role: UserRole = UserRole.USER): AppUser =
+    private fun user(role: UserRole = UserRole.USER): AccountUserResponse =
         jdbc.insertUser(UUID.randomUUID().toString(), "!", role)
 
-    private fun item(owner: AppUser) =
-        jdbc.insertItem(owner.id!!, CreateWardrobeItemRequest("Shirt", 1, "White", "Cotton")).id
+    private fun item(owner: AccountUserResponse) =
+        jdbc.insertItem(owner.id, CreateWardrobeItemRequest("Shirt", 1, "White", "Cotton")).id
 
-    private fun outfit(owner: AppUser) = jdbc.insertOutfit(owner.id!!, listOf(item(owner)))
+    private fun outfit(owner: AccountUserResponse) = jdbc.insertOutfit(owner.id, listOf(item(owner)))
 
     private fun input(item: Long) =
         CreateOutfitRequest(
@@ -1503,7 +1495,7 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
     private fun vote(vote: String = "LIKE", version: Long? = null) =
         """{"vote":"$vote"${version?.let { ",\"version\":$it" } ?: ""}}"""
 
-    private fun actorId(user: AppUser): String = requireNotNull(user.id).toString()
+    private fun actorId(user: AccountUserResponse): String = user.id.toString()
 
     private fun request(
         method: String,
@@ -1587,9 +1579,9 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
     }
 
     private data class Fixture(
-        val owner: AppUser,
-        val stylist: AppUser,
-        val other: AppUser,
+        val owner: AccountUserResponse,
+        val stylist: AccountUserResponse,
+        val other: AccountUserResponse,
         val id: Long,
     )
 

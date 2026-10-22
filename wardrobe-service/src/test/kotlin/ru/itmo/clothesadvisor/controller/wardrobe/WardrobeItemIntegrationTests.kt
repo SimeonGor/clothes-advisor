@@ -24,18 +24,16 @@ import org.springframework.jdbc.core.JdbcTemplate
 import ru.itmo.clothesadvisor.config.AccountBackedIntegrationTest
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
 import ru.itmo.clothesadvisor.config.insertUser
-import ru.itmo.clothesadvisor.model.user.AppUser
+import ru.itmo.clothesadvisor.config.updateUserRoleAndStatus
+import ru.itmo.clothesadvisor.dto.account.AccountUserResponse
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
-import ru.itmo.clothesadvisor.service.user.AppUserService
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(TestTimeConfiguration::class)
 @Execution(ExecutionMode.SAME_THREAD)
 class WardrobeItemIntegrationTests : AccountBackedIntegrationTest() {
     @LocalServerPort private var port: Int = 0
-
-    @Autowired private lateinit var users: AppUserService
 
     @Autowired private lateinit var jdbc: JdbcTemplate
 
@@ -317,7 +315,7 @@ class WardrobeItemIntegrationTests : AccountBackedIntegrationTest() {
         val owner = createUser()
         val ownerActorId = actorId(owner)
         val id = number(dto(request("POST", actorId = ownerActorId, body = body())), "id")
-        users.changeRoleAndStatus(owner.id!!, owner.version, owner.role, UserStatus.BLOCKED)
+        jdbc.updateUserRoleAndStatus(owner.id, owner.role, UserStatus.BLOCKED)
         for ((actorId, expected) in listOf(null to 400, ownerActorId to 403)) {
 
             // when
@@ -608,10 +606,10 @@ class WardrobeItemIntegrationTests : AccountBackedIntegrationTest() {
         assertThat(invalidPageStatus).isEqualTo(400)
     }
 
-    private fun createUser(role: UserRole = UserRole.USER): AppUser =
+    private fun createUser(role: UserRole = UserRole.USER): AccountUserResponse =
         jdbc.insertUser(UUID.randomUUID().toString(), "!", role)
 
-    private fun actorId(user: AppUser): String = requireNotNull(user.id).toString()
+    private fun actorId(user: AccountUserResponse): String = user.id.toString()
 
     private fun body(
         version: Long? = null,

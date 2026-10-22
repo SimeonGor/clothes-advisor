@@ -42,6 +42,8 @@ import ru.itmo.clothesadvisor.config.AccountBackedIntegrationTest
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
 import ru.itmo.clothesadvisor.config.insertItem
 import ru.itmo.clothesadvisor.config.insertUser
+import ru.itmo.clothesadvisor.config.updateUserRoleAndStatus
+import ru.itmo.clothesadvisor.dto.account.AccountUserResponse
 import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionRequest
 import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionResponse
 import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionWeather
@@ -49,13 +51,11 @@ import ru.itmo.clothesadvisor.dto.wardrobe.CreateWardrobeItemRequest
 import ru.itmo.clothesadvisor.dto.wardrobe.UpdateWardrobeItemRequest
 import ru.itmo.clothesadvisor.model.ai.AiOutfitException
 import ru.itmo.clothesadvisor.model.ai.AiOutfitFailure
-import ru.itmo.clothesadvisor.model.user.AppUser
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
 import ru.itmo.clothesadvisor.repository.outfit.OutfitItemRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemPhotoRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
-import ru.itmo.clothesadvisor.service.user.AppUserService
 import ru.itmo.clothesadvisor.service.user.CurrentUserService
 import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemPhotoService
 import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemService
@@ -66,7 +66,6 @@ import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
 @Import(TestTimeConfiguration::class)
 class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
     @LocalServerPort private var port: Int = 0
-    @Autowired private lateinit var users: AppUserService
     @Autowired private lateinit var items: WardrobeItemService
     @Autowired private lateinit var photoService: WardrobeItemPhotoService
     @Autowired private lateinit var jdbc: JdbcTemplate
@@ -265,7 +264,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
 
         // then
         assertThat(maximumCandidatesStatus).isEqualTo(201)
-        verify(wardrobe).findOwnedItemsWithPhotos(owner.id!!, 21)
+        verify(wardrobe).findOwnedItemsWithPhotos(owner.id, 21)
 
         // given
         item(owner)
@@ -313,13 +312,13 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
                 val rows = mockingDetails(wardrobe).mockCreationSettings.defaultAnswer.answer(call)
                 Executors.newSingleThreadExecutor().use { executor ->
                     executor
-                        .submit { photoService.delete(owner.id!!, ids.first(), firstPhoto) }
+                        .submit { photoService.delete(owner.id, ids.first(), firstPhoto) }
                         .get(5, TimeUnit.SECONDS)
                 }
                 rows
             }
             .`when`(wardrobe)
-            .findOwnedItemsWithPhotos(owner.id!!, 21)
+            .findOwnedItemsWithPhotos(owner.id, 21)
 
         // when
         val oversizedWardrobe = request("POST", actorId = actorId, body = body())
@@ -351,7 +350,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         val id = item(owner)
         val blocked = user()
         val blockedActorId = actorId(blocked)
-        users.changeRoleAndStatus(blocked.id!!, blocked.version, blocked.role, UserStatus.BLOCKED)
+        jdbc.updateUserRoleAndStatus(blocked.id, blocked.role, UserStatus.BLOCKED)
         for ((callerId, status) in
             listOf(
                 null to 400,
@@ -466,7 +465,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         val actorId = actorId(owner)
         val id = item(owner)
         val photoId = firstPhoto(id)
-        onDownload = { photoService.delete(owner.id!!, id, photoId) }
+        onDownload = { photoService.delete(owner.id, id, photoId) }
 
         // when
         val deletedPhoto = request("POST", actorId = actorId, body = body())
@@ -486,7 +485,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         val chosen = item(owner)
         val unused = item(owner)
         select = { _ ->
-            items.delete(owner.id!!, unused, 1)
+            items.delete(owner.id, unused, 1)
             OutfitSelectionResponse(listOf(chosen))
         }
 
@@ -500,7 +499,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         // given: the next inference edits rather than deletes a candidate
         select = { _ ->
             items.update(
-                owner.id!!,
+                owner.id,
                 chosen,
                 UpdateWardrobeItemRequest(1, "Edited", 1, "Black", "Wool"),
             )
@@ -527,9 +526,8 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
             item(owner)
             if (duringDownload)
                 onDownload = {
-                    users.changeRoleAndStatus(
-                        owner.id!!,
-                        owner.version,
+                    jdbc.updateUserRoleAndStatus(
+                        owner.id,
                         UserRole.STYLIST,
                         UserStatus.ACTIVE,
                     )
@@ -537,9 +535,8 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
             else {
                 onDownload = {}
                 select = {
-                    users.changeRoleAndStatus(
-                        owner.id!!,
-                        owner.version,
+                    jdbc.updateUserRoleAndStatus(
+                        owner.id,
                         owner.role,
                         UserStatus.BLOCKED,
                     )
@@ -643,7 +640,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
                 .isEqualTo(if (blockOwnerAccount) 201 else 409)
         }
         if (blockOwnerAccount) {
-            assertThat(count("outfit", "owner_id", owner.id!!)).isEqualTo(1)
+            assertThat(count("outfit", "owner_id", owner.id)).isEqualTo(1)
 
             // when
             val nextRequest = request("POST", actorId = actorId, body = body())
@@ -651,7 +648,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
             // then
             assertThat(nextRequest.statusCode()).isEqualTo(403)
             assertThat(dto(nextRequest)).containsEntry("error", "forbidden")
-            assertThat(count("outfit", "owner_id", owner.id!!)).isEqualTo(1)
+            assertThat(count("outfit", "owner_id", owner.id)).isEqualTo(1)
         } else {
             assertNoOutfits(owner)
         }
@@ -681,7 +678,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
                 value
             }
             .`when`(photos)
-            .findByIdAndItemIdAndItemOwnerId(photo, item, owner.id!!)
+            .findByIdAndItemIdAndItemOwnerId(photo, item, owner.id)
         Executors.newFixedThreadPool(2).use { executor ->
 
             // when
@@ -689,7 +686,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
                 executor.submit(Callable { request("POST", actorId = actorId, body = body()) })
             assertThat(checked.await(10, TimeUnit.SECONDS)).isTrue()
             val deletion =
-                executor.submit(Callable { photoService.delete(owner.id!!, item, photo) })
+                executor.submit(Callable { photoService.delete(owner.id, item, photo) })
             try {
                 awaitBlockedBy(creatorPid.get())
             } finally {
@@ -701,7 +698,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
             deletion.get(15, TimeUnit.SECONDS)
         }
         assertThat(count("wardrobe_item_photo", "id", photo)).isZero()
-        assertThat(count("outfit", "owner_id", owner.id!!)).isEqualTo(1)
+        assertThat(count("outfit", "owner_id", owner.id)).isEqualTo(1)
     }
 
     @Test
@@ -759,14 +756,14 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         throw AssertionError("Expected a wardrobe item lock waiter blocked by $pid")
     }
 
-    private fun connectedUser(): AppUser = jdbc.insertUser("user", "!", UserRole.USER)
+    private fun connectedUser(): AccountUserResponse = jdbc.insertUser("user", "!", UserRole.USER)
 
-    private fun user(role: UserRole = UserRole.USER): AppUser =
+    private fun user(role: UserRole = UserRole.USER): AccountUserResponse =
         jdbc.insertUser(UUID.randomUUID().toString(), "!", role)
 
-    private fun item(owner: AppUser, withPhoto: Boolean = true): Long {
+    private fun item(owner: AccountUserResponse, withPhoto: Boolean = true): Long {
         val id =
-            jdbc.insertItem(owner.id!!, CreateWardrobeItemRequest("Shirt", 1, "White", "Cotton")).id
+            jdbc.insertItem(owner.id, CreateWardrobeItemRequest("Shirt", 1, "White", "Cotton")).id
         if (withPhoto) photo(id, "photo-$id")
         return id
     }
@@ -790,7 +787,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
             item,
         )!!
 
-    private fun actorId(user: AppUser): String = requireNotNull(user.id).toString()
+    private fun actorId(user: AccountUserResponse): String = user.id.toString()
 
     private fun body(candidates: String? = null): String =
         """{"name":"Daily","weather":{"temperatureC":$TEMPERATURE,"precipitationTypeId":1,"windSpeedMps":$WIND}${candidates?.let { ",\"candidateItemIds\":$it" } ?: ""}}"""
@@ -825,8 +822,8 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
     private fun count(table: String, column: String, id: Long): Long =
         jdbc.queryForObject("SELECT count(*) FROM $table WHERE $column = ?", Long::class.java, id)!!
 
-    private fun assertNoOutfits(owner: AppUser) =
-        assertThat(count("outfit", "owner_id", owner.id!!)).isZero()
+    private fun assertNoOutfits(owner: AccountUserResponse) =
+        assertThat(count("outfit", "owner_id", owner.id)).isZero()
 
     private fun assertEmpty(response: HttpResponse<String>, status: Int) {
         assertThat(response.statusCode()).isEqualTo(status)

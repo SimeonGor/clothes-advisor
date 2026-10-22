@@ -2,10 +2,11 @@ package ru.itmo.clothesadvisor.config
 
 import java.math.BigDecimal
 import java.sql.Timestamp
+import org.assertj.core.api.Assertions.assertThat
 import org.springframework.jdbc.core.JdbcTemplate
+import ru.itmo.clothesadvisor.dto.account.AccountUserResponse
 import ru.itmo.clothesadvisor.dto.wardrobe.CreateWardrobeItemRequest
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemResponse
-import ru.itmo.clothesadvisor.model.user.AppUser
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
 
@@ -70,7 +71,7 @@ internal fun JdbcTemplate.insertUser(
     passwordHash: String,
     role: UserRole,
     status: UserStatus = UserStatus.ACTIVE,
-): AppUser {
+): AccountUserResponse {
     val now = TestTimeConfiguration.FIXED_TIME
     val id =
         queryForObject(
@@ -86,7 +87,22 @@ internal fun JdbcTemplate.insertUser(
             Timestamp.from(now),
             Timestamp.from(now),
         )!!
-    return AppUser(login, passwordHash, role, status, now).apply { this.id = id }
+    return AccountUserResponse(id, login, role, status)
+}
+
+internal fun JdbcTemplate.updateUserRoleAndStatus(
+    id: Long,
+    role: UserRole,
+    status: UserStatus,
+) {
+    val updated =
+        update(
+            "UPDATE app_user SET role = ?::user_role, status = ?::user_status WHERE id = ?",
+            role.name,
+            status.name,
+            id,
+        )
+    assertThat(updated).isEqualTo(1)
 }
 
 internal fun JdbcTemplate.insertItem(

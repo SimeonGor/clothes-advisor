@@ -37,11 +37,11 @@ import ru.itmo.clothesadvisor.config.AccountBackedIntegrationTest
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
 import ru.itmo.clothesadvisor.config.insertAccessGrant
 import ru.itmo.clothesadvisor.config.insertUser
+import ru.itmo.clothesadvisor.config.updateUserRoleAndStatus
+import ru.itmo.clothesadvisor.dto.account.AccountUserResponse
 import ru.itmo.clothesadvisor.model.access.AccountUnavailableException
-import ru.itmo.clothesadvisor.model.user.AppUser
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
-import ru.itmo.clothesadvisor.service.user.AppUserService
 import ru.itmo.clothesadvisor.storage.wardrobe.PhotoStorageUnavailableException
 import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
 
@@ -50,7 +50,6 @@ import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
 @Execution(ExecutionMode.SAME_THREAD)
 class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
     @LocalServerPort private var port: Int = 0
-    @Autowired private lateinit var users: AppUserService
     @Autowired private lateinit var jdbc: JdbcTemplate
     @MockitoBean private lateinit var storage: S3PhotoStorage
     private val client = HttpClient.newHttpClient()
@@ -80,7 +79,7 @@ class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
         val item = create(ownerActorId)
         val photo = photo(item)
         grant(ownerActorId, stylist)
-        val base = wardrobe(owner.id!!)
+        val base = wardrobe(owner.id)
         for (suffix in listOf("", "/$item", "/$item/photos")) {
 
             // when
@@ -162,7 +161,7 @@ class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
             now,
         )
         create(actorId(user()))
-        val path = wardrobe(owner.id!!)
+        val path = wardrobe(owner.id)
 
         // when
         val firstResponse = request("GET", path, actorId)
@@ -224,7 +223,7 @@ class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
         val otherItem = create(actorId(other))
         val photo = photo(item)
         val otherPhoto = photo(otherItem)
-        for (ownerId in listOf(owner.id!!, other.id!!, Long.MAX_VALUE)) {
+        for (ownerId in listOf(owner.id, other.id, Long.MAX_VALUE)) {
             readPaths(ownerId, item, photo).forEach {
 
                 // when
@@ -238,7 +237,7 @@ class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
         // given
         grant(ownerActorId, stylist)
         for (itemId in listOf(otherItem, Long.MAX_VALUE)) {
-            readPaths(owner.id!!, itemId, photo).drop(1).forEach {
+            readPaths(owner.id, itemId, photo).drop(1).forEach {
 
                 // when
                 val foreignItem = request("GET", it, actorId)
@@ -252,12 +251,12 @@ class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
 
             // when
             val mismatchedPhoto =
-                request("GET", "${wardrobe(owner.id!!)}/$itemId/photos/$photoId/content", actorId)
+                request("GET", "${wardrobe(owner.id)}/$itemId/photos/$photoId/content", actorId)
 
             // then
             assertNotFound(mismatchedPhoto)
         }
-        readPaths(other.id!!, item, photo).forEach {
+        readPaths(other.id, item, photo).forEach {
 
             // when
             val otherOwner = request("GET", it, actorId)
@@ -268,7 +267,7 @@ class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
 
         // given: access is revoked in the remote fixture
         jdbc.update("DELETE FROM access_grant WHERE owner_id = ? AND stylist_id = ?", owner.id, stylist.id)
-        readPaths(owner.id!!, item, photo).forEach {
+        readPaths(owner.id, item, photo).forEach {
 
             // when
             val revokedAccess = request("GET", it, actorId)
@@ -290,7 +289,7 @@ class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
         val item = create(ownerActorId)
         val photo = photo(item)
         grant(ownerActorId, stylist)
-        val base = wardrobe(owner.id!!)
+        val base = wardrobe(owner.id)
         for ((method, suffix) in
             listOf(
                 "POST" to "",
@@ -359,7 +358,7 @@ class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
             null to 400, "invalid" to 400, blockedActorId to 403, stylistActorId to 403,
             ownerActorId to 404, adminActorId to 404,
         )) {
-            readPaths(owner.id!!, item, photo).forEach { path ->
+            readPaths(owner.id, item, photo).forEach { path ->
                 // when
                 val response = request("GET", path, actorId)
 
@@ -371,7 +370,7 @@ class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
 
         // given: the stylist loses the required role
         change(stylist, UserRole.USER, UserStatus.ACTIVE)
-        readPaths(owner.id!!, item, photo).forEach {
+        readPaths(owner.id, item, photo).forEach {
             // when
             val response = request("GET", it, stylistActorId)
 
@@ -403,7 +402,7 @@ class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
             if (change.endsWith("block")) UserStatus.BLOCKED else UserStatus.ACTIVE,
         )
         val expected = if (change == "stylist-block") 403 else 404
-        readPaths(owner.id!!, item, photo).forEach {
+        readPaths(owner.id, item, photo).forEach {
 
             // when
             val response = request("GET", it, stylistActorId)
@@ -418,11 +417,11 @@ class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
         // given: the next role or status change
         change(affected, originalRole, UserStatus.ACTIVE)
 
-        readPaths(owner.id!!, item, photo).forEach {
+        readPaths(owner.id, item, photo).forEach {
 
             // when
             val restored = request("GET", it, stylistActorId)
-            val own = request("GET", it.replace(wardrobe(owner.id!!), ITEMS), ownerActorId)
+            val own = request("GET", it.replace(wardrobe(owner.id), ITEMS), ownerActorId)
 
             // then
             assertThat(restored.statusCode()).isEqualTo(200)
@@ -472,7 +471,7 @@ class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
                     Callable {
                         request(
                             "GET",
-                            "${wardrobe(owner.id!!)}/$item/photos/$photo/content",
+                            "${wardrobe(owner.id)}/$item/photos/$photo/content",
                             stylistActorId,
                         )
                     },
@@ -523,7 +522,7 @@ class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
             val deletedContent =
                 request(
                     "GET",
-                    "${wardrobe(owner.id!!)}/$item/photos/$photo/content",
+                    "${wardrobe(owner.id)}/$item/photos/$photo/content",
                     stylistActorId,
                 )
 
@@ -551,11 +550,11 @@ class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
                 if (!afterDownload || checks > 1) throw AccountUnavailableException()
                 null
             }
-            .`when`(accounts).requireStylistAccess(stylist.id!!, owner.id!!)
+            .`when`(accounts).requireStylistAccess(stylist.id, owner.id)
 
         // when
         val download = request(
-            "GET", "${wardrobe(owner.id!!)}/$item/photos/$photo/content", actorId(stylist),
+            "GET", "${wardrobe(owner.id)}/$item/photos/$photo/content", actorId(stylist),
         )
         val creation = request(
             "POST", "$CLIENTS/${owner.id}/outfits", actorId(stylist),
@@ -575,16 +574,15 @@ class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
     private fun user(
         role: UserRole = UserRole.USER,
         status: UserStatus = UserStatus.ACTIVE,
-    ): AppUser = jdbc.insertUser(UUID.randomUUID().toString(), passwordHash, role, status)
+    ): AccountUserResponse = jdbc.insertUser(UUID.randomUUID().toString(), passwordHash, role, status)
 
-    private fun actorId(user: AppUser): String = requireNotNull(user.id).toString()
+    private fun actorId(user: AccountUserResponse): String = user.id.toString()
 
-    private fun change(user: AppUser, role: UserRole, status: UserStatus) {
-        val current = requireNotNull(users.findById(user.id!!))
-        users.changeRoleAndStatus(user.id!!, current.version, role, status)
+    private fun change(user: AccountUserResponse, role: UserRole, status: UserStatus) {
+        jdbc.updateUserRoleAndStatus(user.id, role, status)
     }
 
-    private fun grants(owner: AppUser, stylist: AppUser): Long =
+    private fun grants(owner: AccountUserResponse, stylist: AccountUserResponse): Long =
         jdbc.queryForObject(
             "SELECT count(*) FROM access_grant WHERE owner_id = ? AND stylist_id = ?",
             Long::class.java,
@@ -592,8 +590,8 @@ class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
             stylist.id,
         )!!
 
-    private fun grant(actorId: String, stylist: AppUser) {
-        jdbc.insertAccessGrant(actorId.toLong(), stylist.id!!)
+    private fun grant(actorId: String, stylist: AccountUserResponse) {
+        jdbc.insertAccessGrant(actorId.toLong(), stylist.id)
     }
 
     private fun create(actorId: String): Long {
