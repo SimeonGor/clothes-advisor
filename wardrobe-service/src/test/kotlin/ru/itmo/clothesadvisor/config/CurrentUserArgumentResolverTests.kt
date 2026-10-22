@@ -1,31 +1,31 @@
 package ru.itmo.clothesadvisor.config
 
-import java.time.Instant
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.catchThrowable
 import org.junit.jupiter.api.Test
+import org.mockito.Mockito.doReturn
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.verifyNoInteractions
 import org.mockito.Mockito.`when`
 import org.springframework.core.MethodParameter
 import org.springframework.mock.web.MockHttpServletRequest
 import org.springframework.web.context.request.ServletWebRequest
+import ru.itmo.clothesadvisor.client.account.AccountClient
+import ru.itmo.clothesadvisor.dto.account.AccountUserResponse
 import ru.itmo.clothesadvisor.dto.user.CurrentUser
 import ru.itmo.clothesadvisor.model.AccessDeniedException
 import ru.itmo.clothesadvisor.model.EntityNotFoundException
-import ru.itmo.clothesadvisor.model.user.AppUser
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
-import ru.itmo.clothesadvisor.repository.user.AppUserRepository
 import ru.itmo.clothesadvisor.service.user.CurrentUserService
 
 class CurrentUserArgumentResolverTests {
-    private val users = mock(AppUserRepository::class.java)
+    private val users = mock(AccountClient::class.java)
     private val resolver = CurrentUserArgumentResolver(CurrentUserService(users))
     private val parameter = mock(MethodParameter::class.java)
 
     @Test
-    fun `invalid actor headers do not query database`() {
+    fun `invalid actor headers do not query accounts`() {
         listOf(null, "", "x", "0", "-1", "9223372036854775808").forEach { value ->
 
             // given: an invalid actor header value
@@ -43,6 +43,7 @@ class CurrentUserArgumentResolverTests {
     fun `missing and blocked actors map to separate domain errors`() {
 
         // given: no actor exists for the header
+        `when`(users.getUser(7)).thenThrow(EntityNotFoundException())
 
         // when
         val missing = catchThrowable { resolve("7") }
@@ -51,8 +52,8 @@ class CurrentUserArgumentResolverTests {
         assertThat(missing).isInstanceOf(EntityNotFoundException::class.java)
 
         // given
-        `when`(users.findById(7))
-            .thenReturn(AppUser("user", "!", UserRole.USER, UserStatus.BLOCKED, Instant.EPOCH))
+        doReturn(AccountUserResponse(7, "user", UserRole.USER, UserStatus.BLOCKED))
+            .`when`(users).getUser(7)
 
         // when
         val blocked = catchThrowable { resolve("7") }
@@ -62,12 +63,12 @@ class CurrentUserArgumentResolverTests {
     }
 
     @Test
-    fun `actor context reflects current database role`() {
+    fun `actor context reflects current account role`() {
         UserRole.entries.forEach { role ->
 
             // given
-            `when`(users.findById(7))
-                .thenReturn(AppUser("user", "!", role, UserStatus.ACTIVE, Instant.EPOCH))
+            `when`(users.getUser(7))
+                .thenReturn(AccountUserResponse(7, "user", role, UserStatus.ACTIVE))
 
             // when
             val actor = resolve("7")

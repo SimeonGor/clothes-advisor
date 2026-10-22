@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.TransactionDefinition
 import org.springframework.transaction.support.TransactionTemplate
+import ru.itmo.clothesadvisor.client.account.AccountClient
 import ru.itmo.clothesadvisor.dto.rating.CreateRatingRequest
 import ru.itmo.clothesadvisor.dto.rating.RatingHistoryResponse
 import ru.itmo.clothesadvisor.dto.rating.RatingResponse
@@ -19,14 +20,13 @@ import ru.itmo.clothesadvisor.repository.outfit.OutfitRepository
 import ru.itmo.clothesadvisor.repository.rating.OutfitRatingHistoryRepository
 import ru.itmo.clothesadvisor.repository.rating.OutfitRatingRepository
 import ru.itmo.clothesadvisor.repository.rating.RatingCounts
-import ru.itmo.clothesadvisor.service.access.AccessGrantService
 
 internal class RatingConflictException : RuntimeException()
 
 @Service
 internal class OutfitRatingService(
     private val outfits: OutfitRepository,
-    private val access: AccessGrantService,
+    private val accounts: AccountClient,
     private val ratings: OutfitRatingRepository,
     private val history: OutfitRatingHistoryRepository,
     transactionManager: PlatformTransactionManager,
@@ -44,7 +44,7 @@ internal class OutfitRatingService(
         outfitId: Long,
         request: CreateRatingRequest,
     ): RatingResponse {
-        access.requireAccess(stylistId, ownerId)
+        accounts.requireStylistAccess(stylistId, ownerId)
         return writeTransaction.execute {
             lockForRating(stylistId, ownerId, outfitId)
             val key = OutfitRatingId(outfitId, stylistId)
@@ -60,7 +60,7 @@ internal class OutfitRatingService(
         outfitId: Long,
         request: UpdateRatingRequest,
     ): RatingResponse {
-        access.requireAccess(stylistId, ownerId)
+        accounts.requireStylistAccess(stylistId, ownerId)
         return writeTransaction.execute {
             lockForRating(stylistId, ownerId, outfitId)
             val rating =
@@ -78,7 +78,7 @@ internal class OutfitRatingService(
     }
 
     fun withdraw(stylistId: Long, ownerId: Long, outfitId: Long, version: Long) {
-        access.requireAccess(stylistId, ownerId)
+        accounts.requireStylistAccess(stylistId, ownerId)
         writeTransaction.executeWithoutResult {
             lockForRating(stylistId, ownerId, outfitId)
             val rating =
@@ -118,7 +118,7 @@ internal class OutfitRatingService(
         outfitId: Long,
         pageable: Pageable,
     ): Page<RatingHistoryResponse> {
-        access.requireAccess(stylistId, ownerId)
+        accounts.requireStylistAccess(stylistId, ownerId)
         return history(ownerId, outfitId, pageable)
     }
 

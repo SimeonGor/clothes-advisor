@@ -21,8 +21,10 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import org.mockito.ArgumentMatchers.anyLong
 import org.mockito.ArgumentMatchers.anyString
-import org.mockito.Mockito.doAnswer
 import org.mockito.Mockito.clearInvocations
+import org.mockito.Mockito.doAnswer
+import org.mockito.Mockito.times
+import org.mockito.Mockito.verify
 import org.mockito.Mockito.verifyNoInteractions
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
@@ -31,9 +33,11 @@ import org.springframework.context.annotation.Import
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.bean.override.mockito.MockitoBean
 import org.springframework.transaction.support.TransactionSynchronizationManager
-import ru.itmo.clothesadvisor.config.PostgresIntegrationTest
+import ru.itmo.clothesadvisor.config.AccountBackedIntegrationTest
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
+import ru.itmo.clothesadvisor.config.insertAccessGrant
 import ru.itmo.clothesadvisor.config.insertUser
+import ru.itmo.clothesadvisor.model.access.AccountUnavailableException
 import ru.itmo.clothesadvisor.model.user.AppUser
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
@@ -44,7 +48,7 @@ import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(TestTimeConfiguration::class)
 @Execution(ExecutionMode.SAME_THREAD)
-class StylistWardrobeIntegrationTests : PostgresIntegrationTest() {
+class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
     @LocalServerPort private var port: Int = 0
     @Autowired private lateinit var users: AppUserService
     @Autowired private lateinit var jdbc: JdbcTemplate
@@ -262,11 +266,8 @@ class StylistWardrobeIntegrationTests : PostgresIntegrationTest() {
             assertNotFound(otherOwner)
         }
 
-        // when
-        val revokeStatus = request("DELETE", "$ACCESS/${stylist.id}", ownerActorId).statusCode()
-
-        // then
-        assertThat(revokeStatus).isEqualTo(204)
+        // given: access is revoked in the remote fixture
+        jdbc.update("DELETE FROM access_grant WHERE owner_id = ? AND stylist_id = ?", owner.id, stylist.id)
         readPaths(owner.id!!, item, photo).forEach {
 
             // when
@@ -341,125 +342,42 @@ class StylistWardrobeIntegrationTests : PostgresIntegrationTest() {
     }
 
     @Test
-    fun `every access and wardrobe route enforces current actor and role`() {
-
+    fun `every shared wardrobe route enforces current actor and role`() {
         // given
         val owner = user()
         val stylist = user(UserRole.STYLIST)
         val ownerActorId = actorId(owner)
         val stylistActorId = actorId(stylist)
         val adminActorId = actorId(user(UserRole.ADMIN))
-        val blocked = user()
-        val blockedActorId = actorId(blocked)
-
-        // given: the next role or status change
-        change(blocked, UserRole.USER, UserStatus.BLOCKED)
+        val blockedActorId = actorId(user(status = UserStatus.BLOCKED))
         val item = create(ownerActorId)
         val photo = photo(item)
-        for ((actorId, status) in listOf(null to 400, "invalid" to 400, blockedActorId to 403)) {
-
-            // when
-            val listStatus = request("GET", ACCESS, actorId).statusCode()
-
-            // then
-            assertThat(listStatus).isEqualTo(status)
-
-            // when
-            val grantStatus = request("PUT", "$ACCESS/${stylist.id}", actorId).statusCode()
-
-            // then
-            assertThat(grantStatus).isEqualTo(status)
-
-            // when
-            val revokeStatus = request("DELETE", "$ACCESS/${stylist.id}", actorId).statusCode()
-
-            // then
-            assertThat(revokeStatus).isEqualTo(status)
-        }
-        for (actorId in listOf(stylistActorId, adminActorId)) {
-
-            // when
-            val listStatus = request("GET", ACCESS, actorId).statusCode()
-
-            // then
-            assertThat(listStatus).isEqualTo(200)
-
-            // when
-            val grantStatus = request("PUT", "$ACCESS/${stylist.id}", actorId).statusCode()
-
-            // then
-            assertThat(grantStatus).isEqualTo(204)
-
-            // when
-            val revokeStatus = request("DELETE", "$ACCESS/${stylist.id}", actorId).statusCode()
-
-            // then
-            assertThat(revokeStatus).isEqualTo(204)
-        }
-
-        // given
         grant(ownerActorId, stylist)
-
-        // given: the next role or status change
         change(stylist, UserRole.STYLIST, UserStatus.BLOCKED)
-        for (actorId in listOf(null, "invalid")) {
-            for (path in listOf(CLIENTS) + readPaths(owner.id!!, item, photo)) {
 
+        for ((actorId, status) in listOf(
+            null to 400, "invalid" to 400, blockedActorId to 403, stylistActorId to 403,
+            ownerActorId to 404, adminActorId to 404,
+        )) {
+            readPaths(owner.id!!, item, photo).forEach { path ->
                 // when
-                val invalidActorStatus = request("GET", path, actorId).statusCode()
+                val response = request("GET", path, actorId)
 
                 // then
-                assertThat(invalidActorStatus).describedAs(path).isEqualTo(400)
+                assertThat(response.statusCode()).describedAs(path).isEqualTo(status)
+                if (status == 404) assertThat(response.body()).isEmpty()
             }
         }
 
-        // when
-        val blockedStylistStatus = request("GET", CLIENTS, stylistActorId).statusCode()
-
-        // then
-        assertThat(blockedStylistStatus).isEqualTo(403)
-        for (actorId in listOf(ownerActorId, adminActorId)) {
-
-            // when
-            val clientListStatus = request("GET", CLIENTS, actorId).statusCode()
-
-            // then
-            assertThat(clientListStatus).isEqualTo(200)
-            readPaths(owner.id!!, item, photo).forEach {
-
-                // when
-                val unsharedWardrobeStatus = request("GET", it, actorId).statusCode()
-
-                // then
-                assertThat(unsharedWardrobeStatus).describedAs(it).isEqualTo(404)
-            }
-        }
-
-        // given: the next role or status change
+        // given: the stylist loses the required role
         change(stylist, UserRole.USER, UserStatus.ACTIVE)
-
-        // when
-        val changedRoleListStatus = request("GET", CLIENTS, stylistActorId).statusCode()
-
-        // then
-        assertThat(changedRoleListStatus).isEqualTo(200)
         readPaths(owner.id!!, item, photo).forEach {
-
             // when
-            val changedRoleReadStatus = request("GET", it, stylistActorId).statusCode()
+            val response = request("GET", it, stylistActorId)
 
             // then
-            assertThat(changedRoleReadStatus).describedAs(it).isEqualTo(404)
+            assertNotFound(response)
         }
-
-        // given: the next role or status change
-        change(owner, UserRole.STYLIST, UserStatus.ACTIVE)
-
-        // when
-        val ownerAccessListStatus = request("GET", ACCESS, ownerActorId).statusCode()
-
-        // then
-        assertThat(ownerAccessListStatus).isEqualTo(200)
         verifyNoInteractions(storage)
     }
 
@@ -494,45 +412,22 @@ class StylistWardrobeIntegrationTests : PostgresIntegrationTest() {
             assertThat(response.statusCode()).isEqualTo(expected)
             if (expected == 404) assertThat(response.body()).isEmpty()
         }
-        if (affected === owner) {
-
-            // when
-            val hiddenClients = rows(request("GET", CLIENTS, stylistActorId))
-
-            // then
-            assertThat(hiddenClients).isEmpty()
-        } else {
-
-            // when
-            val retainedGrants = rows(request("GET", ACCESS, ownerActorId))
-
-            // then
-            assertThat(retainedGrants).containsExactly(identity(stylist))
-        }
         verifyNoInteractions(storage)
         assertThat(grants(owner, stylist)).isEqualTo(1)
 
         // given: the next role or status change
         change(affected, originalRole, UserStatus.ACTIVE)
 
-        // when
-        val restoredGrants = rows(request("GET", ACCESS, ownerActorId))
-
-        // then
-        assertThat(restoredGrants).containsExactly(identity(stylist))
-
-        // when
-        val restoredClients = rows(request("GET", CLIENTS, stylistActorId))
-
-        // then
-        assertThat(restoredClients).containsExactly(identity(owner))
         readPaths(owner.id!!, item, photo).forEach {
 
             // when
-            val restoredReadStatus = request("GET", it, stylistActorId).statusCode()
+            val restored = request("GET", it, stylistActorId)
+            val own = request("GET", it.replace(wardrobe(owner.id!!), ITEMS), ownerActorId)
 
             // then
-            assertThat(restoredReadStatus).isEqualTo(200)
+            assertThat(restored.statusCode()).isEqualTo(200)
+            assertThat(own.statusCode()).isEqualTo(200)
+            assertThat(restored.body()).containsExactly(*own.body())
         }
     }
 
@@ -585,15 +480,10 @@ class StylistWardrobeIntegrationTests : PostgresIntegrationTest() {
             try {
                 assertThat(entered.await(10, TimeUnit.SECONDS)).isTrue()
                 when (mutation) {
-                    "revoke" -> {
-
-                        // when
-                        val revokeStatus =
-                            request("DELETE", "$ACCESS/${stylist.id}", ownerActorId).statusCode()
-
-                        // then
-                        assertThat(revokeStatus).isEqualTo(204)
-                    }
+                    "revoke" -> jdbc.update(
+                        "DELETE FROM access_grant WHERE owner_id = ? AND stylist_id = ?",
+                        owner.id, stylist.id,
+                    )
                     "owner-block" -> change(owner, UserRole.USER, UserStatus.BLOCKED)
                     "owner-role" -> change(owner, UserRole.ADMIN, UserStatus.ACTIVE)
                     "stylist-block" -> change(stylist, UserRole.STYLIST, UserStatus.BLOCKED)
@@ -643,6 +533,45 @@ class StylistWardrobeIntegrationTests : PostgresIntegrationTest() {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `account outage before or after download releases no bytes and prevents outfit writes`(
+        afterDownload: Boolean,
+    ) {
+        // given
+        val owner = user()
+        val stylist = user(UserRole.STYLIST)
+        val item = create(actorId(owner))
+        val photo = photo(item)
+        grant(actorId(owner), stylist)
+        var checks = 0
+        doAnswer {
+                assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
+                checks++
+                if (!afterDownload || checks > 1) throw AccountUnavailableException()
+                null
+            }
+            .`when`(accounts).requireStylistAccess(stylist.id!!, owner.id!!)
+
+        // when
+        val download = request(
+            "GET", "${wardrobe(owner.id!!)}/$item/photos/$photo/content", actorId(stylist),
+        )
+        val creation = request(
+            "POST", "$CLIENTS/${owner.id}/outfits", actorId(stylist),
+            """{"name":"Daily","itemIds":[$item],"weather":{"temperatureC":10,"precipitationTypeId":1,"windSpeedMps":0}}""",
+        )
+
+        // then
+        assertThat(download.statusCode()).isEqualTo(503)
+        assertThat(download.body()).isEmpty()
+        assertThat(creation.statusCode()).isEqualTo(503)
+        assertThat(creation.body()).isEmpty()
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM outfit", Long::class.java)).isZero()
+        assertThat(checks).isEqualTo(if (afterDownload) 3 else 2)
+        verify(storage, times(if (afterDownload) 1 else 0)).get(anyString(), anyLong())
+    }
+
     private fun user(
         role: UserRole = UserRole.USER,
         status: UserStatus = UserStatus.ACTIVE,
@@ -663,16 +592,8 @@ class StylistWardrobeIntegrationTests : PostgresIntegrationTest() {
             stylist.id,
         )!!
 
-    private fun identity(user: AppUser): Map<String, Any> =
-        mapOf("id" to user.id!!.toInt(), "login" to user.login)
-
     private fun grant(actorId: String, stylist: AppUser) {
-
-        // when
-        val grantStatus = request("PUT", "$ACCESS/${stylist.id}", actorId).statusCode()
-
-        // then
-        assertThat(grantStatus).isEqualTo(204)
+        jdbc.insertAccessGrant(actorId.toLong(), stylist.id!!)
     }
 
     private fun create(actorId: String): Long {
@@ -747,7 +668,6 @@ class StylistWardrobeIntegrationTests : PostgresIntegrationTest() {
     }
 
     companion object {
-        private const val ACCESS = "/api/me/stylist-access"
         private const val CLIENTS = "/api/stylist/clients"
         private const val ITEMS = "/api/wardrobe/items"
         private const val ITEM =

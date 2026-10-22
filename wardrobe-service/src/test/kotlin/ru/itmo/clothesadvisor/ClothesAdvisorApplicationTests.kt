@@ -24,7 +24,7 @@ class ClothesAdvisorApplicationTests : PostgresIntegrationTest() {
     @Autowired private lateinit var context: ApplicationContext
 
     @Test
-    fun `normal application registers recommendation client and keeps account transport dormant`() {
+    fun `normal application registers both external clients`() {
         // given
         val applicationContext = context
 
@@ -33,7 +33,7 @@ class ClothesAdvisorApplicationTests : PostgresIntegrationTest() {
         val recommendations = applicationContext.getBeansOfType(RecommendationClient::class.java)
 
         // then
-        assertThat(accounts).isEmpty()
+        assertThat(accounts).hasSize(1)
         assertThat(recommendations).hasSize(1)
     }
 

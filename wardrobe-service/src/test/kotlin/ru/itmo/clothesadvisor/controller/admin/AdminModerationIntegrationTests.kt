@@ -38,7 +38,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate
-import ru.itmo.clothesadvisor.config.PostgresIntegrationTest
+import ru.itmo.clothesadvisor.config.AccountBackedIntegrationTest
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
 import ru.itmo.clothesadvisor.config.insertAccessGrant
 import ru.itmo.clothesadvisor.config.insertItem
@@ -51,8 +51,6 @@ import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
 import ru.itmo.clothesadvisor.repository.outfit.OutfitRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
-import ru.itmo.clothesadvisor.service.access.AccessGrantService
-import ru.itmo.clothesadvisor.service.access.AdminContentAccessService
 import ru.itmo.clothesadvisor.service.user.AppUserService
 import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemService
 import ru.itmo.clothesadvisor.storage.wardrobe.PhotoStorageUnavailableException
@@ -60,16 +58,14 @@ import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(TestTimeConfiguration::class)
-internal class AdminModerationIntegrationTests : PostgresIntegrationTest() {
+internal class AdminModerationIntegrationTests : AccountBackedIntegrationTest() {
     @LocalServerPort private var port: Int = 0
     @Autowired private lateinit var users: AppUserService
     @Autowired private lateinit var items: WardrobeItemService
-    @Autowired private lateinit var access: AccessGrantService
     @Autowired private lateinit var jdbc: JdbcTemplate
     @Autowired private lateinit var transactionManager: PlatformTransactionManager
     @MockitoSpyBean private lateinit var itemRepository: WardrobeItemRepository
     @MockitoSpyBean private lateinit var outfitRepository: OutfitRepository
-    @MockitoSpyBean private lateinit var adminAccess: AdminContentAccessService
     @MockitoBean private lateinit var storage: S3PhotoStorage
     private val client = HttpClient.newHttpClient()
     private val passwordHash = "!"
@@ -603,14 +599,6 @@ internal class AdminModerationIntegrationTests : PostgresIntegrationTest() {
         val release = CountDownLatch(1)
         val table = if (kind == "PHOTO") "wardrobe_item" else "outfit"
         val id = if (kind == "PHOTO") fixtureState.item else fixtureState.outfit
-        doAnswer { call ->
-                assertThat(TransactionSynchronizationManager.isCurrentTransactionReadOnly()).isTrue()
-                assertThat(TransactionSynchronizationManager.getCurrentTransactionIsolationLevel())
-                    .isNull()
-                mockingDetails(adminAccess).mockCreationSettings.defaultAnswer.answer(call)
-            }
-            .`when`(adminAccess)
-            .requireAccess(fixtureState.admin.id!!, fixtureState.owner.id!!)
         if (kind == "PHOTO") {
             doAnswer { call ->
                     enteringLock.countDown()
@@ -663,8 +651,8 @@ internal class AdminModerationIntegrationTests : PostgresIntegrationTest() {
                 // then
                 val response = deletion.get(20, TimeUnit.SECONDS)
                 assertEmpty(response, 204)
-                verify(adminAccess)
-                    .requireAccess(fixtureState.admin.id!!, fixtureState.owner.id!!)
+                verify(accounts)
+                    .requireAdminAccess(fixtureState.admin.id!!, fixtureState.owner.id!!)
 
                 // when
                 val nextRequest =

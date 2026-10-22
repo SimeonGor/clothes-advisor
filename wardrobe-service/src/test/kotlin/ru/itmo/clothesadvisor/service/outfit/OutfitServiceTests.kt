@@ -9,6 +9,8 @@ import org.assertj.core.api.Assertions.catchThrowable
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import org.mockito.ArgumentMatchers.any
 import org.mockito.ArgumentMatchers.anyList
 import org.mockito.Mockito.doAnswer
@@ -20,9 +22,11 @@ import org.mockito.Mockito.verifyNoInteractions
 import org.mockito.Mockito.`when`
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.SimpleTransactionStatus
+import ru.itmo.clothesadvisor.client.account.AccountClient
 import ru.itmo.clothesadvisor.dto.outfit.CreateOutfitRequest
 import ru.itmo.clothesadvisor.dto.outfit.OutfitWeatherDto
 import ru.itmo.clothesadvisor.model.EntityNotFoundException
+import ru.itmo.clothesadvisor.model.access.AccountUnavailableException
 import ru.itmo.clothesadvisor.model.outfit.Outfit
 import ru.itmo.clothesadvisor.model.outfit.OutfitItem
 import ru.itmo.clothesadvisor.model.outfit.OutfitSource
@@ -31,7 +35,6 @@ import ru.itmo.clothesadvisor.repository.outfit.OutfitRepository
 import ru.itmo.clothesadvisor.repository.outfit.OutfitWeatherRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.repository.weather.PrecipitationTypeRepository
-import ru.itmo.clothesadvisor.service.access.AccessGrantService
 import ru.itmo.clothesadvisor.service.rating.OutfitRatingService
 
 class OutfitServiceTests {
@@ -40,7 +43,7 @@ class OutfitServiceTests {
     private val weather = mock(OutfitWeatherRepository::class.java)
     private val wardrobe = mock(WardrobeItemRepository::class.java)
     private val precipitation = mock(PrecipitationTypeRepository::class.java)
-    private val access = mock(AccessGrantService::class.java)
+    private val access = mock(AccountClient::class.java)
     private val ratings = mock(OutfitRatingService::class.java)
     private val validation = Validation.buildDefaultValidatorFactory()
     private val transactions = mock(PlatformTransactionManager::class.java)
@@ -71,16 +74,18 @@ class OutfitServiceTests {
         `when`(transactions.getTransaction(any())).thenAnswer { SimpleTransactionStatus() }
     }
 
-    @Test
-    fun `client access denial precedes transaction and outfit writes`() {
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `account denial or outage precedes transaction and outfit writes`(unavailable: Boolean) {
         // given
-        doThrow(EntityNotFoundException()).`when`(access).requireAccess(2, 7)
+        val denial = if (unavailable) AccountUnavailableException() else EntityNotFoundException()
+        doThrow(denial).`when`(access).requireStylistAccess(2, 7)
 
         // when
         val failure = catchThrowable { service.createForClient(2, 7, request()) }
 
         // then
-        assertThat(failure).isInstanceOf(EntityNotFoundException::class.java)
+        assertThat(failure).isSameAs(denial)
         verifyNoInteractions(transactions, outfits, composition, weather, wardrobe, precipitation)
     }
 

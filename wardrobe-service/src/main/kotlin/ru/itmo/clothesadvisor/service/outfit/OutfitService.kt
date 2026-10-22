@@ -9,6 +9,7 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.TransactionDefinition
 import org.springframework.transaction.support.TransactionTemplate
+import ru.itmo.clothesadvisor.client.account.AccountClient
 import ru.itmo.clothesadvisor.dto.outfit.CreateOutfitRequest
 import ru.itmo.clothesadvisor.dto.outfit.OutfitResponse
 import ru.itmo.clothesadvisor.dto.outfit.OutfitWeatherDto
@@ -24,7 +25,6 @@ import ru.itmo.clothesadvisor.repository.outfit.OutfitRepository
 import ru.itmo.clothesadvisor.repository.outfit.OutfitWeatherRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.repository.weather.PrecipitationTypeRepository
-import ru.itmo.clothesadvisor.service.access.AccessGrantService
 import ru.itmo.clothesadvisor.service.rating.OutfitRatingService
 
 internal class InvalidOutfitRequestException : RuntimeException()
@@ -36,7 +36,7 @@ internal class OutfitService(
     private val weather: OutfitWeatherRepository,
     private val wardrobe: WardrobeItemRepository,
     private val precipitation: PrecipitationTypeRepository,
-    private val access: AccessGrantService,
+    private val accounts: AccountClient,
     private val ratings: OutfitRatingService,
     private val validator: Validator,
     transactionManager: PlatformTransactionManager,
@@ -59,7 +59,7 @@ internal class OutfitService(
         ownerId: Long,
         request: CreateOutfitRequest,
     ): StylistOutfitResponse {
-        access.requireAccess(stylistId, ownerId)
+        accounts.requireStylistAccess(stylistId, ownerId)
         return writeTransaction.execute {
             StylistOutfitResponse(
                 create(ownerId, stylistId, OutfitSource.STYLIST, request),
@@ -78,7 +78,7 @@ internal class OutfitService(
         ownerId: Long,
         pageable: Pageable,
     ): Page<StylistOutfitResponse> {
-        access.requireAccess(stylistId, ownerId)
+        accounts.requireStylistAccess(stylistId, ownerId)
         return readTransaction.execute {
             val page = list(ownerId, pageable)
             val ownRatings = ratings.ownRatings(stylistId, page.content.map { it.id })
@@ -90,7 +90,7 @@ internal class OutfitService(
         readTransaction.execute { toResponses(listOf(findOwnedOutfit(ownerId, id))).single() }
 
     fun getForClient(stylistId: Long, ownerId: Long, id: Long): StylistOutfitResponse {
-        access.requireAccess(stylistId, ownerId)
+        accounts.requireStylistAccess(stylistId, ownerId)
         return readTransaction.execute {
             StylistOutfitResponse(
                 get(ownerId, id),
