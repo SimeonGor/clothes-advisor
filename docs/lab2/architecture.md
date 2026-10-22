@@ -1,8 +1,8 @@
 # Архитектура ЛР2
 
-Целевая система для перехода от монолита ЛР1 к микросервисам. Контракты и сценарии проверок описаны в [contracts.md](contracts.md).
+Микросервисная версия монолита ЛР1. Контракты описаны в [contracts.md](contracts.md), результаты проверки — в [acceptance.md](acceptance.md).
 
-Сейчас отдельно запускаются frontend, Gateway, Config Server, Eureka, recommendation-service и account-service. Рабочие данные пользователей и гардероба пока остаются в wardrobe-service. Account предоставляет API пользователей, разрешений и списков клиентов, а также внутренние проверки доступа; хранит данные и историю через R2DBC в отдельной подготовительной БД. Account подключён к Config Server и Eureka, но Gateway и потребители wardrobe ещё не переключены. Пользовательский AI-сценарий вызывает recommendation через Feign и Eureka; зависимости на его JAR нет. Credentials, модель и trust store OpenAI доступны только recommendation, ключ Yandex и доступ к S3 — wardrobe. Каждый сервис описывает собственные транспортные DTO; общих бизнес-моделей нет.
+Отдельно запускаются frontend, Gateway, Config Server, Eureka и три бизнес-сервиса. Account хранит пользователей, разрешения и историю через R2DBC в собственной БД. Gateway направляет туда API аккаунтов, а wardrobe запрашивает текущих пользователей и права через Feign. Гардероб и образы остаются в wardrobe. Пользовательский AI-сценарий вызывает recommendation через Feign и Eureka; зависимости на его JAR нет. Каждый сервис описывает собственные транспортные DTO; общих бизнес-моделей нет.
 
 ## Компоненты
 
@@ -59,7 +59,7 @@ Spring-аннотации и маппинг Spring Data допустимы. От
 | wardrobe_db | outfit_rating | Текущий голос стилиста |
 | wardrobe_db | outfit_rating_history | История изменений, отмены и удаления текущих голосов |
 
-Это все прикладные таблицы монолита после V1–V10; служебная история Flyway ведётся отдельно в каждой БД. Роли/статусы, источник образа и голос остаются строковыми PostgreSQL enum. Файлы живут в S3, а не в PostgreSQL.
+Таблица и ER-схема показывают активное владение данными. В wardrobe_db физически сохраняются старые `app_user`, `app_user_history`, `access_grant` и последовательность ID: V11 снимает только пять межсервисных FK, не удаляя данные. Рабочий код wardrobe больше не читает и не изменяет эти таблицы. Служебная история Flyway ведётся отдельно в каждой БД. Роли/статусы, источник образа и голос остаются строковыми PostgreSQL enum. Файлы живут в S3, а не в PostgreSQL.
 
 Межсервисные ссылки — `wardrobe_item.owner_id`, `outfit.owner_id/author_id`, `outfit_rating.stylist_id` и `outfit_rating_history.stylist_id`. Значения ID сохраняются, но FK на app_user в wardrobe_db нет. Существование и доступ проверяются через account; локальные FK внутри каждой БД остаются. Удаление аккаунтов не добавляется, роли и статусы могут меняться без переписывания авторства и истории.
 
@@ -69,7 +69,7 @@ Spring-аннотации и маппинг Spring Data допустимы. От
 
 ![Данные по сервисам](diagrams/data.png)
 
-Переход выполняется позднее, с остановкой записей и резервной копией: перенести account-таблицы с прежними ID/датами/версиями и sequences, сверить данные, переключить единственного писателя и проверки доступа, снять только межсервисные FK. Не вводятся dual-write, общие таблицы и чтение чужой БД. Старые миграции и данные на этапе 01 не меняются.
+Код переключён на account; обновление существующей установки требует отдельного [переноса данных](account-data-transfer.md). При остановленной записи и с резервной копией переносятся прежние ID, даты, версии, история и состояние последовательности; затем сверяются манифесты. Только после этого запускается новая wardrobe с V11. Перенос проверен на синтетических данных; исходная рабочая БД не переносилась. Dual-write и чтения чужой БД нет.
 
 ## Доступ и ограничения
 
@@ -91,9 +91,15 @@ ChatGPT credentials, модель и отдельный trust store доступ
 
 ![AI-подбор](diagrams/ai-selection.png)
 
+## Диагностика
+
+Liveness проверяет состояние процесса, readiness account/wardrobe — также свою БД. Недоступный AI не блокирует готовность ручных операций. Eureka распространяет регистрацию асинхронно: после успешного старта контейнеров первые запросы через Gateway ещё могут вернуть 503, пока обновляется реестр.
+
+HTTP-вызовы используют W3C trace context через Reactor и Feign; trace/span ID доступны в логах. Экспортёр трассировок не подключён. Метрики backend, включая занятый AI-слот, отказы и длительность подбора, доступны только внутри Compose. Gateway не публикует внутренние API и метрики сервисов.
+
 ## Версии и соответствие заданию
 
-Kotlin 2.3.21, Java 25, Spring Boot 4.1.1 и springdoc 3.1.1 сохраняются. Для подключения Spring Cloud выбран BOM 2025.1.3: [официальная матрица](https://spring.io/projects/spring-cloud/) поддерживает Boot 4.1.x начиная с Cloud 2025.1.2. Reactor, Spring Data и R2DBC-драйвер подключаются через управление зависимостями Boot/Cloud, без независимого подбора версий. На этом этапе build.gradle.kts не изменяется.
+Используются Kotlin 2.3.21, Java 25, Spring Boot 4.1.1, springdoc 3.1.1 и Spring Cloud BOM 2025.1.3. Reactor, Spring Data и R2DBC-драйвер подключаются через управление зависимостями Boot/Cloud, без независимого подбора версий.
 
 | Требование [ЛР2](https://github.com/Discipliny/highload_systems#лабораторная-работа-2) | Решение |
 |---|---|
@@ -105,4 +111,4 @@ Kotlin 2.3.21, Java 25, Spring Boot 4.1.1 и springdoc 3.1.1 сохраняют�
 
 Сохраняются общий Swagger, запуск Compose и общий порог покрытия 70%. Kafka, отдельный файловый сервис, новая авторизация и переписывание frontend не включаются заранее. Согласование модели данных с преподавателем — отдельная проверка.
 
-Документы ЛР1 остаются в [requirements.md](../requirements.md), [architecture.puml](../architecture.puml) и [domain.puml](../domain.puml). Основание для данных — [миграции](../../wardrobe-service/src/main/resources/db/migration); для API — [контроллеры](../../wardrobe-service/src/main/kotlin/ru/itmo/clothesadvisor/controller).
+Документы ЛР1 остаются в [requirements.md](../requirements.md), [architecture.puml](../architecture.puml) и [domain.puml](../domain.puml). Текущая схема задаётся миграциями [wardrobe](../../wardrobe-service/src/main/resources/db/migration) и [account](../../account-service/src/main/resources/db/migration); API — контроллерами [wardrobe](../../wardrobe-service/src/main/kotlin/ru/itmo/clothesadvisor/controller) и [account](../../account-service/src/main/kotlin/ru/itmo/clothesadvisor/accountservice/controller).
