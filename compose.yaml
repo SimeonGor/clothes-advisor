@@ -61,6 +61,8 @@ services:
         condition: service_healthy
       app:
         condition: service_started
+      account-service:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/actuator/health"]
       interval: 5s
@@ -113,7 +115,7 @@ services:
     environment:
       POSTGRES_DB: account_db
       POSTGRES_USER: account
-      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
+      POSTGRES_PASSWORD: ${ACCOUNT_DB_PASSWORD:?ACCOUNT_DB_PASSWORD must be set}
     volumes:
       - account-postgres-data:/var/lib/postgresql
     healthcheck:
@@ -130,7 +132,7 @@ services:
       DB_R2DBC_URL: r2dbc:postgresql://account-postgres:5432/account_db
       DB_URL: jdbc:postgresql://account-postgres:5432/account_db
       DB_USER: account
-      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
+      DB_PASSWORD: ${ACCOUNT_DB_PASSWORD:?ACCOUNT_DB_PASSWORD must be set}
       CONFIG_SERVER_URL: http://config-server:8888
       EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}

@@ -28,7 +28,6 @@ import org.springframework.boot.autoconfigure.EnableAutoConfiguration
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.cloud.client.discovery.simple.SimpleDiscoveryProperties
-import org.springframework.cloud.openfeign.EnableFeignClients
 import org.springframework.cloud.openfeign.FeignClientFactory
 import org.springframework.cloud.openfeign.loadbalancer.FeignBlockingLoadBalancerClient
 import org.springframework.context.ApplicationContext
@@ -43,7 +42,7 @@ import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.RestController
 import ru.itmo.clothesadvisor.client.recommendation.RecommendationClient
-import ru.itmo.clothesadvisor.config.RecommendationClientRegistration
+import ru.itmo.clothesadvisor.config.ExternalClientsConfiguration
 import ru.itmo.clothesadvisor.controller.ApiExceptionHandler
 import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionCandidate
 import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionRequest
@@ -63,8 +62,7 @@ class AccountClientTests {
     @Configuration
     @Profile("account-client-test")
     @EnableAutoConfiguration
-    @EnableFeignClients(clients = [AccountClient::class])
-    @Import(RecommendationClientRegistration::class, ApiExceptionHandler::class, Probe::class)
+    @Import(ExternalClientsConfiguration::class, ApiExceptionHandler::class, Probe::class)
     class ClientApplication
 
     @RestController

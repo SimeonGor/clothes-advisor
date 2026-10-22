@@ -38,7 +38,7 @@ import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.bean.override.mockito.MockitoBean
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
 import org.springframework.transaction.support.TransactionSynchronizationManager
-import ru.itmo.clothesadvisor.config.PostgresIntegrationTest
+import ru.itmo.clothesadvisor.config.AccountBackedIntegrationTest
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
 import ru.itmo.clothesadvisor.config.insertUser
 import ru.itmo.clothesadvisor.model.user.AppUser
@@ -51,7 +51,7 @@ import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(TestTimeConfiguration::class)
-class WardrobeItemPhotoIntegrationTests : PostgresIntegrationTest() {
+class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
     @LocalServerPort private var port: Int = 0
     @Autowired private lateinit var users: AppUserService
     @Autowired private lateinit var jdbc: JdbcTemplate

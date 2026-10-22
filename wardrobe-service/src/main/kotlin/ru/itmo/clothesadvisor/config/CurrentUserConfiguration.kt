@@ -1,6 +1,7 @@
 package ru.itmo.clothesadvisor.config
 
 import org.springframework.context.annotation.Configuration
+import org.springframework.context.annotation.Lazy
 import org.springframework.core.MethodParameter
 import org.springframework.web.bind.support.WebDataBinderFactory
 import org.springframework.web.context.request.NativeWebRequest
@@ -31,7 +32,10 @@ internal class CurrentUserArgumentResolver(private val users: CurrentUserService
 }
 
 @Configuration
-internal class CurrentUserConfiguration(private val users: CurrentUserService) : WebMvcConfigurer {
+internal class CurrentUserConfiguration(
+    // Feign initializes MVC converter support while creating the account client.
+    @param:Lazy private val users: CurrentUserService,
+) : WebMvcConfigurer {
     override fun addArgumentResolvers(resolvers: MutableList<HandlerMethodArgumentResolver>) {
         resolvers.add(CurrentUserArgumentResolver(users))
     }

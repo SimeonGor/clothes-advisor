@@ -5,6 +5,8 @@ import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.catchThrowable
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.doAnswer
 import org.mockito.Mockito.doThrow
@@ -16,11 +18,13 @@ import org.mockito.Mockito.verifyNoInteractions
 import org.mockito.Mockito.`when`
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.SimpleTransactionStatus
+import ru.itmo.clothesadvisor.client.account.AccountClient
 import ru.itmo.clothesadvisor.dto.rating.CreateRatingRequest
 import ru.itmo.clothesadvisor.dto.rating.RatingResponse
 import ru.itmo.clothesadvisor.dto.rating.UpdateRatingRequest
 import ru.itmo.clothesadvisor.model.AccessDeniedException
 import ru.itmo.clothesadvisor.model.EntityNotFoundException
+import ru.itmo.clothesadvisor.model.access.AccountUnavailableException
 import ru.itmo.clothesadvisor.model.outfit.Outfit
 import ru.itmo.clothesadvisor.model.outfit.OutfitSource
 import ru.itmo.clothesadvisor.model.rating.OutfitRating
@@ -30,11 +34,10 @@ import ru.itmo.clothesadvisor.model.rating.RatingVote
 import ru.itmo.clothesadvisor.repository.outfit.OutfitRepository
 import ru.itmo.clothesadvisor.repository.rating.OutfitRatingHistoryRepository
 import ru.itmo.clothesadvisor.repository.rating.OutfitRatingRepository
-import ru.itmo.clothesadvisor.service.access.AccessGrantService
 
 class OutfitRatingServiceTests {
     private val outfits = mock(OutfitRepository::class.java)
-    private val access = mock(AccessGrantService::class.java)
+    private val access = mock(AccountClient::class.java)
     private val ratings = mock(OutfitRatingRepository::class.java)
     private val history = mock(OutfitRatingHistoryRepository::class.java)
     private val transactions = mock(PlatformTransactionManager::class.java)
@@ -71,11 +74,11 @@ class OutfitRatingServiceTests {
         verify(ratings).insert(key, RatingVote.LIKE, 4)
         verify(ratings, never()).findById(key)
         inOrder(access, transactions, outfits).apply {
-            verify(access).requireAccess(2, 1)
+            verify(access).requireStylistAccess(2, 1)
             verify(transactions).getTransaction(any())
             verify(outfits).findLockedByIdAndOwnerId(11, 1)
         }
-        verify(access).requireAccess(2, 1)
+        verify(access).requireStylistAccess(2, 1)
     }
 
     @Test
@@ -110,10 +113,12 @@ class OutfitRatingServiceTests {
         verifyNoInteractions(ratings, history)
     }
 
-    @Test
-    fun `access denial prevents all rating mutations before transaction and lock`() {
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `account denial or outage prevents all rating mutations before transaction and lock`(unavailable: Boolean) {
         // given
-        doThrow(EntityNotFoundException()).`when`(access).requireAccess(2, 1)
+        val denial = if (unavailable) AccountUnavailableException() else EntityNotFoundException()
+        doThrow(denial).`when`(access).requireStylistAccess(2, 1)
 
         // when
         val failures =
@@ -124,7 +129,7 @@ class OutfitRatingServiceTests {
             )
 
         // then
-        failures.forEach { assertThat(it).isInstanceOf(EntityNotFoundException::class.java) }
+        failures.forEach { assertThat(it).isSameAs(denial) }
         verifyNoInteractions(transactions, outfits, ratings, history)
     }
 

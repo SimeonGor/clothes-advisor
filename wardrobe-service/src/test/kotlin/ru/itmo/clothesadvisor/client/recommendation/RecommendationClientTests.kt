@@ -21,13 +21,13 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.cloud.client.discovery.simple.SimpleDiscoveryProperties
 import org.springframework.cloud.openfeign.FeignClientFactory
 import org.springframework.cloud.openfeign.loadbalancer.FeignBlockingLoadBalancerClient
-import org.springframework.context.annotation.Import
 import org.springframework.context.annotation.Configuration
+import org.springframework.context.annotation.Import
 import org.springframework.context.annotation.Profile
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
-import ru.itmo.clothesadvisor.config.RecommendationClientRegistration
+import ru.itmo.clothesadvisor.config.ExternalClientsConfiguration
 import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionCandidate
 import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionRequest
 import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionWeather
@@ -43,7 +43,7 @@ class RecommendationClientTests {
     @Configuration
     @Profile("recommendation-client-test")
     @EnableAutoConfiguration
-    @Import(RecommendationClientRegistration::class)
+    @Import(ExternalClientsConfiguration::class)
     class ClientApplication
 
     @Autowired private lateinit var client: RecommendationClient

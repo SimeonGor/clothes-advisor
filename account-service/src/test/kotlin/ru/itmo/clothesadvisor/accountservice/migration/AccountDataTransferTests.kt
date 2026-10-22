@@ -35,7 +35,7 @@ class AccountDataTransferTests {
     fun startPostgres() {
         postgres.start()
         requireSuccess(postgres.execInContainer("mkdir", "-m", "700", privateDirectory))
-        for (file in listOf("require-empty-target", "manifest", "detach-user-foreign-keys")) {
+        for (file in listOf("require-empty-target", "manifest")) {
             postgres.copyFileToContainer(
                 MountableFile.forHostPath(
                     repositoryRoot.resolve("ops/account-transfer/$file.sql"), 384,
@@ -282,7 +282,9 @@ class AccountDataTransferTests {
             try {
                 val transaction = JdbcTemplate(SingleConnectionDataSource(connection, true))
                 transaction.execute(
-                    repositoryRoot.resolve("ops/account-transfer/detach-user-foreign-keys.sql")
+                    repositoryRoot.resolve(
+                        "wardrobe-service/src/main/resources/db/migration/V11__detach_account_references.sql",
+                    )
                         .toFile().readText(),
                 )
 

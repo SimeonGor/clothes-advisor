@@ -38,7 +38,7 @@ import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate
 import ru.itmo.clothesadvisor.client.recommendation.RecommendationClient
-import ru.itmo.clothesadvisor.config.PostgresIntegrationTest
+import ru.itmo.clothesadvisor.config.AccountBackedIntegrationTest
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
 import ru.itmo.clothesadvisor.config.insertItem
 import ru.itmo.clothesadvisor.config.insertUser
@@ -64,7 +64,7 @@ import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(TestTimeConfiguration::class)
-class AiOutfitIntegrationTests : PostgresIntegrationTest() {
+class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
     @LocalServerPort private var port: Int = 0
     @Autowired private lateinit var users: AppUserService
     @Autowired private lateinit var items: WardrobeItemService

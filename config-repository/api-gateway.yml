@@ -13,6 +13,10 @@ spring:
           httpclient:
             connect-timeout: 5000
           routes:
+            - id: account-api
+              uri: lb://account-service
+              predicates:
+                - Path=/api/admin/users,/api/admin/users/*,/api/me/stylist-access,/api/me/stylist-access/*,/api/stylist/clients
             - id: wardrobe-api
               uri: lb://wardrobe-service
               predicates:

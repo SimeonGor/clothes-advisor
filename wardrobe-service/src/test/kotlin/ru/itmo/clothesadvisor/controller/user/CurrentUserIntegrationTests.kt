@@ -10,13 +10,13 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.jdbc.core.JdbcTemplate
-import ru.itmo.clothesadvisor.config.PostgresIntegrationTest
+import ru.itmo.clothesadvisor.config.AccountBackedIntegrationTest
 import ru.itmo.clothesadvisor.config.insertUser
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-class CurrentUserIntegrationTests : PostgresIntegrationTest() {
+class CurrentUserIntegrationTests : AccountBackedIntegrationTest() {
     @LocalServerPort private var port = 0
     @Autowired private lateinit var jdbc: JdbcTemplate
 
@@ -40,7 +40,6 @@ class CurrentUserIntegrationTests : PostgresIntegrationTest() {
         // then
         assertThat(missingActor.statusCode()).isEqualTo(404)
         listOf(
-                "/api/admin/users",
                 "/api/wardrobe/categories",
                 "/api/weather/precipitation-types",
                 "/actuator/health",
@@ -84,11 +83,6 @@ class CurrentUserIntegrationTests : PostgresIntegrationTest() {
             // then
             assertThat(blockedResponse.statusCode()).isEqualTo(403)
 
-            // when
-            val adminResponse = get("/api/admin/users/${user.id}")
-
-            // then
-            assertThat(adminResponse.statusCode()).isEqualTo(200)
         }
     }
 

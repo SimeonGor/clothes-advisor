@@ -21,7 +21,7 @@ import org.springframework.context.annotation.Primary
 import org.springframework.test.context.ActiveProfiles
 import ru.itmo.clothesadvisor.client.ai.OpenAiOutfitClient
 import ru.itmo.clothesadvisor.client.recommendation.RecommendationClient
-import ru.itmo.clothesadvisor.config.RecommendationClientRegistration
+import ru.itmo.clothesadvisor.config.ExternalClientsConfiguration
 import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionCandidate as ServerSelectionCandidate
 import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionRequest as ServerSelectionRequest
 import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionResponse as ServerSelectionResponse
@@ -46,7 +46,7 @@ class RecommendationPayloadTests {
 
     @SpringBootConfiguration
     @EnableAutoConfiguration
-    @Import(RecommendationClientRegistration::class)
+    @Import(ExternalClientsConfiguration::class)
     class ClientApplication
 
     @LocalServerPort private var port = 0

@@ -20,6 +20,8 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.provider.ValueSource
+import org.mockito.ArgumentMatchers.any
+import org.mockito.ArgumentMatchers.anyLong
 import org.mockito.Mockito.clearInvocations
 import org.mockito.Mockito.doAnswer
 import org.mockito.Mockito.mockingDetails
@@ -32,27 +34,30 @@ import org.springframework.context.annotation.Import
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.bean.override.mockito.MockitoBean
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
-import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionSynchronizationManager
-import org.springframework.transaction.support.TransactionTemplate
-import ru.itmo.clothesadvisor.config.PostgresIntegrationTest
+import ru.itmo.clothesadvisor.config.AccountBackedIntegrationTest
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
 import ru.itmo.clothesadvisor.config.insertAccessGrant
 import ru.itmo.clothesadvisor.config.insertItem
 import ru.itmo.clothesadvisor.config.insertOutfit
 import ru.itmo.clothesadvisor.config.insertUser
+import ru.itmo.clothesadvisor.dto.account.AccountUserResponse
 import ru.itmo.clothesadvisor.dto.outfit.CreateOutfitRequest
 import ru.itmo.clothesadvisor.dto.outfit.OutfitWeatherDto
 import ru.itmo.clothesadvisor.dto.rating.CreateRatingRequest
 import ru.itmo.clothesadvisor.dto.rating.UpdateRatingRequest
 import ru.itmo.clothesadvisor.dto.wardrobe.CreateWardrobeItemRequest
+import ru.itmo.clothesadvisor.model.EntityNotFoundException
+import ru.itmo.clothesadvisor.model.outfit.Outfit
+import ru.itmo.clothesadvisor.model.rating.OutfitRatingHistory
+import ru.itmo.clothesadvisor.model.rating.OutfitRatingId
 import ru.itmo.clothesadvisor.model.rating.RatingVote
 import ru.itmo.clothesadvisor.model.user.AppUser
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
 import ru.itmo.clothesadvisor.repository.outfit.OutfitRepository
+import ru.itmo.clothesadvisor.repository.rating.OutfitRatingHistoryRepository
 import ru.itmo.clothesadvisor.repository.rating.OutfitRatingRepository
-import ru.itmo.clothesadvisor.service.access.AccessGrantService
 import ru.itmo.clothesadvisor.service.outfit.OutfitService
 import ru.itmo.clothesadvisor.service.rating.OutfitRatingService
 import ru.itmo.clothesadvisor.service.user.AppUserService
@@ -61,17 +66,16 @@ import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(TestTimeConfiguration::class)
-class OutfitRatingIntegrationTests : PostgresIntegrationTest() {
+class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
     @LocalServerPort private var port: Int = 0
     @Autowired private lateinit var users: AppUserService
     @Autowired private lateinit var items: WardrobeItemService
     @Autowired private lateinit var outfits: OutfitService
     @Autowired private lateinit var ratings: OutfitRatingService
-    @MockitoSpyBean private lateinit var access: AccessGrantService
     @Autowired private lateinit var jdbc: JdbcTemplate
-    @Autowired private lateinit var transactionManager: PlatformTransactionManager
     @MockitoSpyBean private lateinit var outfitRepository: OutfitRepository
     @MockitoSpyBean private lateinit var ratingRepository: OutfitRatingRepository
+    @MockitoSpyBean private lateinit var ratingHistoryRepository: OutfitRatingHistoryRepository
     @MockitoBean private lateinit var storage: S3PhotoStorage
     private val client = HttpClient.newHttpClient()
 
@@ -79,6 +83,69 @@ class OutfitRatingIntegrationTests : PostgresIntegrationTest() {
     fun closeClientAndCheckStorage() {
         client.close()
         verifyNoInteractions(storage)
+    }
+
+    @Test
+    fun `remote accounts absent from local copy can own items author outfits and retain rating history`() {
+        // given
+        val remoteUsers = listOf(
+            AccountUserResponse(101, "remote-owner", UserRole.USER, UserStatus.ACTIVE),
+            AccountUserResponse(202, "remote-author", UserRole.STYLIST, UserStatus.ACTIVE),
+            AccountUserResponse(303, "remote-reviewer", UserRole.STYLIST, UserStatus.ACTIVE),
+        ).associateBy { it.id }
+        doAnswer { call ->
+                assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
+                remoteUsers[call.getArgument<Long>(0)] ?: throw EntityNotFoundException()
+            }
+            .`when`(accounts).getUser(anyLong())
+        doAnswer { call ->
+                assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
+                assertThat(call.getArgument<Long>(0)).isIn(202L, 303L)
+                assertThat(call.getArgument<Long>(1)).isEqualTo(101)
+                null
+            }
+            .`when`(accounts).requireStylistAccess(anyLong(), anyLong())
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM app_user", Long::class.java)).isZero()
+
+        // when
+        val item = request(
+            "POST", "/api/wardrobe/items", "101",
+            """{"name":"Shirt","categoryId":1,"color":"White","material":"Cotton"}""",
+        )
+
+        // then
+        assertThat(item.statusCode()).isEqualTo(201)
+        val itemId = number(dto(item), "id")
+
+        // when
+        val outfit = request(
+            "POST", "/api/stylist/clients/101/outfits", "202",
+            """{"name":"Daily","itemIds":[$itemId],"weather":{"temperatureC":10,"precipitationTypeId":1,"windSpeedMps":0}}""",
+        )
+
+        // then
+        assertThat(outfit.statusCode()).isEqualTo(201)
+        val outfitId = number(dto(outfit), "id")
+        val ratingPath = "/api/stylist/clients/101/outfits/$outfitId/rating"
+
+        // when
+        val created = request("POST", ratingPath, "303", vote())
+        val updated = request("PUT", ratingPath, "303", vote("DISLIKE", 1))
+        val history = request("GET", "/api/outfits/$outfitId/ratings/history", "101")
+
+        // then
+        assertRating(created, 201, "LIKE", 1)
+        assertRating(updated, 200, "DISLIKE", 2)
+        assertThat(rows(history).map { number(it, "version") }).containsExactlyInAnyOrder(1L, 2L)
+        assertThat(jdbc.queryForList(
+            """SELECT owner_id FROM wardrobe_item
+                UNION ALL SELECT owner_id FROM outfit
+                UNION ALL SELECT author_id FROM outfit
+                UNION ALL SELECT stylist_id FROM outfit_rating
+                UNION ALL SELECT stylist_id FROM outfit_rating_history""",
+            Long::class.java,
+        )).containsExactly(101L, 101L, 202L, 303L, 303L)
+        assertThat(jdbc.queryForObject("SELECT count(*) FROM app_user", Long::class.java)).isZero()
     }
 
     @Test
@@ -404,7 +471,7 @@ class OutfitRatingIntegrationTests : PostgresIntegrationTest() {
             )
 
         // given
-        access.revoke(fixtureState.owner.id!!, fixtureState.other.id!!)
+        jdbc.update("DELETE FROM access_grant WHERE owner_id = ? AND stylist_id = ?", fixtureState.owner.id!!, fixtureState.other.id!!)
         users.changeRoleAndStatus(
             fixtureState.other.id!!,
             fixtureState.other.version,
@@ -586,14 +653,14 @@ class OutfitRatingIntegrationTests : PostgresIntegrationTest() {
         }
 
         // when
-        access.revoke(fixtureState.owner.id!!, fixtureState.stylist.id!!)
+        jdbc.update("DELETE FROM access_grant WHERE owner_id = ? AND stylist_id = ?", fixtureState.owner.id!!, fixtureState.stylist.id!!)
         val revokedResponses = requestRatingAndHistory(fixtureState, actorId)
 
         // then
         assertDeniedRatingAndHistory(revokedResponses, 404)
 
         // when
-        access.grant(fixtureState.owner.id!!, fixtureState.stylist.id!!)
+        jdbc.insertAccessGrant(fixtureState.owner.id!!, fixtureState.stylist.id!!)
         var owner =
             users.changeRoleAndStatus(
                 fixtureState.owner.id!!,
@@ -778,7 +845,7 @@ class OutfitRatingIntegrationTests : PostgresIntegrationTest() {
         assertThat(ownerClientHistory.statusCode()).isEqualTo(404)
 
         // given
-        access.revoke(fixtureState.owner.id!!, fixtureState.stylist.id!!)
+        jdbc.update("DELETE FROM access_grant WHERE owner_id = ? AND stylist_id = ?", fixtureState.owner.id!!, fixtureState.stylist.id!!)
 
         // when
         val revokedHistory =
@@ -932,7 +999,7 @@ class OutfitRatingIntegrationTests : PostgresIntegrationTest() {
 
     @ParameterizedTest
     @ValueSource(strings = ["update", "withdraw", "delete"])
-    fun `outer transaction failure rolls back rating mutation or outfit deletion together with history`(
+    fun `failure after writes rolls back rating mutation or outfit deletion together with history`(
         operation: String,
     ) {
         // given
@@ -945,35 +1012,52 @@ class OutfitRatingIntegrationTests : PostgresIntegrationTest() {
         )
         val before = current(fixtureState)
         val original = outfits.get(fixtureState.owner.id!!, fixtureState.id)
+        val outfit =
+            outfitRepository.findByIdAndOwnerId(fixtureState.id, fixtureState.owner.id!!)!!
+        val rating =
+            ratingRepository.findById(
+                OutfitRatingId(fixtureState.id, fixtureState.stylist.id!!),
+            )!!
+        val failAfterWrites = doAnswer { call ->
+            val repository =
+                if (operation == "delete") outfitRepository else ratingHistoryRepository
+            mockingDetails(repository).mockCreationSettings.defaultAnswer.answer(call)
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue()
+            assertThat(current(fixtureState))
+                .isEqualTo(
+                    if (operation == "update")
+                        listOf(snapshot(fixtureState.stylist.id!!, "DISLIKE", 2))
+                    else emptyList<Snapshot>(),
+                )
+            assertThat(archived(fixtureState)).isEqualTo(before)
+            error("forced failure after writes")
+        }
+        if (operation == "delete") {
+            failAfterWrites.`when`(outfitRepository).delete(any(Outfit::class.java) ?: outfit)
+        } else {
+            failAfterWrites
+                .`when`(ratingHistoryRepository)
+                .insert(any(OutfitRatingHistory::class.java) ?: OutfitRatingHistory(rating))
+        }
 
         // when
         val failure = catchThrowable {
-            TransactionTemplate(transactionManager).executeWithoutResult {
-                when (operation) {
-                    "delete" -> outfits.delete(fixtureState.owner.id!!, fixtureState.id)
-                    "withdraw" ->
-                        ratings.withdraw(
-                            fixtureState.stylist.id!!,
-                            fixtureState.owner.id!!,
-                            fixtureState.id,
-                            1,
-                        )
-                    else ->
-                        ratings.update(
-                            fixtureState.stylist.id!!,
-                            fixtureState.owner.id!!,
-                            fixtureState.id,
-                            UpdateRatingRequest(RatingVote.DISLIKE, 1),
-                        )
-                }
-                assertThat(current(fixtureState))
-                    .isEqualTo(
-                        if (operation == "update")
-                            listOf(snapshot(fixtureState.stylist.id!!, "DISLIKE", 2))
-                        else emptyList<Snapshot>(),
+            when (operation) {
+                "delete" -> outfits.delete(fixtureState.owner.id!!, fixtureState.id)
+                "withdraw" ->
+                    ratings.withdraw(
+                        fixtureState.stylist.id!!,
+                        fixtureState.owner.id!!,
+                        fixtureState.id,
+                        1,
                     )
-                assertThat(archived(fixtureState)).isEqualTo(before)
-                error("forced failure after writes")
+                else ->
+                    ratings.update(
+                        fixtureState.stylist.id!!,
+                        fixtureState.owner.id!!,
+                        fixtureState.id,
+                        UpdateRatingRequest(RatingVote.DISLIKE, 1),
+                    )
             }
         }
 
@@ -1013,7 +1097,7 @@ class OutfitRatingIntegrationTests : PostgresIntegrationTest() {
             fixtureState.id,
             CreateRatingRequest(RatingVote.LIKE),
         )
-        access.revoke(fixtureState.owner.id!!, fixtureState.other.id!!)
+        jdbc.update("DELETE FROM access_grant WHERE owner_id = ? AND stylist_id = ?", fixtureState.owner.id!!, fixtureState.other.id!!)
         val expected =
             (archived(fixtureState) + current(fixtureState)).sortedWith(
                 compareBy({ it.stylistId }, { it.version }),
@@ -1246,7 +1330,7 @@ class OutfitRatingIntegrationTests : PostgresIntegrationTest() {
                 fixtureState,
                 { request("POST", ratingPath(fixtureState), otherActorId, vote("DISLIKE")) },
                 { mutateRating(fixtureState, method, actorId) },
-                { access.revoke(fixtureState.owner.id!!, fixtureState.stylist.id!!) },
+                { jdbc.update("DELETE FROM access_grant WHERE owner_id = ? AND stylist_id = ?", fixtureState.owner.id!!, fixtureState.stylist.id!!) },
             )
 
         // then
@@ -1282,14 +1366,6 @@ class OutfitRatingIntegrationTests : PostgresIntegrationTest() {
         // given
         val fixtureState = fixture()
         val actorId = actorId(fixtureState.stylist)
-        doAnswer { call ->
-                assertThat(TransactionSynchronizationManager.isCurrentTransactionReadOnly()).isTrue()
-                assertThat(TransactionSynchronizationManager.getCurrentTransactionIsolationLevel())
-                    .isNull()
-                mockingDetails(access).mockCreationSettings.defaultAnswer.answer(call)
-            }
-            .`when`(access)
-            .requireAccess(fixtureState.stylist.id!!, fixtureState.owner.id!!)
 
         // when
         val created = request("POST", ratingPath(fixtureState), actorId, vote())

@@ -20,7 +20,7 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.context.annotation.Import
 import org.springframework.jdbc.core.JdbcTemplate
-import ru.itmo.clothesadvisor.config.PostgresIntegrationTest
+import ru.itmo.clothesadvisor.config.AccountBackedIntegrationTest
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
 import ru.itmo.clothesadvisor.config.insertUser
 import ru.itmo.clothesadvisor.model.user.AppUser
@@ -31,7 +31,7 @@ import ru.itmo.clothesadvisor.service.user.AppUserService
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(TestTimeConfiguration::class)
 @Execution(ExecutionMode.SAME_THREAD)
-class ReferenceDataIntegrationTests : PostgresIntegrationTest() {
+class ReferenceDataIntegrationTests : AccountBackedIntegrationTest() {
     @LocalServerPort private var port: Int = 0
 
     @Autowired private lateinit var users: AppUserService

@@ -29,9 +29,8 @@ import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.bean.override.mockito.MockitoBean
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
 import org.springframework.transaction.PlatformTransactionManager
-import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate
-import ru.itmo.clothesadvisor.config.PostgresIntegrationTest
+import ru.itmo.clothesadvisor.config.AccountBackedIntegrationTest
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
 import ru.itmo.clothesadvisor.config.insertAccessGrant
 import ru.itmo.clothesadvisor.config.insertItem
@@ -48,7 +47,6 @@ import ru.itmo.clothesadvisor.model.user.UserStatus
 import ru.itmo.clothesadvisor.repository.outfit.OutfitItemRepository
 import ru.itmo.clothesadvisor.repository.outfit.OutfitRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
-import ru.itmo.clothesadvisor.service.access.AccessGrantService
 import ru.itmo.clothesadvisor.service.outfit.OutfitService
 import ru.itmo.clothesadvisor.service.user.AppUserService
 import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemService
@@ -56,12 +54,11 @@ import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(TestTimeConfiguration::class)
-class OutfitIntegrationTests : PostgresIntegrationTest() {
+class OutfitIntegrationTests : AccountBackedIntegrationTest() {
     @LocalServerPort private var port: Int = 0
     @Autowired private lateinit var users: AppUserService
     @Autowired private lateinit var items: WardrobeItemService
     @Autowired private lateinit var outfits: OutfitService
-    @MockitoSpyBean private lateinit var access: AccessGrantService
     @Autowired private lateinit var jdbc: JdbcTemplate
     @Autowired private lateinit var transactionManager: PlatformTransactionManager
     @Autowired private lateinit var composition: OutfitItemRepository
@@ -216,18 +213,10 @@ class OutfitIntegrationTests : PostgresIntegrationTest() {
         // given
         val owner = user()
         val stylist = user(UserRole.STYLIST)
-        access.grant(owner.id!!, stylist.id!!)
+        jdbc.insertAccessGrant(owner.id!!, stylist.id!!)
         val actorId = actorId(stylist)
         val path = stylistPath(owner)
         val item = item(owner)
-        doAnswer { call ->
-                assertThat(TransactionSynchronizationManager.isCurrentTransactionReadOnly()).isTrue()
-                assertThat(TransactionSynchronizationManager.getCurrentTransactionIsolationLevel())
-                    .isNull()
-                mockingDetails(access).mockCreationSettings.defaultAnswer.answer(call)
-            }
-            .`when`(access)
-            .requireAccess(stylist.id!!, owner.id!!)
 
         // when
         val created =
@@ -362,7 +351,7 @@ class OutfitIntegrationTests : PostgresIntegrationTest() {
         }
 
         // given
-        access.grant(foreign.id!!, stylist.id!!)
+        jdbc.insertAccessGrant(foreign.id!!, stylist.id!!)
 
         // when
         val foreignClientRead = request("GET", "${stylistPath(foreign)}/$id", stylistActorId)
@@ -388,7 +377,7 @@ class OutfitIntegrationTests : PostgresIntegrationTest() {
         var currentStylist = stylist
         val actorId = actorId(stylist)
         val ids = listOf(item(owner))
-        access.grant(owner.id!!, stylist.id!!)
+        jdbc.insertAccessGrant(owner.id!!, stylist.id!!)
         val path = stylistPath(owner)
         val id = number(dto(request("POST", path, actorId, body(ids))), "id")
         fun requestStylistRoutes() =
@@ -407,14 +396,14 @@ class OutfitIntegrationTests : PostgresIntegrationTest() {
         }
 
         // when
-        access.revoke(owner.id!!, stylist.id!!)
+        jdbc.update("DELETE FROM access_grant WHERE owner_id = ? AND stylist_id = ?", owner.id!!, stylist.id!!)
         val revokedResponses = requestStylistRoutes()
 
         // then
         assertDenied(revokedResponses, 404)
 
         // when
-        access.grant(owner.id!!, stylist.id!!)
+        jdbc.insertAccessGrant(owner.id!!, stylist.id!!)
         currentOwner =
             users.changeRoleAndStatus(
                 owner.id!!,

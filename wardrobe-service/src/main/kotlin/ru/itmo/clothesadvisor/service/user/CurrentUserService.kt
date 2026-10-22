@@ -1,16 +1,15 @@
 package ru.itmo.clothesadvisor.service.user
 
 import org.springframework.stereotype.Service
+import ru.itmo.clothesadvisor.client.account.AccountClient
 import ru.itmo.clothesadvisor.dto.user.CurrentUser
 import ru.itmo.clothesadvisor.model.AccessDeniedException
-import ru.itmo.clothesadvisor.model.EntityNotFoundException
 import ru.itmo.clothesadvisor.model.user.UserStatus
-import ru.itmo.clothesadvisor.repository.user.AppUserRepository
 
 @Service
-internal class CurrentUserService(private val users: AppUserRepository) {
+internal class CurrentUserService(private val accounts: AccountClient) {
     fun requireActive(id: Long): CurrentUser {
-        val user = users.findById(id) ?: throw EntityNotFoundException()
+        val user = accounts.getUser(id)
         if (user.status == UserStatus.BLOCKED) {
             throw AccessDeniedException()
         }
