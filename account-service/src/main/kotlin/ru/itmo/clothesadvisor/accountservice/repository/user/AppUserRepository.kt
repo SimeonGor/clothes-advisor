@@ -2,6 +2,7 @@ package ru.itmo.clothesadvisor.accountservice.repository.user
 
 import org.springframework.data.r2dbc.repository.Query
 import org.springframework.data.repository.Repository
+import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
 import ru.itmo.clothesadvisor.accountservice.model.user.AppUser
 import ru.itmo.clothesadvisor.accountservice.model.user.UserRole
@@ -11,6 +12,15 @@ internal interface AppUserRepository : Repository<AppUser, Long> {
     fun findById(id: Long): Mono<AppUser>
 
     fun findByLogin(login: String): Mono<AppUser>
+
+    @Query("SELECT * FROM app_user ORDER BY id DESC LIMIT :limit OFFSET :offset")
+    fun findPage(limit: Int, offset: Int): Flux<AppUser>
+
+    @Query("SELECT count(*) FROM app_user")
+    fun count(): Mono<Long>
+
+    @Query("SELECT * FROM app_user WHERE id IN (:actorId, :targetId) ORDER BY id FOR UPDATE")
+    fun findLockedRows(actorId: Long, targetId: Long): Flux<AppUser>
 
     @Query(
         """

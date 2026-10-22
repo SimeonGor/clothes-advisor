@@ -6,7 +6,7 @@ REST-сервис для подбора одежды из личного гар�
 - **STYLIST** с разрешения владельца просматривает гардероб, создаёт образы и оценивает чужие.
 - **ADMIN** управляет ролями и блокировками, просматривает и удаляет фотографии и образы.
 
-Стек: Kotlin, Spring Boot, PostgreSQL, Spring Data JDBC/R2DBC, Flyway, Yandex Object Storage и OpenAI. В ЛР2 приложение разделяется на сервисы: рабочие API гардероба и пользователей пока находятся в `wardrobe-service`, AI-подбор — в `recommendation-service`. В `account-service` подготовлены пользователи и история на R2DBC; HTTP и переключение трафика ещё не подключены. Пакеты разделены по техническим слоям, внутри — по предметным областям.
+Стек: Kotlin, Spring Boot, PostgreSQL, Spring Data JDBC/R2DBC, Flyway, Yandex Object Storage и OpenAI. В ЛР2 приложение разделяется на сервисы: рабочие API гардероба и пользователей пока находятся в `wardrobe-service`, AI-подбор — в `recommendation-service`. Новый `account-service` обслуживает пользователей и историю через R2DBC в отдельной подготовительной БД; Gateway на него ещё не переключён. Пакеты разделены по техническим слоям, внутри — по предметным областям.
 
 Несекретные настройки OpenAPI и сервисов хранятся в `config-repository/` и выдаются локальным Config Server. Compose монтирует каталог серверу только для чтения; пароли и credentials остаются в переменных окружения и secret mounts. При недоступном Config Server приложение не запускается. Уже запущенное приложение продолжает работать со значениями, загруженными при старте; перезапустите его, чтобы получить изменения. Config Server запускается первым, затем Eureka Discovery Server; `wardrobe-service` регистрируется в Eureka под этим именем. Порт Eureka доступен только внутри Compose-сети.
 
@@ -30,6 +30,8 @@ cp .env.example .env
 - `APP_UID` — результат `id -u`; `CHATGPT_CREDENTIALS_DIR` и `OPENAI_MODEL` — настройки [подключения ChatGPT](#ai-подбор).
 
 Профиль `local` уже включён в примере. Он создаёт аккаунты `user`, `stylist`, `admin`; повторный запуск не меняет существующие аккаунты. Регистрации через API нет.
+
+Account запускается с отдельным PostgreSQL и томом `account-postgres-data`; данные из wardrobe туда пока не переносятся. Его HTTP и БД доступны только внутри Compose. Для локальной демонстрации обе БД используют `DB_PASSWORD`, но разные экземпляры и роли PostgreSQL. В account профиль `local` создаёт аккаунты до готовности сервиса.
 
 ```shell
 docker compose up --build -d
@@ -103,13 +105,16 @@ curl http://127.0.0.1:8080/api/wardrobe/items \
 ./gradlew :api-gateway:bootJar    # JAR только Gateway
 ./gradlew :config-server:bootJar  # JAR только Config Server
 ./gradlew :discovery-server:bootJar # JAR только Discovery Server
+./gradlew :account-service:bootJar # JAR только Account Service
 ./gradlew test                    # unit- и интеграционные тесты
 ./gradlew check                   # тесты и покрытие строк ≥70%
 ./gradlew testCodeCoverageReport  # общий отчёт покрытия
 ./gradlew :wardrobe-service:transportTest # максимальный пакет изображений, отдельная JVM с heap 3 ГиБ
 ```
 
-Код гардероба находится в `wardrobe-service`, AI — в `recommendation-service`, Config Server — в `config-server`, Eureka — в `discovery-server`, единая HTTP-точка входа — в `api-gateway`. Для запуска без Docker нужны PostgreSQL и переменные окружения из `.env`: Gradle сам этот файл не читает. Сначала выполните `./gradlew :config-server:bootRun`, затем `./gradlew :discovery-server:bootRun`, `APP_PORT=8081 ./gradlew :wardrobe-service:bootRun`, `APP_PORT=8083 ./gradlew :recommendation-service:bootRun` и `./gradlew :api-gateway:bootRun`. Сервисы регистрируются в Eureka; обнаружение после запуска может занять некоторое время. Команды запускаются из корня репозитория; конкретный модуль можно указать явно: `./gradlew :wardrobe-service:test`.
+Код гардероба находится в `wardrobe-service`, аккаунтов — в `account-service`, AI — в `recommendation-service`, Config Server — в `config-server`, Eureka — в `discovery-server`, единая HTTP-точка входа — в `api-gateway`. Для запуска без Docker нужны PostgreSQL и переменные окружения из `.env`: Gradle сам этот файл не читает. Сначала выполните `./gradlew :config-server:bootRun`, затем `./gradlew :discovery-server:bootRun`, `APP_PORT=8081 ./gradlew :wardrobe-service:bootRun`, `APP_PORT=8083 ./gradlew :recommendation-service:bootRun` и `./gradlew :api-gateway:bootRun`. Сервисы регистрируются в Eureka; обнаружение после запуска может занять некоторое время. Команды запускаются из корня репозитория; конкретный модуль можно указать явно: `./gradlew :wardrobe-service:test`.
+
+Account пока запускается независимо от Config/Eureka: `APP_PORT=8084 ./gradlew :account-service:bootRun`. Ему нужна отдельная БД `account_db`: `DB_R2DBC_URL` — R2DBC-адрес, `DB_URL` — JDBC-адрес той же БД для Flyway, `DB_USER` и `DB_PASSWORD` — её учётные данные. Не направляйте его на рабочую БД wardrobe.
 
 Общий отчёт JaCoCo: `build/reports/jacoco/testCodeCoverageReport/html/index.html` и `build/reports/jacoco/testCodeCoverageReport/testCodeCoverageReport.xml`. Порог ≥70% применяется к строкам backend-модулей; классы из покрытия не исключаются. Unit-тесты сервисов используют Mockito без Spring и БД. Интеграционные тесты работают с PostgreSQL Testcontainers, готовят и проверяют данные через JDBC, очищают их после теста. HTTP-клиенты проверяются на локальных заглушках; секреты из `.env` и реальные вызовы S3/OpenAI не нужны.
 
