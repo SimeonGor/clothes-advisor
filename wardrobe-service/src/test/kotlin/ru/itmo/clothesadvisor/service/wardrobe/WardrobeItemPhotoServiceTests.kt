@@ -20,7 +20,6 @@ import org.mockito.Mockito.verifyNoInteractions
 import org.mockito.Mockito.verifyNoMoreInteractions
 import org.mockito.Mockito.`when`
 import org.springframework.http.HttpStatus
-import org.springframework.mock.web.MockMultipartFile
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.SimpleTransactionStatus
 import ru.itmo.clothesadvisor.dto.user.CurrentUser
@@ -50,8 +49,6 @@ class WardrobeItemPhotoServiceTests {
             .also { ImageIO.write(BufferedImage(1, 1, BufferedImage.TYPE_INT_RGB), "png", it) }
             .toByteArray()
 
-    private fun file() = MockMultipartFile("photos", "photo.png", "image/png", png)
-
     @ParameterizedTest
     @ValueSource(strings = ["add", "content", "createWithPhotos"])
     fun `inactive owner is rejected before storage or local transactions`(operation: String) {
@@ -66,13 +63,13 @@ class WardrobeItemPhotoServiceTests {
         // when
         val failure = catchThrowable {
             when (operation) {
-                "add" -> service.add(7, 11, listOf(file()))
+                "add" -> service.add(7, 11, listOf(png))
                 "content" -> service.getOwnContent(7, 11, 13)
                 "createWithPhotos" ->
                     management.createWithPhotos(
                         7,
                         CreateWardrobeItemRequest("Shirt", 1, "White", "Cotton"),
-                        listOf(file()),
+                        listOf(png),
                     )
             }
         }
@@ -102,7 +99,7 @@ class WardrobeItemPhotoServiceTests {
             .thenThrow(AccessDeniedException())
 
         // when
-        val failure = catchThrowable { service.add(7, 11, listOf(file())) }
+        val failure = catchThrowable { service.add(7, 11, listOf(png)) }
 
         // then
         assertThat(failure).isInstanceOf(AccessDeniedException::class.java)
@@ -135,7 +132,7 @@ class WardrobeItemPhotoServiceTests {
         `when`(photos.countByItemId(11)).thenReturn(existing)
 
         // when
-        val failure = catchThrowable { service.add(7, 11, List(additional) { file() }) }
+        val failure = catchThrowable { service.add(7, 11, List(additional) { png }) }
 
         // then
         assertThat(failure).isInstanceOfSatisfying(PhotoRequestException::class.java) {
@@ -162,7 +159,7 @@ class WardrobeItemPhotoServiceTests {
             management.createWithPhotos(
                 7,
                 CreateWardrobeItemRequest("Shirt", 99, "White", "Cotton"),
-                listOf(file()),
+                listOf(png),
             )
         }
 

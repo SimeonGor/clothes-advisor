@@ -27,7 +27,7 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
-import org.springframework.cloud.client.discovery.simple.SimpleDiscoveryProperties
+import org.springframework.cloud.client.discovery.simple.reactive.SimpleReactiveDiscoveryProperties
 import org.springframework.cloud.openfeign.FeignClientFactory
 import org.springframework.cloud.openfeign.loadbalancer.FeignBlockingLoadBalancerClient
 import org.springframework.context.ApplicationContext
@@ -84,7 +84,7 @@ class AccountClientTests {
     @Autowired private lateinit var recommendation: RecommendationClient
     @Autowired private lateinit var factory: FeignClientFactory
     @Autowired private lateinit var breakers: CircuitBreakerRegistry
-    @Autowired private lateinit var discovery: SimpleDiscoveryProperties
+    @Autowired private lateinit var discovery: SimpleReactiveDiscoveryProperties
     @Autowired private lateinit var context: ApplicationContext
     @LocalServerPort private var port = 0
 
@@ -335,7 +335,9 @@ class AccountClientTests {
     @ValueSource(strings = ["user", "stylist", "admin"])
     fun `empty discovery fails without HTTP and restoring an instance recovers`(method: String) {
         // given
-        val instances = requireNotNull(discovery.instances.remove("account-service"))
+        val instances = discovery.getInstances("account-service")
+        val registered = instances.toList()
+        instances.clear()
         status = if (method == "user") 200 else 204
 
         try {
@@ -346,7 +348,7 @@ class AccountClientTests {
             assertUnavailable(failure)
             assertThat(calls).hasValue(0)
         } finally {
-            discovery.instances["account-service"] = instances
+            instances.addAll(registered)
         }
 
         // when

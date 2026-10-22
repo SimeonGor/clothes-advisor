@@ -442,11 +442,15 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
         assertThat(emptyBatchStatus).isEqualTo(400)
 
         // when
-        val oversizedBatchStatus =
-            multipart(actorId, path, List(6) { png.copyOf(9_000_000) }).statusCode()
+        listOf(false, true).forEach { chunked ->
+            val oversizedBatchStatus =
+                multipart(actorId, path, List(6) { png.copyOf(9_000_000) }, chunked = chunked)
+                    .statusCode()
 
-        // then
-        assertThat(oversizedBatchStatus).isEqualTo(413)
+            // then
+            assertThat(oversizedBatchStatus).describedAs("chunked=%s", chunked).isEqualTo(413)
+            verifyNoInteractions(storage)
+        }
 
         // when
         val invalidItemStatus = multipart(actorId, files = listOf(png), item = "{}").statusCode()
@@ -850,6 +854,25 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
         }
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `valid item JSON larger than the default codec buffer is accepted`(multipart: Boolean) {
+
+        // given
+        val actorId = actorId(user())
+        val paddedItem = " ".repeat(300_000) + ITEM
+
+        // when
+        val response =
+            if (multipart) multipart(actorId, item = paddedItem)
+            else request("POST", ITEMS, actorId, paddedItem)
+
+        // then
+        assertThat(response.statusCode()).isEqualTo(201)
+        assertThat(number(objectBody(response), "id")).isPositive()
+        verifyNoInteractions(storage)
+    }
+
     private fun user(role: UserRole = UserRole.USER): AccountUserResponse =
         jdbc.insertUser(UUID.randomUUID().toString(), "!", role)
 
@@ -871,6 +894,7 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
         path: String = ITEMS,
         files: List<ByteArray> = emptyList(),
         item: String? = null,
+        chunked: Boolean = false,
     ): HttpResponse<ByteArray> {
         val boundary = "test-${UUID.randomUUID()}"
         val body = ByteArrayOutputStream()
@@ -891,6 +915,7 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
             actorId,
             "multipart/form-data; boundary=$boundary",
             body.toByteArray(),
+            chunked,
         )
     }
 
@@ -900,11 +925,16 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
         actorId: String?,
         type: String,
         bytes: ByteArray,
+        chunked: Boolean = false,
     ): HttpResponse<ByteArray> {
+        val publisher = HttpRequest.BodyPublishers.ofByteArray(bytes)
         val request =
             HttpRequest.newBuilder(URI("http://localhost:$port$path"))
                 .header("Content-Type", type)
-                .method(method, HttpRequest.BodyPublishers.ofByteArray(bytes))
+                .method(
+                    method,
+                    if (chunked) HttpRequest.BodyPublishers.fromPublisher(publisher) else publisher,
+                )
         if (actorId != null) request.header("X-User-Id", "$actorId")
         return client.send(request.build(), HttpResponse.BodyHandlers.ofByteArray())
     }
