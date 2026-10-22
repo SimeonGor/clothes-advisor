@@ -4,6 +4,7 @@ import jakarta.validation.ConstraintViolationException
 import java.sql.Timestamp
 import java.time.Duration
 import java.time.Instant
+import java.time.OffsetDateTime
 import java.util.concurrent.atomic.AtomicInteger
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.catchThrowable
@@ -14,6 +15,7 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.dao.OptimisticLockingFailureException
+import org.springframework.r2dbc.core.DatabaseClient
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
 import org.springframework.transaction.ReactiveTransactionManager
 import org.springframework.transaction.reactive.TransactionalOperator
@@ -39,6 +41,8 @@ class AppUserPersistenceTests : PostgresIntegrationTest() {
     @MockitoSpyBean private lateinit var repository: AppUserRepository
 
     @Autowired private lateinit var transactionManager: ReactiveTransactionManager
+
+    @Autowired private lateinit var databaseClient: DatabaseClient
 
     @Test
     fun `creation and reads retain database values and case sensitive login`() {
@@ -128,7 +132,10 @@ class AppUserPersistenceTests : PostgresIntegrationTest() {
 
         // given
         createUser()
-        val invalid = listOf("" to "hash", " \t\n" to "hash", "another" to " ")
+        val invalid = listOf(
+            "" to "hash", " \t\n" to "hash", "another" to " ",
+            "another" to "", "another" to " \t\n",
+        )
 
         // when
         val duplicate = users.create("alice", "hash", UserRole.USER)
@@ -225,6 +232,44 @@ class AppUserPersistenceTests : PostgresIntegrationTest() {
     }
 
     @Test
+    fun `database transaction timestamp owns creation modification and archival dates`() {
+
+        // given
+        val transactions = TransactionalOperator.create(transactionManager)
+
+        // when
+        val (created, changed, transactionTime) = transactions.transactional(
+            databaseClient.sql("SELECT CURRENT_TIMESTAMP AS transaction_time")
+                .map { row, _ ->
+                    row.get("transaction_time", OffsetDateTime::class.java)!!.toInstant()
+                }
+                .one()
+                .flatMap { transactionTime ->
+                    users.create("alice", "test-password-hash", UserRole.USER)
+                        .flatMap { created ->
+                            users.changeRoleAndStatus(
+                                created.id, 1, UserRole.STYLIST, UserStatus.ACTIVE,
+                            ).map { changed -> Triple(created, changed, transactionTime) }
+                        }
+                },
+        ).block(timeout)!!
+
+        // then
+        assertThat(created.createdAt).isEqualTo(transactionTime)
+        assertThat(created.modifiedAt).isEqualTo(transactionTime)
+        assertThat(changed.createdAt).isEqualTo(created.createdAt)
+        assertThat(changed.modifiedAt).isEqualTo(transactionTime)
+        assertThat(changed.version).isEqualTo(2)
+        assertThat(history()).containsExactly(
+            Archived(
+                created.id,
+                Snapshot(created.login, "USER", "ACTIVE", 1, created.modifiedAt),
+                transactionTime,
+            ),
+        )
+    }
+
+    @Test
     fun `no op preserves row and history but stale and missing targets fail`() {
 
         // given
@@ -315,7 +360,15 @@ class AppUserPersistenceTests : PostgresIntegrationTest() {
             users.changeRoleAndStatus(created.id, 1, UserRole.ADMIN, UserStatus.BLOCKED)
                 .flatMap { saved ->
                     assertThat(saved.version).isEqualTo(2)
-                    Mono.error<AppUser>(failure)
+                    databaseClient.sql(
+                        "SELECT count(*) AS history_count FROM app_user_history WHERE user_id = :id",
+                    ).bind("id", created.id)
+                        .map { row, _ -> row.get("history_count", Long::class.javaObjectType)!! }
+                        .one()
+                        .flatMap { historyCount ->
+                            assertThat(historyCount).isEqualTo(1)
+                            Mono.error<AppUser>(failure)
+                        }
                 },
         )
 
