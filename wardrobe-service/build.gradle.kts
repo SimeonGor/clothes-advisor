@@ -1,7 +1,7 @@
 plugins {
-    kotlin("jvm")
-    kotlin("plugin.spring")
-    id("org.springframework.boot")
+    kotlin("jvm") version "2.3.21"
+    kotlin("plugin.spring") version "2.3.21"
+    id("org.springframework.boot") version "4.1.1"
     jacoco
 }
 
@@ -42,32 +42,9 @@ kotlin {
     jvmToolchain(25)
 }
 
-val transportTest by sourceSets.creating
-kotlin.target.compilations.named("transportTest") {
-    associateWith(kotlin.target.compilations.getByName("main"))
-}
-configurations[transportTest.implementationConfigurationName]
-    .extendsFrom(configurations.testImplementation.get())
-configurations[transportTest.runtimeOnlyConfigurationName]
-    .extendsFrom(configurations.testRuntimeOnly.get())
-evaluationDependsOn(":recommendation-service")
-val recommendationMain = project(":recommendation-service")
-    .extensions.getByType<SourceSetContainer>().named("main")
-transportTest.compileClasspath += sourceSets.main.get().output + recommendationMain.get().output
-transportTest.runtimeClasspath += sourceSets.main.get().output +
-    recommendationMain.get().output + recommendationMain.get().runtimeClasspath
-
-tasks.register<Test>("transportTest") {
-    description = "Isolated maximum-payload check through production Feign and WebFlux."
-    testClassesDirs = transportTest.output.classesDirs
-    classpath = transportTest.runtimeClasspath
-    maxHeapSize = "3g"
-    inputs.file(rootProject.layout.projectDirectory.file("config-repository/recommendation-service.yml"))
-}
-
 tasks.withType<Test> {
     useJUnitPlatform()
-    inputs.file(rootProject.layout.projectDirectory.file("config-repository/wardrobe-service.yml"))
+    inputs.file(layout.projectDirectory.file("../config-repository/wardrobe-service.yml"))
 }
 
 jacoco {

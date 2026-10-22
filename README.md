@@ -103,19 +103,21 @@ curl http://127.0.0.1:8080/api/wardrobe/items \
 
 ## Сборка и тесты
 
-Для сборки нужен JDK 25, для интеграционных тестов — работающий Docker. Gradle запускается через wrapper:
+Для сборки нужен JDK 25, для интеграционных тестов — работающий Docker. Каждый backend-сервис имеет собственный `settings.gradle.kts` и собирается без Gradle-файлов остальных сервисов. Wrapper общий; команды выполняются из корня репозитория:
 
 ```shell
-./gradlew bootJar                 # JAR во всех backend-модулях
-./gradlew :api-gateway:bootJar    # JAR только Gateway
-./gradlew :config-server:bootJar  # JAR только Config Server
-./gradlew :discovery-server:bootJar # JAR только Discovery Server
-./gradlew :account-service:bootJar # JAR только Account Service
+./gradlew -p wardrobe-service bootJar       # независимая сборка wardrobe
+./gradlew -p account-service bootJar        # независимая сборка account
+./gradlew -p recommendation-service bootJar # независимая сборка recommendation
+./gradlew -p api-gateway bootJar            # аналогично для Gateway, Config и Eureka
+./gradlew bootJar                 # JAR всех backend-сервисов через общую сборку
 ./gradlew test                    # unit- и интеграционные тесты
 ./gradlew check                   # тесты и покрытие строк ≥70%
 ./gradlew testCodeCoverageReport  # общий отчёт покрытия
 ./gradlew :wardrobe-service:transportTest # максимальный пакет изображений, отдельная JVM с heap 3 ГиБ
 ```
+
+Dockerfile каждого сервиса копирует только wrapper, собственные файлы сборки и `src/main`. Корневая многомодульная сборка сохранена для общих команд, покрытия и транспортного теста между wardrobe и recommendation; в Docker она не используется. Транспортный тест запускается только из корневой сборки. Интеграционные тесты используют конфигурации из соседнего `config-repository`, а тест переноса аккаунтов — также старые миграции wardrobe; поэтому тесты запускаются из полного checkout.
 
 Код гардероба находится в `wardrobe-service`, аккаунтов — в `account-service`, AI — в `recommendation-service`, Config Server — в `config-server`, Eureka — в `discovery-server`, единая HTTP-точка входа — в `api-gateway`. Для запуска без Docker нужны PostgreSQL и переменные окружения из `.env`: Gradle сам этот файл не читает. Сначала выполните `./gradlew :config-server:bootRun`, затем `./gradlew :discovery-server:bootRun`, `APP_PORT=8081 ./gradlew :wardrobe-service:bootRun`, `APP_PORT=8083 ./gradlew :recommendation-service:bootRun` и `./gradlew :api-gateway:bootRun`. Сервисы регистрируются в Eureka; обнаружение после запуска может занять некоторое время. Команды запускаются из корня репозитория; конкретный модуль можно указать явно: `./gradlew :wardrobe-service:test`.
 
