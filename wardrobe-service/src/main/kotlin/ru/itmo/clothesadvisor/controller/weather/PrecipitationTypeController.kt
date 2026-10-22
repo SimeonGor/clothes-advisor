@@ -11,6 +11,8 @@ import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
+import reactor.core.publisher.Mono
+import reactor.core.scheduler.Schedulers
 import ru.itmo.clothesadvisor.controller.toPageRequest
 import ru.itmo.clothesadvisor.dto.weather.PrecipitationTypeResponse
 import ru.itmo.clothesadvisor.service.weather.PrecipitationTypeService
@@ -34,8 +36,11 @@ internal class PrecipitationTypeController(
     fun list(
         @RequestParam(defaultValue = "0") @Min(0) page: Int,
         @RequestParam(defaultValue = "50") @Min(1) @Max(50) size: Int,
-    ): List<PrecipitationTypeResponse> =
-        precipitationTypes.list(toPageRequest(page, size)).map {
-            PrecipitationTypeResponse(requireNotNull(it.id), it.code, it.name)
-        }
+    ): Mono<List<PrecipitationTypeResponse>> =
+        Mono.fromCallable {
+                precipitationTypes.list(toPageRequest(page, size)).map {
+                    PrecipitationTypeResponse(requireNotNull(it.id), it.code, it.name)
+                }
+            }
+            .subscribeOn(Schedulers.boundedElastic())
 }

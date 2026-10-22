@@ -1,5 +1,6 @@
 package ru.itmo.clothesadvisor.config
 
+import java.time.Duration
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.catchThrowable
 import org.junit.jupiter.api.Test
@@ -8,8 +9,11 @@ import org.mockito.Mockito.mock
 import org.mockito.Mockito.verifyNoInteractions
 import org.mockito.Mockito.`when`
 import org.springframework.core.MethodParameter
-import org.springframework.mock.web.MockHttpServletRequest
-import org.springframework.web.context.request.ServletWebRequest
+import org.springframework.mock.http.server.reactive.MockServerHttpRequest
+import org.springframework.mock.web.server.MockServerWebExchange
+import org.springframework.web.reactive.BindingContext
+import reactor.core.publisher.Mono
+import reactor.core.scheduler.Schedulers
 import ru.itmo.clothesadvisor.client.account.AccountClient
 import ru.itmo.clothesadvisor.dto.account.AccountUserResponse
 import ru.itmo.clothesadvisor.dto.user.CurrentUser
@@ -78,9 +82,33 @@ class CurrentUserArgumentResolverTests {
         }
     }
 
-    private fun resolve(value: String?): CurrentUser {
-        val request = MockHttpServletRequest()
-        if (value != null) request.addHeader("X-User-Id", value)
-        return resolver.resolveArgument(parameter, null, ServletWebRequest(request), null)
+    @Test
+    fun `account lookup is deferred and runs on a blocking worker`() {
+
+        // given
+        `when`(users.getUser(7)).thenAnswer {
+            assertThat(Schedulers.isInNonBlockingThread()).isFalse()
+            assertThat(Thread.currentThread().name).startsWith("boundedElastic-")
+            AccountUserResponse(7, "user", UserRole.USER, UserStatus.ACTIVE)
+        }
+
+        // when
+        val result = resolvePublisher("7")
+
+        // then
+        verifyNoInteractions(users)
+        assertThat(result.block(Duration.ofSeconds(5)))
+            .isEqualTo(CurrentUser(7, "user", UserRole.USER))
+    }
+
+    private fun resolve(value: String?): CurrentUser =
+        resolvePublisher(value).block(Duration.ofSeconds(5)) as CurrentUser
+
+    private fun resolvePublisher(value: String?): Mono<Any> {
+        val request = MockServerHttpRequest.get("/")
+        if (value != null) request.header("X-User-Id", value)
+        return resolver.resolveArgument(
+            parameter, BindingContext(), MockServerWebExchange.from(request),
+        )
     }
 }

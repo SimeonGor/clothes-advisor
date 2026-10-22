@@ -4,7 +4,6 @@ import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionTemplate
-import org.springframework.web.multipart.MultipartFile
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemPhotoContent
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemPhotoResponse
 import ru.itmo.clothesadvisor.model.EntityNotFoundException
@@ -28,7 +27,7 @@ internal class WardrobeItemPhotoService(
     fun add(
         ownerId: Long,
         itemId: Long,
-        files: List<MultipartFile>,
+        files: List<ByteArray>,
     ): List<WardrobeItemPhotoResponse> {
         users.requireActive(ownerId)
         val existingCount = transaction.execute {

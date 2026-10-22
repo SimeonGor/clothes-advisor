@@ -9,6 +9,8 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
+import org.springframework.boot.web.server.reactive.context.ReactiveWebServerApplicationContext
+import org.springframework.context.ApplicationContext
 import org.springframework.jdbc.core.JdbcTemplate
 import ru.itmo.clothesadvisor.config.AccountBackedIntegrationTest
 import ru.itmo.clothesadvisor.config.insertUser
@@ -19,9 +21,11 @@ import ru.itmo.clothesadvisor.model.user.UserStatus
 class CurrentUserIntegrationTests : AccountBackedIntegrationTest() {
     @LocalServerPort private var port = 0
     @Autowired private lateinit var jdbc: JdbcTemplate
+    @Autowired private lateinit var context: ApplicationContext
 
     @Test
     fun `actor header is required only when current user is needed`() {
+        assertThat(context).isInstanceOf(ReactiveWebServerApplicationContext::class.java)
         listOf(null, "garbage", "0", "-1", "9223372036854775808").forEach { value ->
 
             // given: an invalid actor header

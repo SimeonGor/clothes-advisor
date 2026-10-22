@@ -3,11 +3,13 @@ package ru.itmo.clothesadvisor.config
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Lazy
 import org.springframework.core.MethodParameter
-import org.springframework.web.bind.support.WebDataBinderFactory
-import org.springframework.web.context.request.NativeWebRequest
-import org.springframework.web.method.support.HandlerMethodArgumentResolver
-import org.springframework.web.method.support.ModelAndViewContainer
-import org.springframework.web.servlet.config.annotation.WebMvcConfigurer
+import org.springframework.web.reactive.BindingContext
+import org.springframework.web.reactive.config.WebFluxConfigurer
+import org.springframework.web.reactive.result.method.HandlerMethodArgumentResolver
+import org.springframework.web.reactive.result.method.annotation.ArgumentResolverConfigurer
+import org.springframework.web.server.ServerWebExchange
+import reactor.core.publisher.Mono
+import reactor.core.scheduler.Schedulers
 import ru.itmo.clothesadvisor.dto.user.CurrentUser
 import ru.itmo.clothesadvisor.service.user.CurrentUserService
 
@@ -20,23 +22,25 @@ internal class CurrentUserArgumentResolver(private val users: CurrentUserService
 
     override fun resolveArgument(
         parameter: MethodParameter,
-        mavContainer: ModelAndViewContainer?,
-        webRequest: NativeWebRequest,
-        binderFactory: WebDataBinderFactory?,
-    ): CurrentUser {
-        val id =
-            webRequest.getHeader("X-User-Id")?.toLongOrNull()?.takeIf { it > 0 }
-                ?: throw InvalidCurrentUserException()
-        return users.requireActive(id)
-    }
+        bindingContext: BindingContext,
+        exchange: ServerWebExchange,
+    ): Mono<Any> =
+        Mono.fromCallable<Any> {
+                val id =
+                    exchange.request.headers.getFirst("X-User-Id")
+                        ?.toLongOrNull()?.takeIf { it > 0 }
+                        ?: throw InvalidCurrentUserException()
+                users.requireActive(id)
+            }
+            .subscribeOn(Schedulers.boundedElastic())
 }
 
 @Configuration
 internal class CurrentUserConfiguration(
-    // Feign initializes MVC converter support while creating the account client.
+    // Feign initializes HTTP codec support while creating the account client.
     @param:Lazy private val users: CurrentUserService,
-) : WebMvcConfigurer {
-    override fun addArgumentResolvers(resolvers: MutableList<HandlerMethodArgumentResolver>) {
-        resolvers.add(CurrentUserArgumentResolver(users))
+) : WebFluxConfigurer {
+    override fun configureArgumentResolvers(configurer: ArgumentResolverConfigurer) {
+        configurer.addCustomResolver(CurrentUserArgumentResolver(users))
     }
 }

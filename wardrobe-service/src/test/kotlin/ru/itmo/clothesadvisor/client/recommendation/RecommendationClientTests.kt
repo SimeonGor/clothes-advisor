@@ -18,7 +18,7 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration
 import org.springframework.boot.test.context.SpringBootTest
-import org.springframework.cloud.client.discovery.simple.SimpleDiscoveryProperties
+import org.springframework.cloud.client.discovery.simple.reactive.SimpleReactiveDiscoveryProperties
 import org.springframework.cloud.openfeign.FeignClientFactory
 import org.springframework.cloud.openfeign.loadbalancer.FeignBlockingLoadBalancerClient
 import org.springframework.context.annotation.Configuration
@@ -49,7 +49,7 @@ class RecommendationClientTests {
     @Autowired private lateinit var client: RecommendationClient
     @Autowired private lateinit var factory: FeignClientFactory
     @Autowired private lateinit var breakers: CircuitBreakerRegistry
-    @Autowired private lateinit var discovery: SimpleDiscoveryProperties
+    @Autowired private lateinit var discovery: SimpleReactiveDiscoveryProperties
     private val selection = OutfitSelectionRequest(
         OutfitSelectionWeather(BigDecimal("-1.23456789"), BigDecimal.ZERO, "NONE", "None"),
         listOf(OutfitSelectionCandidate(7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", "AQID")),
@@ -95,7 +95,9 @@ class RecommendationClientTests {
     @Test
     fun `empty discovery registry is unavailable without HTTP and restored registry recovers`() {
         // given
-        val instances = requireNotNull(discovery.instances.remove("recommendation-service"))
+        val instances = discovery.getInstances("recommendation-service")
+        val registered = instances.toList()
+        instances.clear()
 
         try {
             // when
@@ -105,7 +107,7 @@ class RecommendationClientTests {
             assertFailure(AiOutfitFailure.UNAVAILABLE, failure)
             assertThat(calls).hasValue(0)
         } finally {
-            discovery.instances["recommendation-service"] = instances
+            instances.addAll(registered)
         }
 
         // when

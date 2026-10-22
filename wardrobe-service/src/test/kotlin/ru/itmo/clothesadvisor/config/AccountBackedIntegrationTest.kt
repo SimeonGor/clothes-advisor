@@ -8,6 +8,7 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.bean.override.mockito.MockitoBean
 import org.springframework.transaction.support.TransactionSynchronizationManager
+import reactor.core.scheduler.Schedulers
 import ru.itmo.clothesadvisor.client.account.AccountClient
 import ru.itmo.clothesadvisor.dto.account.AccountUserResponse
 import ru.itmo.clothesadvisor.model.AccessDeniedException
@@ -23,6 +24,7 @@ abstract class AccountBackedIntegrationTest : PostgresIntegrationTest() {
     @BeforeEach
     fun configureAccountFixture() {
         doAnswer { call ->
+                assertThat(Schedulers.isInNonBlockingThread()).isFalse()
                 assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
                 accountFixtures.query(
                     "SELECT id, login, role, status FROM app_user WHERE id = ?",
@@ -39,6 +41,7 @@ abstract class AccountBackedIntegrationTest : PostgresIntegrationTest() {
             }
             .`when`(accounts).getUser(anyLong())
         doAnswer { call ->
+                assertThat(Schedulers.isInNonBlockingThread()).isFalse()
                 assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
                 val allowed = accountFixtures.queryForObject(
                     """
@@ -59,6 +62,7 @@ abstract class AccountBackedIntegrationTest : PostgresIntegrationTest() {
             }
             .`when`(accounts).requireStylistAccess(anyLong(), anyLong())
         doAnswer { call ->
+                assertThat(Schedulers.isInNonBlockingThread()).isFalse()
                 assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
                 val activeAdmin = accountFixtures.queryForObject(
                     "SELECT EXISTS (SELECT 1 FROM app_user WHERE id = ? AND role = 'ADMIN' AND status = 'ACTIVE')",

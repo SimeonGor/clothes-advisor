@@ -23,6 +23,8 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
+import reactor.core.publisher.Mono
+import reactor.core.scheduler.Schedulers
 import ru.itmo.clothesadvisor.controller.toPageRequest
 import ru.itmo.clothesadvisor.dto.ApiErrorResponse
 import ru.itmo.clothesadvisor.dto.outfit.CreateOutfitRequest
@@ -88,9 +90,12 @@ internal class OutfitController(
         @Parameter(hidden = true) user: CurrentUser,
         @Valid @RequestBody request: CreateOutfitRequest,
     ) =
-        outfits.create(user.id, request).let {
-            ResponseEntity.created(URI("/api/outfits/${it.id}")).body(it)
-        }
+        Mono.fromCallable {
+                outfits.create(user.id, request).let {
+                    ResponseEntity.created(URI("/api/outfits/${it.id}")).body(it)
+                }
+            }
+            .subscribeOn(Schedulers.boundedElastic())
 
     @GetMapping
     @Operation(summary = "Список образов", description = "По ID по убыванию.")
@@ -119,11 +124,14 @@ internal class OutfitController(
         @RequestParam(defaultValue = "0") @Min(0) page: Int,
         @RequestParam(defaultValue = "50") @Min(1) @Max(50) size: Int,
     ) =
-        outfits.list(user.id, toPageRequest(page, size)).let {
-            ResponseEntity.ok()
-                .header("X-Total-Count", it.totalElements.toString())
-                .body(it.content)
-        }
+        Mono.fromCallable {
+                outfits.list(user.id, toPageRequest(page, size)).let {
+                    ResponseEntity.ok()
+                        .header("X-Total-Count", it.totalElements.toString())
+                        .body(it.content)
+                }
+            }
+            .subscribeOn(Schedulers.boundedElastic())
 
     @GetMapping("/{id}")
     @Operation(summary = "Карточка образа", description = "Владелец определяется по X-User-Id.")
@@ -137,7 +145,10 @@ internal class OutfitController(
         ),
     )
     fun get(@Parameter(hidden = true) user: CurrentUser, @PathVariable id: Long) =
-        outfits.get(user.id, id)
+        Mono.fromCallable {
+                outfits.get(user.id, id)
+            }
+            .subscribeOn(Schedulers.boundedElastic())
 
     @GetMapping("/{id}/ratings/history")
     @Operation(
@@ -176,11 +187,14 @@ internal class OutfitController(
         @RequestParam(defaultValue = "0") @Min(0) page: Int,
         @RequestParam(defaultValue = "50") @Min(1) @Max(50) size: Int,
     ) =
-        ratings.history(user.id, id, toPageRequest(page, size)).let {
-            ResponseEntity.ok()
-                .header("X-Total-Count", it.totalElements.toString())
-                .body(it.content)
-        }
+        Mono.fromCallable {
+                ratings.history(user.id, id, toPageRequest(page, size)).let {
+                    ResponseEntity.ok()
+                        .header("X-Total-Count", it.totalElements.toString())
+                        .body(it.content)
+                }
+            }
+            .subscribeOn(Schedulers.boundedElastic())
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -199,5 +213,8 @@ internal class OutfitController(
         ),
     )
     fun delete(@Parameter(hidden = true) user: CurrentUser, @PathVariable id: Long) =
-        outfits.delete(user.id, id)
+        Mono.fromRunnable<Void> {
+                outfits.delete(user.id, id)
+            }
+            .subscribeOn(Schedulers.boundedElastic())
 }
