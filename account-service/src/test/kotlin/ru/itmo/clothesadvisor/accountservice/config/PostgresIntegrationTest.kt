@@ -21,7 +21,7 @@ abstract class PostgresIntegrationTest {
                 "Cleanup is restricted to the test container"
             }
         }
-        jdbc.execute("TRUNCATE TABLE app_user_history, app_user RESTART IDENTITY")
+        jdbc.execute("TRUNCATE TABLE access_grant, app_user_history, app_user RESTART IDENTITY")
     }
 
     companion object {

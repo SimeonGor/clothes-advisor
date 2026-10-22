@@ -8,6 +8,7 @@ import org.springframework.transaction.annotation.Transactional
 import reactor.core.publisher.Mono
 import ru.itmo.clothesadvisor.accountservice.dto.user.AdminUserResponse
 import ru.itmo.clothesadvisor.accountservice.dto.user.UpdateUserRoleAndStatusRequest
+import ru.itmo.clothesadvisor.accountservice.model.AccessDeniedException
 import ru.itmo.clothesadvisor.accountservice.model.EntityNotFoundException
 import ru.itmo.clothesadvisor.accountservice.model.user.AppUser
 import ru.itmo.clothesadvisor.accountservice.model.user.UserRole
@@ -42,7 +43,7 @@ internal class AdminUserService(
             val actor = locked.find { it.id == actorId }
                 ?: return@flatMap Mono.error(EntityNotFoundException("Actor not found"))
             if (actor.role != UserRole.ADMIN || actor.status != UserStatus.ACTIVE) {
-                return@flatMap Mono.error(AdminUserForbiddenException())
+                return@flatMap Mono.error(AccessDeniedException())
             }
             if (
                 actorId == id &&
@@ -58,7 +59,5 @@ internal class AdminUserService(
     private fun AppUser.toResponse() =
         AdminUserResponse(id, login, role, status, version, createdAt, modifiedAt)
 }
-
-internal class AdminUserForbiddenException : RuntimeException()
 
 internal class AdminUserConflictException : RuntimeException()

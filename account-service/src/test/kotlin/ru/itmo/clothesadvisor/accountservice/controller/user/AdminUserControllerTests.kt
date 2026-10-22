@@ -7,6 +7,7 @@ import org.mockito.Mockito.verify
 import org.mockito.Mockito.verifyNoInteractions
 import org.mockito.Mockito.`when`
 import reactor.core.publisher.Mono
+import ru.itmo.clothesadvisor.accountservice.controller.InvalidRequestException
 import ru.itmo.clothesadvisor.accountservice.dto.user.UpdateUserRoleAndStatusRequest
 import ru.itmo.clothesadvisor.accountservice.model.user.UserRole
 import ru.itmo.clothesadvisor.accountservice.model.user.UserStatus
@@ -28,7 +29,7 @@ class AdminUserControllerTests {
             val action = { controller.update(header, 2, request) }
 
             // then
-            assertThatThrownBy { action() }.isInstanceOf(InvalidAdminUserRequestException::class.java)
+            assertThatThrownBy { action() }.isInstanceOf(InvalidRequestException::class.java)
         }
         verifyNoInteractions(users)
     }

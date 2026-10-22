@@ -2,7 +2,7 @@
 
 Целевая система для перехода от монолита ЛР1 к микросервисам. Контракты и сценарии проверок описаны в [contracts.md](contracts.md).
 
-Сейчас отдельно запускаются frontend, Gateway, Config Server, Eureka, recommendation-service и account-service. Рабочие данные пользователей и гардероба пока остаются в wardrobe-service. Account предоставляет HTTP API пользователей и хранит историю через R2DBC в отдельной подготовительной БД; Config/Eureka и переключение Gateway ещё не подключены. Пользовательский AI-сценарий вызывает recommendation через Feign и Eureka; зависимости на его JAR нет. Credentials, модель и trust store OpenAI доступны только recommendation, ключ Yandex и доступ к S3 — wardrobe. Каждый сервис описывает собственные транспортные DTO; общих бизнес-моделей нет.
+Сейчас отдельно запускаются frontend, Gateway, Config Server, Eureka, recommendation-service и account-service. Рабочие данные пользователей и гардероба пока остаются в wardrobe-service. Account предоставляет HTTP API пользователей, разрешений стилистам и списков клиентов; хранит данные и историю через R2DBC в отдельной подготовительной БД. Config/Eureka и переключение Gateway ещё не подключены. Пользовательский AI-сценарий вызывает recommendation через Feign и Eureka; зависимости на его JAR нет. Credentials, модель и trust store OpenAI доступны только recommendation, ключ Yandex и доступ к S3 — wardrobe. Каждый сервис описывает собственные транспортные DTO; общих бизнес-моделей нет.
 
 ## Компоненты
 
