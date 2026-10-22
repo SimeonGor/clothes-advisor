@@ -16,6 +16,7 @@ dependencies {
     implementation("org.springframework.cloud:spring-cloud-starter-config")
     implementation("org.springframework.cloud:spring-cloud-starter-netflix-eureka-client")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
+    implementation("org.springdoc:springdoc-openapi-starter-webflux-ui:3.1.1")
     implementation("org.springframework.boot:spring-boot-micrometer-tracing-opentelemetry")
     implementation("io.micrometer:micrometer-tracing-bridge-otel")
     implementation("org.jetbrains.kotlin:kotlin-reflect")

@@ -23,14 +23,33 @@ spring:
               uri: lb://wardrobe-service
               predicates:
                 - Path=/api/**
+            - id: account-docs
+              uri: lb://account-service
+              predicates:
+                - Path=/v3/api-docs/account
+              filters:
+                - SetPath=/v3/api-docs
             - id: wardrobe-docs
               uri: lb://wardrobe-service
               predicates:
-                - Path=/swagger-ui.html,/swagger-ui/**,/v3/api-docs,/v3/api-docs/**,/v3/api-docs.yaml
+                - Path=/v3/api-docs/wardrobe
+              filters:
+                - SetPath=/v3/api-docs
             - id: frontend-ui
               uri: ${FRONTEND_URL:http://localhost:8082}
               predicates:
                 - Path=/,/index.html,/demo.js,/demo.css
+
+springdoc:
+  swagger-ui:
+    urls:
+      - name: Account
+        url: /v3/api-docs/account
+      - name: Wardrobe
+        url: /v3/api-docs/wardrobe
+    urls-primary-name: Wardrobe
+    disable-swagger-default-url: true
+    validator-url: ""
 
 eureka:
   client:
