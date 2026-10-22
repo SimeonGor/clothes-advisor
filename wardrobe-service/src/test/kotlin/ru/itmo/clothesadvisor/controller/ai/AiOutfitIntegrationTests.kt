@@ -6,6 +6,7 @@ import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.time.Duration
 import java.util.UUID
 import java.util.concurrent.Callable
 import java.util.concurrent.CountDownLatch
@@ -37,6 +38,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate
+import reactor.core.scheduler.Schedulers
 import ru.itmo.clothesadvisor.client.recommendation.RecommendationClient
 import ru.itmo.clothesadvisor.config.AccountBackedIntegrationTest
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
@@ -94,6 +96,8 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
             .requireActive(anyLong())
         doAnswer { call ->
                 assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
+                assertThat(Thread.currentThread().name).startsWith("boundedElastic-")
+                assertThat(Schedulers.isInNonBlockingThread()).isFalse()
                 downloaded += call.getArgument<String>(0)
                 onDownload()
                 byteArrayOf(1, 2, 3)
@@ -105,6 +109,8 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         val selection = OutfitSelectionRequest(weather, emptyList())
         doAnswer { call ->
                 assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
+                assertThat(Thread.currentThread().name).startsWith("boundedElastic-")
+                assertThat(Schedulers.isInNonBlockingThread()).isFalse()
                 providerCalls.incrementAndGet()
                 val actual = call.getArgument<OutfitSelectionRequest>(0)
                 assertThat(actual.weather.temperatureC).isEqualByComparingTo(TEMPERATURE)
@@ -117,6 +123,62 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
     }
 
     @AfterEach fun close() = http.close()
+
+    @Test
+    fun `health remains available while selection waits`() {
+        // given
+        val owner = connectedUser()
+        val actorId = actorId(owner)
+        val itemId = item(owner)
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        select = { selection ->
+            entered.countDown()
+            assertThat(release.await(10, TimeUnit.SECONDS)).isTrue()
+            OutfitSelectionResponse(selection.candidates.map { it.itemId })
+        }
+        Executors.newSingleThreadExecutor().use { executor ->
+            // when
+            val creation =
+                executor.submit(Callable { request("POST", actorId = actorId, body = body()) })
+            try {
+                assertThat(entered.await(10, TimeUnit.SECONDS)).isTrue()
+                assertThat(creation.isDone).isFalse()
+                val health =
+                    http.send(
+                        HttpRequest.newBuilder(URI("http://localhost:$port/actuator/health"))
+                            .timeout(Duration.ofSeconds(2))
+                            .GET()
+                            .build(),
+                        HttpResponse.BodyHandlers.ofString(),
+                    )
+
+                // then
+                assertThat(health.statusCode()).isEqualTo(200)
+                assertThat(creation.isDone).isFalse()
+
+                // when
+                release.countDown()
+                val created = creation.get(20, TimeUnit.SECONDS)
+
+                // then
+                assertThat(created.statusCode()).isEqualTo(201)
+                val outfitId = number(dto(created), "id")
+                assertThat(count("outfit", "owner_id", owner.id)).isEqualTo(1)
+                assertThat(
+                        jdbc.queryForList(
+                            "SELECT wardrobe_item_id FROM outfit_item WHERE outfit_id = ?",
+                            Long::class.java,
+                            outfitId,
+                        ),
+                    )
+                    .containsExactly(itemId)
+            } finally {
+                release.countDown()
+                creation.cancel(true)
+            }
+        }
+    }
 
     @Test
     fun `absent null and explicit candidates save immutable AI outfits available through the existing outfit API with exact weather`() {

@@ -38,6 +38,7 @@ import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.bean.override.mockito.MockitoBean
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
 import org.springframework.transaction.support.TransactionSynchronizationManager
+import reactor.core.scheduler.Schedulers
 import ru.itmo.clothesadvisor.config.AccountBackedIntegrationTest
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
 import ru.itmo.clothesadvisor.config.insertUser
@@ -45,6 +46,9 @@ import ru.itmo.clothesadvisor.config.updateUserRoleAndStatus
 import ru.itmo.clothesadvisor.dto.account.AccountUserResponse
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
+import ru.itmo.clothesadvisor.model.wardrobe.WardrobeCategory
+import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemPhotoRepository
+import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.service.user.CurrentUserService
 import ru.itmo.clothesadvisor.storage.wardrobe.PhotoStorageUnavailableException
 import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
@@ -55,6 +59,8 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
     @LocalServerPort private var port: Int = 0
     @Autowired private lateinit var jdbc: JdbcTemplate
     @MockitoSpyBean private lateinit var currentUsers: CurrentUserService
+    @MockitoSpyBean private lateinit var items: WardrobeItemRepository
+    @MockitoSpyBean private lateinit var photos: WardrobeItemPhotoRepository
     @MockitoBean private lateinit var storage: S3PhotoStorage
     private val client = HttpClient.newHttpClient()
     private val objects = ConcurrentHashMap<String, ByteArray>()
@@ -71,6 +77,8 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
             .requireActive(anyLong())
         doAnswer { call ->
                 assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
+                assertThat(Thread.currentThread().name).startsWith("boundedElastic-")
+                assertThat(Schedulers.isInNonBlockingThread()).isFalse()
                 objects[call.getArgument(0)] = call.getArgument(2)
                 null
             }
@@ -78,6 +86,8 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
             .put(anyString(), anyString(), anyArgument(ByteArray::class.java) ?: byteArrayOf())
         doAnswer { call ->
                 assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
+                assertThat(Thread.currentThread().name).startsWith("boundedElastic-")
+                assertThat(Schedulers.isInNonBlockingThread()).isFalse()
                 objects.getValue(call.getArgument(0))
             }
             .`when`(storage)
@@ -98,6 +108,8 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
         clearInvocations(currentUsers)
         doAnswer { call ->
                 assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
+                assertThat(Thread.currentThread().name).startsWith("boundedElastic-")
+                assertThat(Schedulers.isInNonBlockingThread()).isFalse()
                 objects[call.getArgument(0)] = call.getArgument(2)
                 jdbc.update("UPDATE app_user SET status = 'BLOCKED' WHERE id = ?", ownerId)
                 null
@@ -143,6 +155,8 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
         clearInvocations(currentUsers)
         doAnswer { call ->
                 assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
+                assertThat(Thread.currentThread().name).startsWith("boundedElastic-")
+                assertThat(Schedulers.isInNonBlockingThread()).isFalse()
                 jdbc.update("UPDATE app_user SET status = 'BLOCKED' WHERE id = ?", ownerId)
                 objects.getValue(call.getArgument(0))
             }
@@ -564,6 +578,8 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
         val actorId = actorId(owner)
         doAnswer { call ->
                 assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
+                assertThat(Thread.currentThread().name).startsWith("boundedElastic-")
+                assertThat(Schedulers.isInNonBlockingThread()).isFalse()
                 if (objects.isNotEmpty()) throw PhotoStorageUnavailableException()
                 objects[call.getArgument(0)] = call.getArgument(2)
                 null
@@ -593,7 +609,12 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
         storageOutsideTransactions()
         val photoId =
             number(rows(multipart(actorId, "$ITEMS/$id/photos", listOf(png))).single(), "id")
-        doAnswer { throw PhotoStorageUnavailableException() }
+        doAnswer {
+                assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
+                assertThat(Thread.currentThread().name).startsWith("boundedElastic-")
+                assertThat(Schedulers.isInNonBlockingThread()).isFalse()
+                throw PhotoStorageUnavailableException()
+            }
             .`when`(storage)
             .get(anyString(), anyLong())
 
@@ -612,8 +633,39 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
         val owner = user()
         val actorId = actorId(owner)
         val existing = create(actorId)
+        val writes = mutableListOf<Pair<Long, Int>>()
+        doAnswer { call ->
+                assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue()
+                assertThat(Thread.currentThread().name).startsWith("boundedElastic-")
+                assertThat(Schedulers.isInNonBlockingThread()).isFalse()
+                writes +=
+                    Thread.currentThread().threadId() to
+                        jdbc.queryForObject("SELECT pg_backend_pid()", Int::class.java)!!
+                mockingDetails(items).mockCreationSettings.defaultAnswer.answer(call)
+            }
+            .`when`(items)
+            .create(
+                anyLong(),
+                anyArgument(WardrobeCategory::class.java) ?: WardrobeCategory("TOP", "Top"),
+                anyString(),
+                anyString(),
+                anyString(),
+            )
+        doAnswer { call ->
+                assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue()
+                assertThat(Thread.currentThread().name).startsWith("boundedElastic-")
+                assertThat(Schedulers.isInNonBlockingThread()).isFalse()
+                writes +=
+                    Thread.currentThread().threadId() to
+                        jdbc.queryForObject("SELECT pg_backend_pid()", Int::class.java)!!
+                mockingDetails(photos).mockCreationSettings.defaultAnswer.answer(call)
+            }
+            .`when`(photos)
+            .create(anyLong(), anyString(), anyString(), anyLong())
         doAnswer { call ->
                 assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
+                assertThat(Thread.currentThread().name).startsWith("boundedElastic-")
+                assertThat(Schedulers.isInNonBlockingThread()).isFalse()
                 val key = call.getArgument<String>(0)
                 objects[key] = call.getArgument(2)
                 if (objects.size == 2)
@@ -637,6 +689,8 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
 
         // then
         assertThat(rollbackStatus).isEqualTo(409)
+        assertThat(writes).hasSize(3)
+        assertThat(writes.distinct()).hasSize(1)
         assertThat(count("wardrobe_item", "owner_id", owner.id)).isEqualTo(1)
         assertThat(
                 jdbc.queryForObject(
@@ -672,6 +726,8 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
         val uploaded = CyclicBarrier(2)
         doAnswer { call ->
                 assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
+                assertThat(Thread.currentThread().name).startsWith("boundedElastic-")
+                assertThat(Schedulers.isInNonBlockingThread()).isFalse()
                 objects[call.getArgument(0)] = call.getArgument(2)
                 uploaded.await(10, TimeUnit.SECONDS)
                 null
@@ -709,6 +765,8 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
         val release = CountDownLatch(1)
         doAnswer { call ->
                 assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
+                assertThat(Thread.currentThread().name).startsWith("boundedElastic-")
+                assertThat(Schedulers.isInNonBlockingThread()).isFalse()
                 objects[call.getArgument(0)] = call.getArgument(2)
                 entered.countDown()
                 assertThat(release.await(10, TimeUnit.SECONDS)).isTrue()
@@ -757,6 +815,8 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
             doAnswer { call ->
                     assertThat(TransactionSynchronizationManager.isActualTransactionActive())
                         .isFalse()
+                    assertThat(Thread.currentThread().name).startsWith("boundedElastic-")
+                    assertThat(Schedulers.isInNonBlockingThread()).isFalse()
                     entered.countDown()
                     assertThat(release.await(10, TimeUnit.SECONDS)).isTrue()
                     objects.getValue(call.getArgument(0))
