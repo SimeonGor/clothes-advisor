@@ -28,6 +28,8 @@ import org.springframework.web.bind.annotation.RequestPart
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.multipart.MultipartFile
+import reactor.core.publisher.Mono
+import reactor.core.scheduler.Schedulers
 import ru.itmo.clothesadvisor.controller.toPageRequest
 import ru.itmo.clothesadvisor.dto.ApiErrorResponse
 import ru.itmo.clothesadvisor.dto.user.CurrentUser
@@ -88,10 +90,12 @@ internal class WardrobeItemController(
     fun create(
         @Parameter(hidden = true) user: CurrentUser,
         @Valid @RequestBody request: CreateWardrobeItemRequest,
-    ): ResponseEntity<WardrobeItemResponse> {
-        val created = items.create(user.id, request)
-        return ResponseEntity.created(URI("/api/wardrobe/items/${created.id}")).body(created)
-    }
+    ): Mono<ResponseEntity<WardrobeItemResponse>> =
+        Mono.fromCallable {
+                val created = items.create(user.id, request)
+                ResponseEntity.created(URI("/api/wardrobe/items/${created.id}")).body(created)
+            }
+            .subscribeOn(Schedulers.boundedElastic())
 
     @PostMapping(consumes = [MediaType.MULTIPART_FORM_DATA_VALUE])
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
@@ -166,10 +170,12 @@ internal class WardrobeItemController(
         @Parameter(hidden = true) user: CurrentUser,
         @Valid @RequestPart("item") request: CreateWardrobeItemRequest,
         @RequestPart("photos", required = false) files: List<MultipartFile>?,
-    ): ResponseEntity<WardrobeItemResponse> {
-        val created = management.createWithPhotos(user.id, request, files.orEmpty())
-        return ResponseEntity.created(URI("/api/wardrobe/items/${created.id}")).body(created)
-    }
+    ): Mono<ResponseEntity<WardrobeItemResponse>> =
+        Mono.fromCallable {
+                val created = management.createWithPhotos(user.id, request, files.orEmpty())
+                ResponseEntity.created(URI("/api/wardrobe/items/${created.id}")).body(created)
+            }
+            .subscribeOn(Schedulers.boundedElastic())
 
     @GetMapping
     @Operation(summary = "Список вещей", description = "По ID по возрастанию; без X-Total-Count.")
@@ -185,7 +191,9 @@ internal class WardrobeItemController(
         @Parameter(hidden = true) user: CurrentUser,
         @RequestParam(defaultValue = "0") @Min(0) page: Int,
         @RequestParam(defaultValue = "50") @Min(1) @Max(50) size: Int,
-    ): List<WardrobeItemResponse> = items.list(user.id, toPageRequest(page, size))
+    ): Mono<List<WardrobeItemResponse>> =
+        Mono.fromCallable { items.list(user.id, toPageRequest(page, size)) }
+            .subscribeOn(Schedulers.boundedElastic())
 
     @GetMapping("/{id}")
     @Operation(summary = "Карточка вещи", description = "Владелец определяется по X-User-Id.")
@@ -201,7 +209,8 @@ internal class WardrobeItemController(
     fun get(
         @Parameter(hidden = true) user: CurrentUser,
         @PathVariable id: Long,
-    ): WardrobeItemResponse = items.get(user.id, id)
+    ): Mono<WardrobeItemResponse> =
+        Mono.fromCallable { items.get(user.id, id) }.subscribeOn(Schedulers.boundedElastic())
 
     @PutMapping("/{id}")
     @Operation(
@@ -238,7 +247,9 @@ internal class WardrobeItemController(
         @Parameter(hidden = true) user: CurrentUser,
         @PathVariable id: Long,
         @Valid @RequestBody request: UpdateWardrobeItemRequest,
-    ): WardrobeItemResponse = items.update(user.id, id, request)
+    ): Mono<WardrobeItemResponse> =
+        Mono.fromCallable { items.update(user.id, id, request) }
+            .subscribeOn(Schedulers.boundedElastic())
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -268,5 +279,7 @@ internal class WardrobeItemController(
         @Parameter(hidden = true) user: CurrentUser,
         @PathVariable id: Long,
         @RequestParam @Positive version: Long,
-    ) = items.delete(user.id, id, version)
+    ) =
+        Mono.fromRunnable<Void> { items.delete(user.id, id, version) }
+            .subscribeOn(Schedulers.boundedElastic())
 }
