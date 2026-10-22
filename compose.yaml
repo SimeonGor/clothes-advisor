@@ -108,6 +108,39 @@ services:
       postgres:
         condition: service_healthy
 
+  account-postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: account_db
+      POSTGRES_USER: account
+      POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
+    volumes:
+      - account-postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  account-service:
+    build:
+      context: .
+      dockerfile: account-service/Dockerfile
+    environment:
+      DB_R2DBC_URL: r2dbc:postgresql://account-postgres:5432/account_db
+      DB_URL: jdbc:postgresql://account-postgres:5432/account_db
+      DB_USER: account
+      DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
+    depends_on:
+      account-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/actuator/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   recommendation-service:
     build:
       context: .
@@ -140,6 +173,7 @@ services:
 
 volumes:
   postgres-data:
+  account-postgres-data:
 
 secrets:
   yandex-service-account-key:
