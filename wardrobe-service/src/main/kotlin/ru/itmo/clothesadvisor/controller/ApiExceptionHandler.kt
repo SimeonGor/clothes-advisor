@@ -11,9 +11,13 @@ import ru.itmo.clothesadvisor.config.InvalidCurrentUserException
 import ru.itmo.clothesadvisor.dto.ApiErrorResponse
 import ru.itmo.clothesadvisor.model.AccessDeniedException
 import ru.itmo.clothesadvisor.model.EntityNotFoundException
+import ru.itmo.clothesadvisor.model.access.AccountUnavailableException
 
 @RestControllerAdvice
 internal class ApiExceptionHandler {
+    @ExceptionHandler(AccountUnavailableException::class)
+    fun accountUnavailable(): ResponseEntity<Void> = ResponseEntity.status(503).build()
+
     @ExceptionHandler(EntityNotFoundException::class)
     fun notFound(): ResponseEntity<Void> = ResponseEntity.notFound().build()
 

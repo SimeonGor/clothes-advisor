@@ -11,6 +11,9 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
+import org.springframework.context.ApplicationContext
+import ru.itmo.clothesadvisor.client.account.AccountClient
+import ru.itmo.clothesadvisor.client.recommendation.RecommendationClient
 import ru.itmo.clothesadvisor.config.PostgresIntegrationTest
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -18,6 +21,21 @@ class ClothesAdvisorApplicationTests : PostgresIntegrationTest() {
     @LocalServerPort private var port: Int = 0
 
     @Autowired private lateinit var dataSource: DataSource
+    @Autowired private lateinit var context: ApplicationContext
+
+    @Test
+    fun `normal application registers recommendation client and keeps account transport dormant`() {
+        // given
+        val applicationContext = context
+
+        // when
+        val accounts = applicationContext.getBeansOfType(AccountClient::class.java)
+        val recommendations = applicationContext.getBeansOfType(RecommendationClient::class.java)
+
+        // then
+        assertThat(accounts).isEmpty()
+        assertThat(recommendations).hasSize(1)
+    }
 
     @Test
     fun `connects to PostgreSQL and exposes database health`() {

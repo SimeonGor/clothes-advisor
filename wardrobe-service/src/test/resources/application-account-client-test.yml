@@ -1,0 +1,30 @@
+spring:
+  cloud:
+    loadbalancer:
+      cache:
+        enabled: false
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
+      - org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration
+
+resilience4j:
+  circuitbreaker:
+    instances:
+      AccountClientgetUserlong:
+        minimum-number-of-calls: 2
+        sliding-window-size: 2
+      AccountClientrequireStylistAccesslonglong:
+        minimum-number-of-calls: 2
+        sliding-window-size: 2
+      AccountClientrequireAdminAccesslonglong:
+        minimum-number-of-calls: 2
+        sliding-window-size: 2
+  timelimiter:
+    instances:
+      AccountClientgetUserlong:
+        timeout-duration: 1ms
+      AccountClientrequireStylistAccesslonglong:
+        timeout-duration: 1ms
+      AccountClientrequireAdminAccesslonglong:
+        timeout-duration: 1ms

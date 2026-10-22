@@ -84,7 +84,12 @@ class RecommendationClientTests {
         assertThat(options.readTimeoutMillis()).isEqualTo(90_000)
         assertThat(options.isFollowRedirects).isFalse()
         assertThat(received).contains("-1.23456789", "AQID")
-        assertThat(breakers.allCircuitBreakers.map { it.name }).containsExactly(BREAKER_NAME)
+        assertThat(breakers.allCircuitBreakers.map { it.name }).containsExactlyInAnyOrder(
+            BREAKER_NAME,
+            "AccountClientgetUserlong",
+            "AccountClientrequireStylistAccesslonglong",
+            "AccountClientrequireAdminAccesslonglong",
+        )
     }
 
     @Test
