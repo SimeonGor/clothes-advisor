@@ -124,7 +124,7 @@ class ConfigClientConfigurationTests {
             assertThat(environment.getProperty("eureka.client.timeout.socket-timeout"))
                 .isEqualTo("5000")
             assertThat(environment.getProperty("management.endpoints.web.exposure.include"))
-                .isEqualTo("health")
+                .isEqualTo("health,metrics")
             assertThat(environment.getProperty("management.endpoint.health.show-details"))
                 .isEqualTo("never")
             assertThat(environment.getProperty("management.health.config.enabled"))

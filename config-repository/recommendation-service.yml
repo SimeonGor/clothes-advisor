@@ -2,6 +2,8 @@ server:
   port: ${APP_PORT:8080}
 
 spring:
+  reactor:
+    context-propagation: auto
   http:
     codecs:
       max-in-memory-size: 300MB
@@ -25,7 +27,7 @@ management:
   endpoints:
     web:
       exposure:
-        include: health
+        include: health,metrics
   endpoint:
     health:
       show-details: never
