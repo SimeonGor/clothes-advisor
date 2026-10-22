@@ -25,6 +25,7 @@ import org.mockito.ArgumentMatchers.anyString
 import org.mockito.Mockito.clearInvocations
 import org.mockito.Mockito.doAnswer
 import org.mockito.Mockito.mockingDetails
+import org.mockito.Mockito.verify
 import org.mockito.Mockito.verifyNoInteractions
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
@@ -51,6 +52,7 @@ import ru.itmo.clothesadvisor.model.user.UserStatus
 import ru.itmo.clothesadvisor.repository.outfit.OutfitRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.service.access.AccessGrantService
+import ru.itmo.clothesadvisor.service.access.AdminContentAccessService
 import ru.itmo.clothesadvisor.service.user.AppUserService
 import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemService
 import ru.itmo.clothesadvisor.storage.wardrobe.PhotoStorageUnavailableException
@@ -67,6 +69,7 @@ internal class AdminModerationIntegrationTests : PostgresIntegrationTest() {
     @Autowired private lateinit var transactionManager: PlatformTransactionManager
     @MockitoSpyBean private lateinit var itemRepository: WardrobeItemRepository
     @MockitoSpyBean private lateinit var outfitRepository: OutfitRepository
+    @MockitoSpyBean private lateinit var adminAccess: AdminContentAccessService
     @MockitoBean private lateinit var storage: S3PhotoStorage
     private val client = HttpClient.newHttpClient()
     private val passwordHash = "!"
@@ -583,7 +586,7 @@ internal class AdminModerationIntegrationTests : PostgresIntegrationTest() {
         "OUTFIT, USER, ACTIVE",
         "OUTFIT, ADMIN, BLOCKED",
     )
-    fun `delete rechecks fresh administrator permission after actual business row lock wait`(
+    fun `photo delete keeps approved access while outfit delete rechecks after actual row lock wait`(
         kind: String,
         role: UserRole,
         status: UserStatus,
@@ -601,6 +604,13 @@ internal class AdminModerationIntegrationTests : PostgresIntegrationTest() {
         val table = if (kind == "PHOTO") "wardrobe_item" else "outfit"
         val id = if (kind == "PHOTO") fixtureState.item else fixtureState.outfit
         if (kind == "PHOTO") {
+            doAnswer { call ->
+                    assertThat(TransactionSynchronizationManager.isCurrentTransactionReadOnly())
+                        .isTrue()
+                    mockingDetails(adminAccess).mockCreationSettings.defaultAnswer.answer(call)
+                }
+                .`when`(adminAccess)
+                .requireAccess(fixtureState.admin.id!!, fixtureState.owner.id!!)
             doAnswer { call ->
                     enteringLock.countDown()
                     mockingDetails(itemRepository).mockCreationSettings.defaultAnswer.answer(call)
@@ -650,12 +660,25 @@ internal class AdminModerationIntegrationTests : PostgresIntegrationTest() {
                 holder.get(20, TimeUnit.SECONDS)
 
                 // then
-                assertForbidden(deletion.get(20, TimeUnit.SECONDS))
+                val response = deletion.get(20, TimeUnit.SECONDS)
+                if (kind == "PHOTO") {
+                    assertEmpty(response, 204)
+                    verify(adminAccess)
+                        .requireAccess(fixtureState.admin.id!!, fixtureState.owner.id!!)
+
+                    // when
+                    val nextRequest = request("DELETE", photoPath(fixtureState), actorId)
+
+                    // then
+                    assertForbidden(nextRequest)
+                } else {
+                    assertForbidden(response)
+                }
             } finally {
                 release.countDown()
             }
         }
-        assertThat(count("wardrobe_item_photo")).isEqualTo(1)
+        assertThat(count("wardrobe_item_photo")).isEqualTo(if (kind == "PHOTO") 0 else 1)
         assertThat(count("outfit")).isEqualTo(1)
         assertThat(count("outfit_item")).isEqualTo(1)
         assertThat(count("outfit_weather")).isEqualTo(1)
