@@ -1,4 +1,4 @@
-package ru.itmo.clothesadvisor.controller.user
+package ru.itmo.clothesadvisor.accountservice.controller.user
 
 import com.jayway.jsonpath.JsonPath
 import java.net.URI
@@ -7,10 +7,12 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.sql.Timestamp
 import java.time.Duration
+import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.Callable
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
+import java.util.concurrent.Future
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import org.assertj.core.api.Assertions.assertThat
@@ -18,44 +20,34 @@ import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
-import org.mockito.ArgumentMatchers.anyList
+import org.mockito.ArgumentMatchers.anyLong
 import org.mockito.Mockito.doAnswer
 import org.mockito.Mockito.mockingDetails
 import org.mockito.Mockito.verify
-import org.mockito.Mockito.verifyNoInteractions
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
-import org.springframework.context.annotation.Import
-import org.springframework.data.domain.PageRequest
-import org.springframework.jdbc.core.JdbcTemplate
-import org.springframework.test.context.bean.override.mockito.MockitoBean
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
-import ru.itmo.clothesadvisor.config.PostgresIntegrationTest
-import ru.itmo.clothesadvisor.config.TestTimeConfiguration
-import ru.itmo.clothesadvisor.config.insertUser
-import ru.itmo.clothesadvisor.model.user.AppUser
-import ru.itmo.clothesadvisor.model.user.UserRole
-import ru.itmo.clothesadvisor.model.user.UserStatus
-import ru.itmo.clothesadvisor.repository.user.AppUserRepository
-import ru.itmo.clothesadvisor.service.user.AppUserService
-import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
+import reactor.core.publisher.Flux
+import reactor.core.publisher.Sinks
+import ru.itmo.clothesadvisor.accountservice.config.PostgresIntegrationTest
+import ru.itmo.clothesadvisor.accountservice.model.user.AppUser
+import ru.itmo.clothesadvisor.accountservice.model.user.UserRole
+import ru.itmo.clothesadvisor.accountservice.model.user.UserStatus
+import ru.itmo.clothesadvisor.accountservice.repository.user.AppUserRepository
+import ru.itmo.clothesadvisor.accountservice.service.user.AppUserService
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Import(TestTimeConfiguration::class)
-class AdminUserIntegrationTests : PostgresIntegrationTest() {
+class AdminUserContractIntegrationTests : PostgresIntegrationTest() {
     @LocalServerPort private var port: Int = 0
     @Autowired private lateinit var users: AppUserService
-    @Autowired private lateinit var jdbc: JdbcTemplate
     @MockitoSpyBean private lateinit var repository: AppUserRepository
-    @MockitoBean private lateinit var storage: S3PhotoStorage
     private val client = HttpClient.newHttpClient()
     private val passwordHash = "!"
 
     @AfterEach
-    fun closeClientAndCheckStorage() {
+    fun closeClient() {
         client.close()
-        verifyNoInteractions(storage)
     }
 
     @Test
@@ -72,8 +64,8 @@ class AdminUserIntegrationTests : PostgresIntegrationTest() {
                     "listed-$it",
                     passwordHash,
                     if (it == 51) "BLOCKED" else "ACTIVE",
-                    Timestamp.from(TestTimeConfiguration.FIXED_TIME),
-                    Timestamp.from(TestTimeConfiguration.FIXED_TIME),
+                    Timestamp.from(FIXED_TIME),
+                    Timestamp.from(FIXED_TIME),
                 )
             },
         )
@@ -91,7 +83,7 @@ class AdminUserIntegrationTests : PostgresIntegrationTest() {
 
         // then
         assertThat(rows(first).first()["status"]).isEqualTo("BLOCKED")
-        verify(repository).findAllByOrderByIdDesc(PageRequest.of(0, 50))
+        verify(repository).findPage(50, 0)
 
         // when
         val next = request("GET", "$PATH?page=1&size=50", actorId)
@@ -127,9 +119,9 @@ class AdminUserIntegrationTests : PostgresIntegrationTest() {
         assertThat(dto(blocked)["login"]).isEqualTo("listed-51")
         assertThat(dto(blocked)["status"]).isEqualTo("BLOCKED")
         assertThat(number(dto(blocked), "version")).isEqualTo(1)
-        assertThat(dto(blocked)["createdAt"]).isEqualTo(TestTimeConfiguration.FIXED_TIME.toString())
+        assertThat(dto(blocked)["createdAt"]).isEqualTo(FIXED_TIME.toString())
         assertThat(dto(blocked)["modifiedAt"])
-            .isEqualTo(TestTimeConfiguration.FIXED_TIME.toString())
+            .isEqualTo(FIXED_TIME.toString())
 
         // when
         val missingUser = request("GET", "$PATH/${Long.MAX_VALUE}", actorId)
@@ -146,7 +138,7 @@ class AdminUserIntegrationTests : PostgresIntegrationTest() {
         val target = user()
         val actorId = actorId(admin)
         val path = "$PATH/${target.id}"
-        val before = TestTimeConfiguration.FIXED_TIME.minusSeconds(1)
+        val before = FIXED_TIME.minusSeconds(1)
         jdbc.update(
             "UPDATE app_user SET created_at = ?, modified_at = ? WHERE id = ?",
             Timestamp.from(before),
@@ -268,19 +260,22 @@ class AdminUserIntegrationTests : PostgresIntegrationTest() {
         val actorId = actorId(admin)
 
         // given: change the actor status or role before the next attempt
-        users.changeRoleAndStatus(admin.id!!, 1, UserRole.ADMIN, UserStatus.BLOCKED)
+        users.changeRoleAndStatus(admin.id, 1, UserRole.ADMIN, UserStatus.BLOCKED)
+            .block(Duration.ofSeconds(10))
 
         // when
         assertDenied(actorId, target, 403)
 
         // given
-        users.changeRoleAndStatus(admin.id!!, 2, UserRole.USER, UserStatus.ACTIVE)
+        users.changeRoleAndStatus(admin.id, 2, UserRole.USER, UserStatus.ACTIVE)
+            .block(Duration.ofSeconds(10))
 
         // when
         assertDenied(actorId, target, 403)
 
         // given
-        users.changeRoleAndStatus(admin.id!!, 3, UserRole.ADMIN, UserStatus.ACTIVE)
+        users.changeRoleAndStatus(admin.id, 3, UserRole.ADMIN, UserStatus.ACTIVE)
+            .block(Duration.ofSeconds(10))
 
         // when
         val restoredAdminStatus = request("GET", PATH, actorId).statusCode()
@@ -410,21 +405,24 @@ class AdminUserIntegrationTests : PostgresIntegrationTest() {
         val waiterActorId = actorId(waitingAdmin)
         val locked = CountDownLatch(1)
         val enteringSecondLock = CountDownLatch(1)
-        val release = CountDownLatch(1)
+        val release = Sinks.empty<Void>()
         val isFirst = AtomicBoolean(true)
         doAnswer { call ->
-                val firstCall = isFirst.compareAndSet(true, false)
-                if (!firstCall) enteringSecondLock.countDown()
-                val result =
+                @Suppress("UNCHECKED_CAST")
+                val query =
                     mockingDetails(repository).mockCreationSettings.defaultAnswer.answer(call)
-                if (firstCall) {
-                    locked.countDown()
-                    assertThat(release.await(10, TimeUnit.SECONDS)).isTrue()
+                        as Flux<AppUser>
+                if (isFirst.compareAndSet(true, false)) {
+                    query.collectList().flatMapMany { rows ->
+                        locked.countDown()
+                        release.asMono().thenMany(Flux.fromIterable(rows))
+                    }
+                } else {
+                    query.doOnSubscribe { enteringSecondLock.countDown() }
                 }
-                result
             }
             .`when`(repository)
-            .findAllLockedByIdInOrderByIdAsc(anyList())
+            .findLockedRows(anyLong(), anyLong())
         Executors.newFixedThreadPool(2).use { executor ->
 
             // when
@@ -439,9 +437,10 @@ class AdminUserIntegrationTests : PostgresIntegrationTest() {
                         )
                     },
                 )
+            var waiter: Future<HttpResponse<String>>? = null
             try {
                 assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue()
-                val waiter =
+                waiter =
                     executor.submit(
                         Callable {
                             request(
@@ -454,13 +453,18 @@ class AdminUserIntegrationTests : PostgresIntegrationTest() {
                     )
                 assertThat(enteringSecondLock.await(10, TimeUnit.SECONDS)).isTrue()
                 assertDatabaseLockWait()
-                release.countDown()
+                release.tryEmitEmpty().orThrow()
 
                 // then
                 assertThat(winner.get(30, TimeUnit.SECONDS).statusCode()).isEqualTo(200)
                 assertThat(waiter.get(30, TimeUnit.SECONDS).statusCode()).isEqualTo(403)
             } finally {
-                release.countDown()
+                release.tryEmitEmpty()
+                try {
+                    winner.get(30, TimeUnit.SECONDS)
+                } finally {
+                    waiter?.get(30, TimeUnit.SECONDS)
+                }
             }
         }
         assertThat(
@@ -539,8 +543,22 @@ class AdminUserIntegrationTests : PostgresIntegrationTest() {
         assertThat(updateStatus).isEqualTo(status)
     }
 
-    private fun user(role: UserRole = UserRole.USER): AppUser =
-        jdbc.insertUser(UUID.randomUUID().toString(), passwordHash, role)
+    private fun user(role: UserRole = UserRole.USER): AppUser {
+        val login = UUID.randomUUID().toString()
+        val id =
+            jdbc.queryForObject(
+                """INSERT INTO app_user
+                (login, password_hash, role, status, version, created_at, modified_at)
+                VALUES (?, ?, ?::user_role, 'ACTIVE', 1, ?, ?) RETURNING id""",
+                Long::class.java,
+                login,
+                passwordHash,
+                role.name,
+                Timestamp.from(FIXED_TIME),
+                Timestamp.from(FIXED_TIME),
+            )!!
+        return AppUser(id, login, passwordHash, role, UserStatus.ACTIVE, 1, FIXED_TIME, FIXED_TIME)
+    }
 
     private fun actorId(user: AppUser): String = requireNotNull(user.id).toString()
 
@@ -599,5 +617,6 @@ class AdminUserIntegrationTests : PostgresIntegrationTest() {
 
     companion object {
         private const val PATH = "/api/admin/users"
+        private val FIXED_TIME = Instant.parse("2026-01-01T10:00:00.123456Z")
     }
 }

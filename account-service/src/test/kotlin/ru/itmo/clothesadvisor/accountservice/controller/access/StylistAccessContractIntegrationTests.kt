@@ -1,10 +1,13 @@
-package ru.itmo.clothesadvisor.controller.access
+package ru.itmo.clothesadvisor.accountservice.controller.access
 
 import com.jayway.jsonpath.JsonPath
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.sql.Timestamp
+import java.time.Duration
+import java.time.Instant
 import java.util.UUID
 import java.util.concurrent.Callable
 import java.util.concurrent.CyclicBarrier
@@ -18,23 +21,17 @@ import org.junit.jupiter.api.parallel.ExecutionMode
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
-import org.springframework.context.annotation.Import
-import org.springframework.jdbc.core.JdbcTemplate
-import ru.itmo.clothesadvisor.config.PostgresIntegrationTest
-import ru.itmo.clothesadvisor.config.TestTimeConfiguration
-import ru.itmo.clothesadvisor.config.insertUser
-import ru.itmo.clothesadvisor.model.user.AppUser
-import ru.itmo.clothesadvisor.model.user.UserRole
-import ru.itmo.clothesadvisor.model.user.UserStatus
-import ru.itmo.clothesadvisor.service.user.AppUserService
+import ru.itmo.clothesadvisor.accountservice.config.PostgresIntegrationTest
+import ru.itmo.clothesadvisor.accountservice.model.user.AppUser
+import ru.itmo.clothesadvisor.accountservice.model.user.UserRole
+import ru.itmo.clothesadvisor.accountservice.model.user.UserStatus
+import ru.itmo.clothesadvisor.accountservice.service.user.AppUserService
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@Import(TestTimeConfiguration::class)
 @Execution(ExecutionMode.SAME_THREAD)
-class StylistAccessIntegrationTests : PostgresIntegrationTest() {
+class StylistAccessContractIntegrationTests : PostgresIntegrationTest() {
     @LocalServerPort private var port: Int = 0
     @Autowired private lateinit var users: AppUserService
-    @Autowired private lateinit var jdbc: JdbcTemplate
     private val client = HttpClient.newHttpClient()
     private val passwordHash = "!"
 
@@ -309,11 +306,28 @@ class StylistAccessIntegrationTests : PostgresIntegrationTest() {
     private fun user(
         role: UserRole = UserRole.USER,
         status: UserStatus = UserStatus.ACTIVE,
-    ): AppUser = jdbc.insertUser(UUID.randomUUID().toString(), passwordHash, role, status)
+    ): AppUser {
+        val login = UUID.randomUUID().toString()
+        val id =
+            jdbc.queryForObject(
+                """INSERT INTO app_user
+                (login, password_hash, role, status, version, created_at, modified_at)
+                VALUES (?, ?, ?::user_role, ?::user_status, 1, ?, ?) RETURNING id""",
+                Long::class.java,
+                login,
+                passwordHash,
+                role.name,
+                status.name,
+                Timestamp.from(FIXED_TIME),
+                Timestamp.from(FIXED_TIME),
+            )!!
+        return AppUser(id, login, passwordHash, role, status, 1, FIXED_TIME, FIXED_TIME)
+    }
 
     private fun change(user: AppUser, role: UserRole, status: UserStatus) {
-        val current = requireNotNull(users.findById(user.id!!))
-        users.changeRoleAndStatus(user.id!!, current.version, role, status)
+        val current = requireNotNull(users.findById(user.id).block(Duration.ofSeconds(10)))
+        users.changeRoleAndStatus(user.id, current.version, role, status)
+            .block(Duration.ofSeconds(10))
     }
 
     private fun actorId(user: AppUser): String = requireNotNull(user.id).toString()
@@ -335,7 +349,7 @@ class StylistAccessIntegrationTests : PostgresIntegrationTest() {
         )!!
 
     private fun identity(user: AppUser): Map<String, Any> =
-        mapOf("id" to user.id!!.toInt(), "login" to user.login)
+        mapOf("id" to user.id.toInt(), "login" to user.login)
 
     private fun assertNotFound(response: HttpResponse<ByteArray>) {
 
@@ -373,6 +387,7 @@ class StylistAccessIntegrationTests : PostgresIntegrationTest() {
     companion object {
         private const val ACCESS = "/api/me/stylist-access"
         private const val CLIENTS = "/api/stylist/clients"
+        private val FIXED_TIME = Instant.parse("2026-01-01T10:00:00.123456Z")
         private val INVALID_PAGES =
             listOf(
                 "page=-1",
