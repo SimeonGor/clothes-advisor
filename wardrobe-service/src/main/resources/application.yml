@@ -13,6 +13,9 @@ app:
 spring:
   application:
     name: wardrobe-service
+  mvc:
+    async:
+      request-timeout: 0ms
   servlet:
     multipart:
       max-file-size: 10000000B
