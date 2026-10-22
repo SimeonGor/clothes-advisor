@@ -40,7 +40,7 @@ kotlin {
 
 tasks.withType<Test> {
     useJUnitPlatform()
-    inputs.file(layout.projectDirectory.file("../config-repository/account-service.yml"))
+    inputs.file(layout.projectDirectory.file("../config-repository/account-service/account-service.yml"))
     inputs.dir(layout.projectDirectory.dir("../ops/account-transfer"))
     inputs.dir(
         layout.projectDirectory.dir("../wardrobe-service/src/main/resources/db/migration"),

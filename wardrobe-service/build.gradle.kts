@@ -44,7 +44,7 @@ kotlin {
 
 tasks.withType<Test> {
     useJUnitPlatform()
-    inputs.file(layout.projectDirectory.file("../config-repository/wardrobe-service.yml"))
+    inputs.file(layout.projectDirectory.file("../config-repository/wardrobe-service/wardrobe-service.yml"))
 }
 
 jacoco {

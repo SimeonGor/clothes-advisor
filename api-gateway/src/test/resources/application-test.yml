@@ -1,6 +1,6 @@
 spring:
   config:
-    import: "file:../config-repository/api-gateway.yml"
+    import: "file:../config-repository/api-gateway/api-gateway.yml"
   cloud:
     config:
       enabled: false

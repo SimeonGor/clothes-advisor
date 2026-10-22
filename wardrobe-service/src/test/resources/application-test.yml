@@ -4,7 +4,7 @@ spring:
       maximum-pool-size: 4
       minimum-idle: 0
   config:
-    import: "file:../config-repository/wardrobe-service.yml"
+    import: "file:../config-repository/wardrobe-service/wardrobe-service.yml"
   cloud:
     config:
       enabled: false
