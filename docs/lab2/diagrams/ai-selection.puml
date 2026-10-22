@@ -16,28 +16,34 @@ participant "recommendation-service" as recommendation
 participant "OpenAI" as ai
 
 client -> wardrobe : POST /api/outfits/ai
-wardrobe -> account : Текущий пользователь
+wardrobe -> account : Текущий пользователь · проверка ACTIVE
+account --> wardrobe : id, login, role, status
+wardrobe -> account : Свежие сведения для допуска к AI
 account --> wardrobe : id, login, role, status
 wardrobe -> wardrobe : Проверить ACTIVE USER и личный допуск\nПопытаться занять единственный слот
 
 alt Слот уже занят
   wardrobe --> client : 503 · без S3 и AI
 else Слот занят этим запросом
-  wardrobe -> account : Свежая проверка активности
-  account --> wardrobe : Разрешено
   group Короткая транзакция чтения
     wardrobe -> db : Кандидаты, первое фото, погода
     db --> wardrobe : 1–20 кандидатов + исходные photoId
   end
 
-  group Внешние вызовы без открытой транзакции БД
+  group Сетевые вызовы — вне JDBC-транзакций
     loop Для каждого кандидата
       wardrobe -> account : Проверить активность
       account --> wardrobe : Разрешено
+      group Короткая транзакция чтения метаданных
+        wardrobe -> db : Проверить вещь и исходное фото
+        db --> wardrobe : Ключ S3, тип и размер
+      end
       wardrobe -> s3 : Получить фото
       s3 --> wardrobe : Байты JPEG / PNG
-      wardrobe -> db : Повторно проверить метаданные
-      db --> wardrobe : Фото существует
+      group Короткая транзакция повторного чтения
+        wardrobe -> db : Проверить вещь и исходное фото
+        db --> wardrobe : Фото существует
+      end
       wardrobe -> account : Проверить активность после S3
       account --> wardrobe : Разрешено
     end
