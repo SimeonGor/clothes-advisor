@@ -1,28 +1,126 @@
 package ru.itmo.clothesadvisor.accountservice.controller.internalapi
 
 import com.jayway.jsonpath.JsonPath
+import io.micrometer.tracing.Tracer
+import io.opentelemetry.sdk.trace.export.SpanExporter
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.time.Duration
 import java.util.UUID
+import java.util.concurrent.CopyOnWriteArrayList
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
 import org.junit.jupiter.params.provider.ValueSource
+import org.mockito.Mockito.doAnswer
+import org.mockito.Mockito.mockingDetails
+import org.slf4j.MDC
+import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.boot.health.contributor.Health
+import org.springframework.boot.health.contributor.ReactiveHealthIndicator
+import org.springframework.boot.health.registry.ReactiveHealthContributorRegistry
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
+import org.springframework.context.ApplicationContext
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
+import reactor.core.publisher.Mono
 import ru.itmo.clothesadvisor.accountservice.config.PostgresIntegrationTest
+import ru.itmo.clothesadvisor.accountservice.model.user.AppUser
+import ru.itmo.clothesadvisor.accountservice.repository.user.AppUserRepository
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class InternalAccountIntegrationTests : PostgresIntegrationTest() {
     @LocalServerPort private var port = 0
+    @Autowired private lateinit var tracer: Tracer
+    @Autowired private lateinit var context: ApplicationContext
+    @Autowired private lateinit var health: ReactiveHealthContributorRegistry
+    @MockitoSpyBean private lateinit var repository: AppUserRepository
     private val client = HttpClient.newHttpClient()
 
     @AfterEach fun closeClient() = client.close()
+
+    @Test
+    fun `actual R2DBC signal retains request trace and MDC without leaking to the next request`() {
+        // given
+        val id = user()
+        val traceId = "0123456789abcdef0123456789abcdef"
+        val parentSpanId = "0123456789abcdef"
+        data class QueryTrace(
+            val traceId: String?,
+            val spanId: String?,
+            val mdcTraceId: String?,
+            val mdcSpanId: String?,
+        )
+        val signals = CopyOnWriteArrayList<QueryTrace>()
+        doAnswer { call ->
+            @Suppress("UNCHECKED_CAST")
+            val query = mockingDetails(call.mock).mockCreationSettings.defaultAnswer.answer(call)
+                as Mono<AppUser>
+            query.doOnNext {
+                val span = tracer.currentSpan()?.context()
+                signals += QueryTrace(span?.traceId(), span?.spanId(), MDC.get("traceId"),
+                    MDC.get("spanId"))
+            }
+        }.`when`(repository).findById(id)
+
+        // when
+        val correlated = get("/internal/users/$id", traceparent = "00-$traceId-$parentSpanId-01")
+        val independent = get("/internal/users/$id")
+
+        // then
+        assertThat(correlated.statusCode()).isEqualTo(200)
+        assertThat(independent.statusCode()).isEqualTo(200)
+        assertThat(signals).hasSize(2)
+        assertThat(signals[0].traceId).isEqualTo(traceId)
+        assertThat(signals[0].spanId).matches("[0-9a-f]{16}").isNotEqualTo(parentSpanId)
+        assertThat(signals[1].traceId).matches("[0-9a-f]{32}").isNotEqualTo(traceId)
+        signals.forEach {
+            assertThat(it.mdcTraceId).isEqualTo(it.traceId)
+            assertThat(it.mdcSpanId).isEqualTo(it.spanId)
+        }
+        assertThat(tracer).isNotSameAs(Tracer.NOOP)
+        assertThat(context.getBeansOfType(SpanExporter::class.java)).isEmpty()
+    }
+
+    @Test
+    fun `R2DBC failure affects readiness but not liveness and HTTP metrics remain available`() {
+        // given
+        assertThat(get("/actuator/health/readiness").statusCode()).isEqualTo(200)
+        assertThat(get("/actuator/health/liveness").statusCode()).isEqualTo(200)
+        val database = requireNotNull(health.unregisterContributor("r2dbc"))
+
+        try {
+            health.registerContributor("r2dbc", ReactiveHealthIndicator {
+                Mono.just(Health.down().build())
+            })
+
+            // when
+            val readiness = get("/actuator/health/readiness")
+            val liveness = get("/actuator/health/liveness")
+
+            // then
+            assertThat(readiness.statusCode()).isEqualTo(503)
+            assertThat(JsonPath.read<String>(readiness.body(), "$.status")).isEqualTo("DOWN")
+            assertThat(liveness.statusCode()).isEqualTo(200)
+            assertThat(JsonPath.read<String>(liveness.body(), "$.status")).isEqualTo("UP")
+        } finally {
+            health.unregisterContributor("r2dbc")
+            health.registerContributor("r2dbc", database)
+        }
+
+        // when
+        val restored = get("/actuator/health/readiness")
+        val metrics = get("/actuator/metrics/http.server.requests")
+
+        // then
+        assertThat(restored.statusCode()).isEqualTo(200)
+        assertThat(metrics.statusCode()).isEqualTo(200)
+        assertThat(JsonPath.read<String>(metrics.body(), "$.name")).isEqualTo("http.server.requests")
+    }
 
     @ParameterizedTest
     @CsvSource("USER, ACTIVE", "USER, BLOCKED", "STYLIST, ACTIVE", "STYLIST, BLOCKED",
@@ -273,10 +371,15 @@ class InternalAccountIntegrationTests : PostgresIntegrationTest() {
     private fun stylistPath(stylist: Long, owner: Long) =
         "/internal/stylist-access/$stylist/clients/$owner"
 
-    private fun get(path: String, actor: String? = null): HttpResponse<String> {
+    private fun get(
+        path: String,
+        actor: String? = null,
+        traceparent: String? = null,
+    ): HttpResponse<String> {
         val request = HttpRequest.newBuilder(URI("http://localhost:$port$path"))
             .timeout(Duration.ofSeconds(15)).GET()
         actor?.let { request.header("X-User-Id", it) }
+        traceparent?.let { request.header("traceparent", it) }
         return client.send(request.build(), HttpResponse.BodyHandlers.ofString())
     }
 

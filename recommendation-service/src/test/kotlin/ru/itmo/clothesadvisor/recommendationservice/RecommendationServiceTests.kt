@@ -53,12 +53,31 @@ class RecommendationServiceTests {
 
         // when
         val healthResponse = http.send(healthRequest, HttpResponse.BodyHandlers.ofString())
+        val probes = listOf("liveness", "readiness").map { group ->
+            http.send(
+                HttpRequest.newBuilder(URI("http://127.0.0.1:$port/actuator/health/$group"))
+                    .GET().build(),
+                HttpResponse.BodyHandlers.ofString(),
+            )
+        }
+        val metrics = http.send(
+            HttpRequest.newBuilder(URI("http://127.0.0.1:$port/actuator/metrics/http.server.requests"))
+                .GET().build(),
+            HttpResponse.BodyHandlers.ofString(),
+        )
         val failure = catchThrowable { outfitClient.requireAvailable() }
 
         // then
         assertThat(healthResponse.statusCode()).isEqualTo(200)
         assertThat(mapper.readTree(healthResponse.body()).path("status").asString())
             .isEqualTo("UP")
+        probes.forEach {
+            assertThat(it.statusCode()).isEqualTo(200)
+            assertThat(mapper.readTree(it.body()).path("status").asString()).isEqualTo("UP")
+        }
+        assertThat(metrics.statusCode()).isEqualTo(200)
+        assertThat(mapper.readTree(metrics.body()).path("name").asString())
+            .isEqualTo("http.server.requests")
         assertThat(applicationContext.environment.getProperty("spring.application.name"))
             .isEqualTo("recommendation-service")
         assertThat(applicationContext.getBeansOfType(Clock::class.java)).hasSize(1)

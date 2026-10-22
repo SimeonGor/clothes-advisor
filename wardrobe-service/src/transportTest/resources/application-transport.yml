@@ -28,3 +28,16 @@ spring:
     import: "file:../config-repository/wardrobe-service.yml"
   main:
     web-application-type: none
+
+---
+spring:
+  config:
+    activate:
+      on-profile: transport-client
+
+management:
+  endpoint:
+    health:
+      group:
+        readiness:
+          include: readinessState

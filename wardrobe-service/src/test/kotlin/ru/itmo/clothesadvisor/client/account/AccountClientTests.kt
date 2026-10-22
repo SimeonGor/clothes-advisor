@@ -5,6 +5,7 @@ import feign.Client
 import feign.Request
 import feign.Retryer
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry
+import io.micrometer.tracing.Tracer
 import java.math.BigDecimal
 import java.net.InetSocketAddress
 import java.net.URI
@@ -12,6 +13,7 @@ import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -23,6 +25,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.TestReporter
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
+import org.slf4j.MDC
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration
 import org.springframework.boot.test.context.SpringBootTest
@@ -41,6 +44,8 @@ import org.springframework.test.context.DynamicPropertySource
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.RestController
+import reactor.core.publisher.Mono
+import reactor.core.scheduler.Schedulers
 import ru.itmo.clothesadvisor.client.recommendation.RecommendationClient
 import ru.itmo.clothesadvisor.config.ExternalClientsConfiguration
 import ru.itmo.clothesadvisor.controller.ApiExceptionHandler
@@ -67,18 +72,43 @@ class AccountClientTests {
 
     @RestController
     @Profile("account-client-test")
-    internal class Probe(private val client: AccountClient) {
+    internal class Probe(
+        private val client: AccountClient,
+        private val recommendation: RecommendationClient,
+        private val tracer: Tracer,
+    ) {
+        val traces = CopyOnWriteArrayList<WorkerTrace>()
+
         @GetMapping("/account-probe/{method}")
-        fun query(@PathVariable method: String): ResponseEntity<Void> {
+        fun query(@PathVariable method: String): Mono<ResponseEntity<Void>> = Mono.fromCallable {
+            val span = tracer.currentSpan()?.context()
+            traces += WorkerTrace(
+                span?.traceId(), span?.spanId(), MDC.get("traceId"), MDC.get("spanId"),
+                Thread.currentThread().name,
+            )
             when (method) {
                 "user" -> client.getUser(7)
                 "stylist" -> client.requireStylistAccess(3, 7)
                 "admin" -> client.requireAdminAccess(5, 7)
+                "recommendation" -> recommendation.select(OutfitSelectionRequest(
+                    OutfitSelectionWeather(BigDecimal.ZERO, BigDecimal.ZERO, "NONE", "None"),
+                    listOf(OutfitSelectionCandidate(
+                        7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", "AQID",
+                    )),
+                ))
                 else -> error("Unknown test method")
             }
-            return ResponseEntity.noContent().build()
-        }
+            ResponseEntity.noContent().build<Void>()
+        }.subscribeOn(Schedulers.boundedElastic())
     }
+
+    internal data class WorkerTrace(
+        val traceId: String?,
+        val spanId: String?,
+        val mdcTraceId: String?,
+        val mdcSpanId: String?,
+        val thread: String,
+    )
 
     @Autowired private lateinit var client: AccountClient
     @Autowired private lateinit var recommendation: RecommendationClient
@@ -86,6 +116,7 @@ class AccountClientTests {
     @Autowired private lateinit var breakers: CircuitBreakerRegistry
     @Autowired private lateinit var discovery: SimpleReactiveDiscoveryProperties
     @Autowired private lateinit var context: ApplicationContext
+    @Autowired private lateinit var probe: Probe
     @LocalServerPort private var port = 0
 
     @BeforeEach
@@ -96,7 +127,45 @@ class AccountClientTests {
         disconnect = false
         gate = null
         entered = CountDownLatch(1)
+        probe.traces.clear()
+        receivedTraceparent = null
         breakers.allCircuitBreakers.forEach { it.reset() }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = ["user", "recommendation"])
+    fun `HTTP worker and Feign breaker preserve trace and isolate the next request`(method: String) {
+        // given
+        val traceId = "0123456789abcdef0123456789abcdef"
+        val parentSpanId = "0123456789abcdef"
+
+        // when
+        val correlated = publicResponse(method, "00-$traceId-$parentSpanId-01")
+        val downstream = receivedTraceparent
+        val independent = publicResponse(method)
+        val nextDownstream = receivedTraceparent
+
+        // then
+        assertThat(correlated.statusCode()).isEqualTo(204)
+        assertThat(independent.statusCode()).isEqualTo(204)
+        assertThat(probe.traces).hasSize(2)
+        val first = probe.traces[0]
+        val second = probe.traces[1]
+        assertThat(first.traceId).isEqualTo(traceId)
+        assertThat(first.spanId).matches("[0-9a-f]{16}").isNotEqualTo(parentSpanId)
+        assertThat(second.traceId).matches("[0-9a-f]{32}").isNotEqualTo(traceId)
+        probe.traces.forEach {
+            assertThat(it.mdcTraceId).isEqualTo(it.traceId)
+            assertThat(it.mdcSpanId).isEqualTo(it.spanId)
+            assertThat(it.thread).startsWith("boundedElastic-")
+        }
+        assertThat(downstream).matches("00-$traceId-[0-9a-f]{16}-01")
+        assertThat(downstream!!.split('-')[2]).isNotEqualTo(first.spanId)
+        assertThat(nextDownstream).matches("00-${second.traceId}-[0-9a-f]{16}-[0-9a-f]{2}")
+        assertThat(nextDownstream!!.split('-')[2]).isNotEqualTo(second.spanId)
+        val breaker = if (method == "user") breakerName(method) else RECOMMENDATION_BREAKER
+        assertThat(breakers.circuitBreaker(breaker).metrics.numberOfSuccessfulCalls).isEqualTo(2)
+        assertThat(calls).hasValue(2)
     }
 
     @Test
@@ -447,10 +516,11 @@ class AccountClientTests {
         assertThat(denied.body()).isEqualTo("""{"error":"forbidden"}""")
     }
 
-    private fun publicResponse(method: String): HttpResponse<String> =
+    private fun publicResponse(method: String, traceparent: String? = null): HttpResponse<String> =
         HttpClient.newHttpClient().use {
             it.send(
                 HttpRequest.newBuilder(URI("http://127.0.0.1:$port/account-probe/$method"))
+                    .apply { traceparent?.let { header("traceparent", it) } }
                     .GET().build(),
                 HttpResponse.BodyHandlers.ofString(),
             )
@@ -488,6 +558,7 @@ class AccountClientTests {
         @Volatile private var receivedMethod = ""
         @Volatile private var receivedUserHeader: String? = null
         @Volatile private var receivedBody = ""
+        @Volatile private var receivedTraceparent: String? = null
         @Volatile private var disconnect = false
         @Volatile private var gate: CountDownLatch? = null
         @Volatile private var entered = CountDownLatch(1)
@@ -500,6 +571,7 @@ class AccountClientTests {
                     receivedPath = it.requestURI.path
                     receivedMethod = it.requestMethod
                     receivedUserHeader = it.requestHeaders.getFirst("X-User-Id")
+                    receivedTraceparent = it.requestHeaders.getFirst("traceparent")
                     receivedBody = it.requestBody.bufferedReader().readText()
                     if (disconnect) return@createContext
                     gate?.let { release ->

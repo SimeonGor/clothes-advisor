@@ -1,4 +1,6 @@
 spring:
+  reactor:
+    context-propagation: auto
   cloud:
     openfeign:
       circuitbreaker:
@@ -54,3 +56,14 @@ eureka:
     prefer-ip-address: true
     health-check-url-path: /actuator/health
     status-page-url-path: /actuator/health
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics
+  endpoint:
+    health:
+      group:
+        readiness:
+          include: readinessState,db
