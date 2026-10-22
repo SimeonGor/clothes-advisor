@@ -67,6 +67,38 @@ class ConfigServerTests {
             )
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = ["default", "local"])
+    fun `native repository serves account discovery and health configuration without secrets`(
+        profile: String,
+    ) {
+        // given
+        val request = HttpRequest.newBuilder(URI("http://127.0.0.1:$port/account-service/$profile"))
+            .GET().build()
+
+        // when
+        val response = http.send(request, HttpResponse.BodyHandlers.ofString())
+
+        // then
+        assertThat(response.statusCode()).isEqualTo(200)
+        val sources = mapper.readTree(response.body()).path("propertySources")
+        assertThat(sources).isNotEmpty
+        assertThat(property(sources, "server.port")).isNotNull
+        assertThat(property(sources, "eureka.client.service-url.defaultZone")?.asString())
+            .contains("localhost:8761/eureka/")
+        assertThat(property(sources, "eureka.client.healthcheck.enabled")?.asBoolean()).isTrue()
+        assertThat(property(sources, "eureka.instance.prefer-ip-address")?.asBoolean()).isTrue()
+        assertThat(property(sources, "management.endpoints.web.exposure.include")?.asString())
+            .isEqualTo("health")
+        assertThat(property(sources, "management.endpoint.health.show-details")?.asString())
+            .isEqualTo("never")
+        assertThat(property(sources, "management.health.config.enabled")?.asBoolean()).isFalse()
+        assertThat(response.body()).doesNotContain(
+            "synthetic-db-secret", "DB_PASSWORD", "spring.r2dbc", "spring.flyway",
+            "YANDEX_SERVICE_ACCOUNT_KEY", "OPENAI_API_KEY",
+        )
+    }
+
     private fun property(sources: JsonNode, name: String): JsonNode? =
         sources.firstNotNullOfOrNull { source ->
             source.path("source").path(name).takeUnless { it.isMissingNode }

@@ -131,8 +131,14 @@ services:
       DB_URL: jdbc:postgresql://account-postgres:5432/account_db
       DB_USER: account
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
+      CONFIG_SERVER_URL: http://config-server:8888
+      EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
     depends_on:
+      config-server:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
       account-postgres:
         condition: service_healthy
     healthcheck:
