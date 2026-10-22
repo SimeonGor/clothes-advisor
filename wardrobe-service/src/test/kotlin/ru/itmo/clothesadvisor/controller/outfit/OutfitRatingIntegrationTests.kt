@@ -33,6 +33,7 @@ import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.bean.override.mockito.MockitoBean
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
 import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate
 import ru.itmo.clothesadvisor.config.PostgresIntegrationTest
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
@@ -66,7 +67,7 @@ class OutfitRatingIntegrationTests : PostgresIntegrationTest() {
     @Autowired private lateinit var items: WardrobeItemService
     @Autowired private lateinit var outfits: OutfitService
     @Autowired private lateinit var ratings: OutfitRatingService
-    @Autowired private lateinit var access: AccessGrantService
+    @MockitoSpyBean private lateinit var access: AccessGrantService
     @Autowired private lateinit var jdbc: JdbcTemplate
     @Autowired private lateinit var transactionManager: PlatformTransactionManager
     @MockitoSpyBean private lateinit var outfitRepository: OutfitRepository
@@ -1224,7 +1225,9 @@ class OutfitRatingIntegrationTests : PostgresIntegrationTest() {
 
     @ParameterizedTest
     @ValueSource(strings = ["POST", "PUT", "DELETE"])
-    fun `access revoked during lock wait prevents rating mutation`(method: String) {
+    fun `access revoked during lock wait permits approved rating mutation and denies next request`(
+        method: String,
+    ) {
         // given
         val fixtureState = fixture()
         if (method != "POST")
@@ -1248,13 +1251,57 @@ class OutfitRatingIntegrationTests : PostgresIntegrationTest() {
 
         // then
         assertRating(other, 201, "DISLIKE", 1)
-        assertEmpty(waiting, 404)
+        when (method) {
+            "POST" -> assertRating(waiting, 201, "LIKE", 1)
+            "PUT" -> assertRating(waiting, 200, "DISLIKE", 2)
+            else -> assertEmpty(waiting, 204)
+        }
         assertThat(current(fixtureState).filter { it.stylistId == fixtureState.stylist.id })
             .isEqualTo(
-                if (method != "POST") listOf(snapshot(fixtureState.stylist.id!!, "LIKE", 1))
-                else emptyList<Snapshot>(),
+                when (method) {
+                    "POST" -> listOf(snapshot(fixtureState.stylist.id!!, "LIKE", 1))
+                    "PUT" -> listOf(snapshot(fixtureState.stylist.id!!, "DISLIKE", 2))
+                    else -> emptyList<Snapshot>()
+                },
             )
-        assertThat(archived(fixtureState)).isEmpty()
+        assertThat(archived(fixtureState))
+            .isEqualTo(
+                if (method == "POST") emptyList<Snapshot>()
+                else listOf(snapshot(fixtureState.stylist.id!!, "LIKE", 1)),
+            )
+
+        // when
+        val nextRequest = mutateRating(fixtureState, method, actorId)
+
+        // then
+        assertEmpty(nextRequest, 404)
+    }
+
+    @Test
+    fun `rating mutations and history authorize before local write and repeatable read transactions`() {
+        // given
+        val fixtureState = fixture()
+        val actorId = actorId(fixtureState.stylist)
+        doAnswer { call ->
+                assertThat(TransactionSynchronizationManager.isCurrentTransactionReadOnly()).isTrue()
+                assertThat(TransactionSynchronizationManager.getCurrentTransactionIsolationLevel())
+                    .isNull()
+                mockingDetails(access).mockCreationSettings.defaultAnswer.answer(call)
+            }
+            .`when`(access)
+            .requireAccess(fixtureState.stylist.id!!, fixtureState.owner.id!!)
+
+        // when
+        val created = request("POST", ratingPath(fixtureState), actorId, vote())
+        val updated = request("PUT", ratingPath(fixtureState), actorId, vote("DISLIKE", 1))
+        val history = request("GET", historyPath(fixtureState), actorId)
+        val withdrawn = request("DELETE", ratingPath(fixtureState) + "?version=2", actorId)
+
+        // then
+        assertRating(created, 201, "LIKE", 1)
+        assertRating(updated, 200, "DISLIKE", 2)
+        assertThat(history.statusCode()).isEqualTo(200)
+        assertEmpty(withdrawn, 204)
     }
 
     private fun race(

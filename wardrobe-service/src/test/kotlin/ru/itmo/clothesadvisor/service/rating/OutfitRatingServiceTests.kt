@@ -3,16 +3,19 @@ package ru.itmo.clothesadvisor.service.rating
 import java.time.Instant
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.catchThrowable
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.doAnswer
-import org.mockito.Mockito.doNothing
+import org.mockito.Mockito.doThrow
+import org.mockito.Mockito.inOrder
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.never
-import org.mockito.Mockito.times
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.verifyNoInteractions
 import org.mockito.Mockito.`when`
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.support.SimpleTransactionStatus
 import ru.itmo.clothesadvisor.dto.rating.CreateRatingRequest
 import ru.itmo.clothesadvisor.dto.rating.RatingResponse
 import ru.itmo.clothesadvisor.dto.rating.UpdateRatingRequest
@@ -34,9 +37,15 @@ class OutfitRatingServiceTests {
     private val access = mock(AccessGrantService::class.java)
     private val ratings = mock(OutfitRatingRepository::class.java)
     private val history = mock(OutfitRatingHistoryRepository::class.java)
-    private val service = OutfitRatingService(outfits, access, ratings, history)
+    private val transactions = mock(PlatformTransactionManager::class.java)
+    private val service = OutfitRatingService(outfits, access, ratings, history, transactions)
     private val storedAt = Instant.parse("2026-01-01T00:00:00Z")
     private val key = OutfitRatingId(11, 2)
+
+    @BeforeEach
+    fun prepareTransactions() {
+        `when`(transactions.getTransaction(any())).thenAnswer { SimpleTransactionStatus() }
+    }
 
     private fun outfit(author: Long = 1) =
         Outfit(1, author, OutfitSource.USER, "Daily", storedAt).apply { id = 11 }
@@ -61,7 +70,12 @@ class OutfitRatingServiceTests {
         assertThat(failure).isInstanceOf(RatingConflictException::class.java)
         verify(ratings).insert(key, RatingVote.LIKE, 4)
         verify(ratings, never()).findById(key)
-        verify(access, times(2)).requireAccess(2, 1)
+        inOrder(access, transactions, outfits).apply {
+            verify(access).requireAccess(2, 1)
+            verify(transactions).getTransaction(any())
+            verify(outfits).findLockedByIdAndOwnerId(11, 1)
+        }
+        verify(access).requireAccess(2, 1)
     }
 
     @Test
@@ -81,7 +95,7 @@ class OutfitRatingServiceTests {
     }
 
     @Test
-    fun `author and revoked access after lock cannot write a rating`() {
+    fun `author cannot write a rating`() {
 
         // given
         `when`(outfits.findLockedByIdAndOwnerId(11, 1)).thenReturn(outfit(2))
@@ -93,19 +107,25 @@ class OutfitRatingServiceTests {
 
         // then
         assertThat(selfRating).isInstanceOf(AccessDeniedException::class.java)
+        verifyNoInteractions(ratings, history)
+    }
 
+    @Test
+    fun `access denial prevents all rating mutations before transaction and lock`() {
         // given
-        allowRating()
-        doNothing().doThrow(EntityNotFoundException()).`when`(access).requireAccess(2, 1)
+        doThrow(EntityNotFoundException()).`when`(access).requireAccess(2, 1)
 
         // when
-        val revokedAccess = catchThrowable {
-            service.create(2, 1, 11, CreateRatingRequest(RatingVote.LIKE))
-        }
+        val failures =
+            listOf(
+                catchThrowable { service.create(2, 1, 11, CreateRatingRequest(RatingVote.LIKE)) },
+                catchThrowable { service.update(2, 1, 11, UpdateRatingRequest(RatingVote.LIKE, 1)) },
+                catchThrowable { service.withdraw(2, 1, 11, 1) },
+            )
 
         // then
-        assertThat(revokedAccess).isInstanceOf(EntityNotFoundException::class.java)
-        verifyNoInteractions(ratings, history)
+        failures.forEach { assertThat(it).isInstanceOf(EntityNotFoundException::class.java) }
+        verifyNoInteractions(transactions, outfits, ratings, history)
     }
 
     @Test

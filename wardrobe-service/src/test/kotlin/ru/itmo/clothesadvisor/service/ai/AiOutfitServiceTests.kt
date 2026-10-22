@@ -9,6 +9,9 @@ import org.junit.jupiter.api.Test
 import org.mockito.Mockito.RETURNS_DEFAULTS
 import org.mockito.Mockito.any
 import org.mockito.Mockito.anyLong
+import org.mockito.Mockito.doAnswer
+import org.mockito.Mockito.doReturn
+import org.mockito.Mockito.doThrow
 import org.mockito.Mockito.eq
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.never
@@ -25,41 +28,42 @@ import ru.itmo.clothesadvisor.dto.outfit.OutfitWeatherDto
 import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionCandidate
 import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionRequest
 import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionResponse
+import ru.itmo.clothesadvisor.dto.user.CurrentUser
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemPhotoContent
 import ru.itmo.clothesadvisor.model.AccessDeniedException
 import ru.itmo.clothesadvisor.model.EntityNotFoundException
 import ru.itmo.clothesadvisor.model.ai.AiOutfitException
 import ru.itmo.clothesadvisor.model.ai.AiOutfitFailure
 import ru.itmo.clothesadvisor.model.outfit.OutfitSource
-import ru.itmo.clothesadvisor.model.user.AppUser
 import ru.itmo.clothesadvisor.model.user.UserRole
-import ru.itmo.clothesadvisor.model.user.UserStatus
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeCategory
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItem
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItemPhoto
 import ru.itmo.clothesadvisor.model.weather.PrecipitationType
-import ru.itmo.clothesadvisor.repository.user.AppUserRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemPhotoRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.repository.weather.PrecipitationTypeRepository
 import ru.itmo.clothesadvisor.service.outfit.OutfitService
+import ru.itmo.clothesadvisor.service.user.CurrentUserService
 import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemPhotoService
 import ru.itmo.clothesadvisor.storage.wardrobe.PhotoStorageUnavailableException
 
 class AiOutfitServiceTests {
-    private val users = mock(AppUserRepository::class.java)
+    private val users = mock(CurrentUserService::class.java)
     private val items = mock(WardrobeItemRepository::class.java)
     private val photos = mock(WardrobeItemPhotoRepository::class.java)
     private val precipitation = mock(PrecipitationTypeRepository::class.java)
     private val content = mock(WardrobeItemPhotoService::class.java)
     private var selected = listOf(11L)
     private var providerFailure: AiOutfitFailure? = null
+    private var onSelection: () -> Unit = {}
     private var receivedSelection: OutfitSelectionRequest? = null
     private val provider =
         mock(RecommendationClient::class.java) { call ->
             if (call.method.name == "select") {
                 receivedSelection = call.getArgument(0)
                 providerFailure?.let { throw AiOutfitException(it) }
+                onSelection()
                 OutfitSelectionResponse(selected)
             } else RETURNS_DEFAULTS.answer(call)
         }
@@ -88,8 +92,7 @@ class AiOutfitServiceTests {
             transactions,
             "user",
         )
-    private val owner =
-        AppUser("user", "!", UserRole.USER, UserStatus.ACTIVE, storedAt).apply { id = 7 }
+    private val owner = CurrentUser(7, "user", UserRole.USER)
     private val item =
         WardrobeItem(7, WardrobeCategory("TOP", "Top"), "Shirt", "White", "Cotton", storedAt)
             .apply { id = 11 }
@@ -100,10 +103,7 @@ class AiOutfitServiceTests {
     @BeforeEach
     fun prepare() {
         `when`(transactions.getTransaction(any())).thenAnswer { SimpleTransactionStatus() }
-        `when`(users.existsByIdAndRoleAndStatus(7, UserRole.USER, UserStatus.ACTIVE))
-            .thenReturn(true)
-        `when`(users.findByLogin("user")).thenReturn(owner)
-        `when`(users.lockActiveUserForShare(7)).thenReturn(7)
+        `when`(users.requireActive(7)).thenReturn(owner)
         `when`(precipitation.findById(1)).thenReturn(PrecipitationType("NONE", "None"))
         `when`(items.findOwnedItemsWithPhotos(7, 21)).thenReturn(listOf(item))
         `when`(items.lockOwnedItemsForShare(7, listOf(11))).thenReturn(listOf(item))
@@ -144,29 +144,72 @@ class AiOutfitServiceTests {
     }
 
     @Test
-    fun `inactive or disconnected owner never touches provider or images`() {
+    fun `inactive or missing owner is denied before any local transaction`() {
+        for (reason in listOf(AccessDeniedException(), EntityNotFoundException())) {
+            // given
+            doThrow(reason).`when`(users).requireActive(7)
+
+            // when
+            val denied = catchThrowable { service.create(7, request()) }
+
+            // then
+            assertThat(denied).isInstanceOf(AccessDeniedException::class.java)
+            verifyNoInteractions(transactions, provider, content, outfits)
+        }
+    }
+
+    @Test
+    fun `active non user roles are denied and disconnected owner is unavailable`() {
+        for (role in listOf(UserRole.ADMIN, UserRole.STYLIST)) {
+            // given
+            doReturn(owner.copy(role = role)).`when`(users).requireActive(7)
+
+            // when
+            val denied = catchThrowable { service.create(7, request()) }
+
+            // then
+            assertThat(denied).isInstanceOf(AccessDeniedException::class.java)
+        }
 
         // given
-        `when`(users.existsByIdAndRoleAndStatus(7, UserRole.USER, UserStatus.ACTIVE))
-            .thenReturn(false)
-
-        // when
-        val denied = catchThrowable { service.create(7, request()) }
-
-        // then
-        assertThat(denied).isInstanceOf(AccessDeniedException::class.java)
-
-        // given
-        `when`(users.existsByIdAndRoleAndStatus(7, UserRole.USER, UserStatus.ACTIVE))
-            .thenReturn(true)
-        `when`(users.findByLogin("user")).thenReturn(null)
+        doReturn(owner.copy(login = "other")).`when`(users).requireActive(7)
 
         // when
         val unavailable = catchThrowable { service.create(7, request()) }
 
         // then
         assertFailure(AiOutfitFailure.UNAVAILABLE, unavailable)
-        verifyNoInteractions(provider, content, outfits)
+        verifyNoInteractions(transactions, provider, content, outfits)
+    }
+
+    @Test
+    fun `blank configured login is unavailable before any local transaction`() {
+        // given
+        val unconfigured =
+            AiOutfitService(
+                users, items, photos, precipitation, content, provider, outfits, transactions, " ",
+            )
+
+        // when
+        val failure = catchThrowable { unconfigured.create(7, request()) }
+
+        // then
+        assertFailure(AiOutfitFailure.UNAVAILABLE, failure)
+        verifyNoInteractions(transactions, provider, content, outfits)
+    }
+
+    @Test
+    fun `current user technical failure propagates unchanged`() {
+        // given
+        val unavailable = IllegalStateException("account unavailable")
+        doThrow(unavailable).`when`(users).requireActive(7)
+
+        // when
+        val failure = catchThrowable { service.create(7, request()) }
+
+        // then
+        assertThat(failure).isSameAs(unavailable)
+        verifyNoInteractions(transactions, provider, content, outfits)
     }
 
     @Test
@@ -268,7 +311,7 @@ class AiOutfitServiceTests {
 
         // then
         assertFailure(AiOutfitFailure.TIMEOUT, failure)
-        verify(users, never()).lockActiveUserForShare(7)
+        verify(items, never()).lockOwnedItemsForShare(7, listOf(11))
         verifyNoInteractions(outfits)
     }
 
@@ -284,7 +327,6 @@ class AiOutfitServiceTests {
         assertFailure(AiOutfitFailure.UNAVAILABLE, failure)
         verify(content).getContent(7, 11, 21)
         assertThat(receivedSelection).isNotNull()
-        verify(users, never()).lockActiveUserForShare(7)
         verify(items, never()).lockOwnedItemsForShare(7, listOf(11))
         verifyNoInteractions(outfits)
     }
@@ -301,7 +343,7 @@ class AiOutfitServiceTests {
         // then
         assertThat(failure).isInstanceOf(PhotoStorageUnavailableException::class.java)
         verifyNoInteractions(provider, outfits)
-        verify(users, never()).lockActiveUserForShare(7)
+        verify(items, never()).lockOwnedItemsForShare(7, listOf(11))
     }
 
     @Test
@@ -326,25 +368,60 @@ class AiOutfitServiceTests {
             // then
             assertFailure(AiOutfitFailure.INVALID_RESPONSE, failure)
         }
-        verify(users, never()).lockActiveUserForShare(7)
         verify(items, never()).lockOwnedItemsForShare(7, listOf(11))
         verifyNoInteractions(outfits)
     }
 
     @Test
-    fun `revoked actor or deleted source at final check prevents save`() {
+    fun `revoked actor after provider response prevents final locks and save`() {
 
         // given
-        `when`(users.lockActiveUserForShare(7)).thenReturn(null)
+        onSelection = { doThrow(AccessDeniedException()).`when`(users).requireActive(7) }
 
         // when
         val denied = catchThrowable { service.create(7, request()) }
 
         // then
         assertThat(denied).isInstanceOf(AccessDeniedException::class.java)
+        verify(items, never()).lockOwnedItemsForShare(7, listOf(11))
+        verifyNoInteractions(outfits)
+    }
 
+    @Test
+    fun `changed login after provider response prevents final locks and save`() {
         // given
-        `when`(users.lockActiveUserForShare(7)).thenReturn(7)
+        onSelection = { doReturn(owner.copy(login = "other")).`when`(users).requireActive(7) }
+
+        // when
+        val failure = catchThrowable { service.create(7, request()) }
+
+        // then
+        assertFailure(AiOutfitFailure.UNAVAILABLE, failure)
+        verify(items, never()).lockOwnedItemsForShare(7, listOf(11))
+        verifyNoInteractions(outfits)
+    }
+
+    @Test
+    fun `changed login during image read prevents recommendation and save`() {
+        // given
+        doAnswer {
+                doReturn(owner.copy(login = "other")).`when`(users).requireActive(7)
+                WardrobeItemPhotoContent("image/png", byteArrayOf(1, 2, 3))
+            }
+            .`when`(content)
+            .getContent(7, 11, 21)
+
+        // when
+        val failure = catchThrowable { service.create(7, request()) }
+
+        // then
+        assertFailure(AiOutfitFailure.UNAVAILABLE, failure)
+        verifyNoInteractions(provider, outfits)
+    }
+
+    @Test
+    fun `deleted source at final check prevents save`() {
+        // given
         `when`(photos.findByIdAndItemIdAndItemOwnerId(21, 11, 7)).thenReturn(null)
 
         // when

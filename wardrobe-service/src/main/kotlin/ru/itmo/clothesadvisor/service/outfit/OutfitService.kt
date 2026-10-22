@@ -6,8 +6,9 @@ import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageImpl
 import org.springframework.data.domain.Pageable
 import org.springframework.stereotype.Service
-import org.springframework.transaction.annotation.Isolation
-import org.springframework.transaction.annotation.Transactional
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.TransactionDefinition
+import org.springframework.transaction.support.TransactionTemplate
 import ru.itmo.clothesadvisor.dto.outfit.CreateOutfitRequest
 import ru.itmo.clothesadvisor.dto.outfit.OutfitResponse
 import ru.itmo.clothesadvisor.dto.outfit.OutfitWeatherDto
@@ -29,7 +30,6 @@ import ru.itmo.clothesadvisor.service.rating.OutfitRatingService
 internal class InvalidOutfitRequestException : RuntimeException()
 
 @Service
-@Transactional(readOnly = true, isolation = Isolation.REPEATABLE_READ)
 internal class OutfitService(
     private val outfits: OutfitRepository,
     private val composition: OutfitItemRepository,
@@ -39,31 +39,38 @@ internal class OutfitService(
     private val access: AccessGrantService,
     private val ratings: OutfitRatingService,
     private val validator: Validator,
+    transactionManager: PlatformTransactionManager,
 ) {
-    @Transactional
+    private val writeTransaction = TransactionTemplate(transactionManager)
+    private val readTransaction =
+        TransactionTemplate(transactionManager).apply {
+            isReadOnly = true
+            isolationLevel = TransactionDefinition.ISOLATION_REPEATABLE_READ
+        }
+
     fun create(ownerId: Long, request: CreateOutfitRequest): OutfitResponse =
-        create(ownerId, ownerId, OutfitSource.USER, request)
+        writeTransaction.execute { create(ownerId, ownerId, OutfitSource.USER, request) }
 
-    @Transactional
     fun createAi(ownerId: Long, request: CreateOutfitRequest): OutfitResponse =
-        create(ownerId, ownerId, OutfitSource.AI, request)
+        writeTransaction.execute { create(ownerId, ownerId, OutfitSource.AI, request) }
 
-    @Transactional
     fun createForClient(
         stylistId: Long,
         ownerId: Long,
         request: CreateOutfitRequest,
     ): StylistOutfitResponse {
         access.requireAccess(stylistId, ownerId)
-        return StylistOutfitResponse(
-            create(ownerId, stylistId, OutfitSource.STYLIST, request),
-            null,
-        )
+        return writeTransaction.execute {
+            StylistOutfitResponse(
+                create(ownerId, stylistId, OutfitSource.STYLIST, request),
+                null,
+            )
+        }
     }
 
-    fun list(ownerId: Long, pageable: Pageable): Page<OutfitResponse> {
+    fun list(ownerId: Long, pageable: Pageable): Page<OutfitResponse> = readTransaction.execute {
         val page = outfits.findAllByOwnerIdOrderByIdDesc(ownerId, pageable)
-        return PageImpl(toResponses(page.content), page.pageable, page.totalElements)
+        PageImpl(toResponses(page.content), page.pageable, page.totalElements)
     }
 
     fun listForClient(
@@ -72,28 +79,33 @@ internal class OutfitService(
         pageable: Pageable,
     ): Page<StylistOutfitResponse> {
         access.requireAccess(stylistId, ownerId)
-        val page = list(ownerId, pageable)
-        val ownRatings = ratings.ownRatings(stylistId, page.content.map { it.id })
-        return page.map { StylistOutfitResponse(it, ownRatings[it.id]) }
+        return readTransaction.execute {
+            val page = list(ownerId, pageable)
+            val ownRatings = ratings.ownRatings(stylistId, page.content.map { it.id })
+            page.map { StylistOutfitResponse(it, ownRatings[it.id]) }
+        }
     }
 
     fun get(ownerId: Long, id: Long): OutfitResponse =
-        toResponses(listOf(findOwnedOutfit(ownerId, id))).single()
+        readTransaction.execute { toResponses(listOf(findOwnedOutfit(ownerId, id))).single() }
 
     fun getForClient(stylistId: Long, ownerId: Long, id: Long): StylistOutfitResponse {
         access.requireAccess(stylistId, ownerId)
-        return StylistOutfitResponse(
-            get(ownerId, id),
-            ratings.ownRatings(stylistId, listOf(id))[id],
-        )
+        return readTransaction.execute {
+            StylistOutfitResponse(
+                get(ownerId, id),
+                ratings.ownRatings(stylistId, listOf(id))[id],
+            )
+        }
     }
 
-    @Transactional
     fun delete(ownerId: Long, id: Long) {
-        val outfit =
-            outfits.findLockedByIdAndOwnerId(id, ownerId) ?: throw EntityNotFoundException()
-        ratings.archiveForDeletion(id)
-        outfits.delete(outfit)
+        writeTransaction.executeWithoutResult {
+            val outfit =
+                outfits.findLockedByIdAndOwnerId(id, ownerId) ?: throw EntityNotFoundException()
+            ratings.archiveForDeletion(id)
+            outfits.delete(outfit)
+        }
     }
 
     private fun create(

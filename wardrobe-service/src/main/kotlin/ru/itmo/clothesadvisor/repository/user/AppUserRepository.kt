@@ -11,11 +11,6 @@ import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
 
 internal interface AppUserRepository : Repository<AppUser, Long> {
-    @Query(
-        "SELECT id FROM app_user WHERE id = :id AND role = 'USER' AND status = 'ACTIVE' FOR SHARE",
-    )
-    fun lockActiveUserForShare(id: Long): Long?
-
     fun existsById(id: Long): Boolean
 
     @Query(

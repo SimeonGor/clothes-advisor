@@ -7,14 +7,19 @@ import java.time.Instant
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.catchThrowable
 import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.mockito.ArgumentMatchers.any
 import org.mockito.ArgumentMatchers.anyList
 import org.mockito.Mockito.doAnswer
+import org.mockito.Mockito.doThrow
 import org.mockito.Mockito.inOrder
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.verifyNoInteractions
 import org.mockito.Mockito.`when`
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.support.SimpleTransactionStatus
 import ru.itmo.clothesadvisor.dto.outfit.CreateOutfitRequest
 import ru.itmo.clothesadvisor.dto.outfit.OutfitWeatherDto
 import ru.itmo.clothesadvisor.model.EntityNotFoundException
@@ -38,6 +43,7 @@ class OutfitServiceTests {
     private val access = mock(AccessGrantService::class.java)
     private val ratings = mock(OutfitRatingService::class.java)
     private val validation = Validation.buildDefaultValidatorFactory()
+    private val transactions = mock(PlatformTransactionManager::class.java)
     private val service =
         OutfitService(
             outfits,
@@ -48,6 +54,7 @@ class OutfitServiceTests {
             access,
             ratings,
             validation.validator,
+            transactions,
         )
     private val storedAt = Instant.parse("2026-01-01T00:00:00Z")
 
@@ -58,6 +65,24 @@ class OutfitServiceTests {
     ) = CreateOutfitRequest(name, ids, OutfitWeatherDto(BigDecimal("-123.123456789"), 1, wind))
 
     @AfterEach fun closeValidation() = validation.close()
+
+    @BeforeEach
+    fun prepareTransactions() {
+        `when`(transactions.getTransaction(any())).thenAnswer { SimpleTransactionStatus() }
+    }
+
+    @Test
+    fun `client access denial precedes transaction and outfit writes`() {
+        // given
+        doThrow(EntityNotFoundException()).`when`(access).requireAccess(2, 7)
+
+        // when
+        val failure = catchThrowable { service.createForClient(2, 7, request()) }
+
+        // then
+        assertThat(failure).isInstanceOf(EntityNotFoundException::class.java)
+        verifyNoInteractions(transactions, outfits, composition, weather, wardrobe, precipitation)
+    }
 
     @Test
     fun `invalid composition name and wind are rejected without database writes`() {

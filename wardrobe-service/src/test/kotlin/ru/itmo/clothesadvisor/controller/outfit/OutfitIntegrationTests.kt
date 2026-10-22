@@ -29,6 +29,7 @@ import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.bean.override.mockito.MockitoBean
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
 import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate
 import ru.itmo.clothesadvisor.config.PostgresIntegrationTest
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
@@ -60,7 +61,7 @@ class OutfitIntegrationTests : PostgresIntegrationTest() {
     @Autowired private lateinit var users: AppUserService
     @Autowired private lateinit var items: WardrobeItemService
     @Autowired private lateinit var outfits: OutfitService
-    @Autowired private lateinit var access: AccessGrantService
+    @MockitoSpyBean private lateinit var access: AccessGrantService
     @Autowired private lateinit var jdbc: JdbcTemplate
     @Autowired private lateinit var transactionManager: PlatformTransactionManager
     @Autowired private lateinit var composition: OutfitItemRepository
@@ -219,6 +220,14 @@ class OutfitIntegrationTests : PostgresIntegrationTest() {
         val actorId = actorId(stylist)
         val path = stylistPath(owner)
         val item = item(owner)
+        doAnswer { call ->
+                assertThat(TransactionSynchronizationManager.isCurrentTransactionReadOnly()).isTrue()
+                assertThat(TransactionSynchronizationManager.getCurrentTransactionIsolationLevel())
+                    .isNull()
+                mockingDetails(access).mockCreationSettings.defaultAnswer.answer(call)
+            }
+            .`when`(access)
+            .requireAccess(stylist.id!!, owner.id!!)
 
         // when
         val created =

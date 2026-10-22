@@ -586,7 +586,7 @@ internal class AdminModerationIntegrationTests : PostgresIntegrationTest() {
         "OUTFIT, USER, ACTIVE",
         "OUTFIT, ADMIN, BLOCKED",
     )
-    fun `photo delete keeps approved access while outfit delete rechecks after actual row lock wait`(
+    fun `approved photo and outfit deletes survive late access change and next request is forbidden`(
         kind: String,
         role: UserRole,
         status: UserStatus,
@@ -603,14 +603,15 @@ internal class AdminModerationIntegrationTests : PostgresIntegrationTest() {
         val release = CountDownLatch(1)
         val table = if (kind == "PHOTO") "wardrobe_item" else "outfit"
         val id = if (kind == "PHOTO") fixtureState.item else fixtureState.outfit
+        doAnswer { call ->
+                assertThat(TransactionSynchronizationManager.isCurrentTransactionReadOnly()).isTrue()
+                assertThat(TransactionSynchronizationManager.getCurrentTransactionIsolationLevel())
+                    .isNull()
+                mockingDetails(adminAccess).mockCreationSettings.defaultAnswer.answer(call)
+            }
+            .`when`(adminAccess)
+            .requireAccess(fixtureState.admin.id!!, fixtureState.owner.id!!)
         if (kind == "PHOTO") {
-            doAnswer { call ->
-                    assertThat(TransactionSynchronizationManager.isCurrentTransactionReadOnly())
-                        .isTrue()
-                    mockingDetails(adminAccess).mockCreationSettings.defaultAnswer.answer(call)
-                }
-                .`when`(adminAccess)
-                .requireAccess(fixtureState.admin.id!!, fixtureState.owner.id!!)
             doAnswer { call ->
                     enteringLock.countDown()
                     mockingDetails(itemRepository).mockCreationSettings.defaultAnswer.answer(call)
@@ -661,29 +662,34 @@ internal class AdminModerationIntegrationTests : PostgresIntegrationTest() {
 
                 // then
                 val response = deletion.get(20, TimeUnit.SECONDS)
-                if (kind == "PHOTO") {
-                    assertEmpty(response, 204)
-                    verify(adminAccess)
-                        .requireAccess(fixtureState.admin.id!!, fixtureState.owner.id!!)
+                assertEmpty(response, 204)
+                verify(adminAccess)
+                    .requireAccess(fixtureState.admin.id!!, fixtureState.owner.id!!)
 
-                    // when
-                    val nextRequest = request("DELETE", photoPath(fixtureState), actorId)
+                // when
+                val nextRequest =
+                    request(
+                        "DELETE",
+                        if (kind == "PHOTO") photoPath(fixtureState) else outfitPath(fixtureState),
+                        actorId,
+                    )
 
-                    // then
-                    assertForbidden(nextRequest)
-                } else {
-                    assertForbidden(response)
-                }
+                // then
+                assertForbidden(nextRequest)
             } finally {
                 release.countDown()
             }
         }
         assertThat(count("wardrobe_item_photo")).isEqualTo(if (kind == "PHOTO") 0 else 1)
-        assertThat(count("outfit")).isEqualTo(1)
-        assertThat(count("outfit_item")).isEqualTo(1)
-        assertThat(count("outfit_weather")).isEqualTo(1)
-        assertThat(ratingRows("outfit_rating", fixtureState)).isEqualTo(beforeCurrent)
-        assertThat(ratingRows("outfit_rating_history", fixtureState)).isEqualTo(beforeHistory)
+        if (kind == "PHOTO") {
+            assertThat(count("outfit")).isEqualTo(1)
+            assertThat(count("outfit_item")).isEqualTo(1)
+            assertThat(count("outfit_weather")).isEqualTo(1)
+            assertThat(ratingRows("outfit_rating", fixtureState)).isEqualTo(beforeCurrent)
+            assertThat(ratingRows("outfit_rating_history", fixtureState)).isEqualTo(beforeHistory)
+        } else {
+            assertDeletedOutfit(fixtureState, beforeHistory + beforeCurrent)
+        }
         verifyNoInteractions(storage)
     }
 
