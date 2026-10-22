@@ -11,7 +11,6 @@ import io.swagger.v3.oas.annotations.tags.Tag
 import jakarta.validation.Valid
 import jakarta.validation.constraints.Max
 import jakarta.validation.constraints.Min
-import org.springframework.data.domain.PageRequest
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -21,6 +20,9 @@ import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
+import ru.itmo.clothesadvisor.accountservice.controller.currentUserId
+import ru.itmo.clothesadvisor.accountservice.controller.pageRequest
+import ru.itmo.clothesadvisor.accountservice.dto.ApiErrorResponse
 import ru.itmo.clothesadvisor.accountservice.dto.user.UpdateUserRoleAndStatusRequest
 import ru.itmo.clothesadvisor.accountservice.service.user.AdminUserService
 
@@ -103,15 +105,8 @@ internal class AdminUserController(private val users: AdminUserService) {
         @PathVariable id: Long,
         @Valid @RequestBody request: UpdateUserRoleAndStatusRequest,
     ) = users.update(
-        actor?.toLongOrNull()?.takeIf { it > 0 } ?: throw InvalidAdminUserRequestException(),
+        currentUserId(actor),
         id,
         request,
     )
-
-    private fun pageRequest(page: Int, size: Int): PageRequest {
-        if (page.toLong() * size > Int.MAX_VALUE) throw InvalidAdminUserRequestException()
-        return PageRequest.of(page, size)
-    }
 }
-
-internal class InvalidAdminUserRequestException : RuntimeException()

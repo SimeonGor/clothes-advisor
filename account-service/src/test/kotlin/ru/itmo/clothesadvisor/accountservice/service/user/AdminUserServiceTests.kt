@@ -15,6 +15,7 @@ import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
 import reactor.test.StepVerifier
 import ru.itmo.clothesadvisor.accountservice.dto.user.UpdateUserRoleAndStatusRequest
+import ru.itmo.clothesadvisor.accountservice.model.AccessDeniedException
 import ru.itmo.clothesadvisor.accountservice.model.EntityNotFoundException
 import ru.itmo.clothesadvisor.accountservice.model.user.AppUser
 import ru.itmo.clothesadvisor.accountservice.model.user.UserRole
@@ -104,7 +105,7 @@ internal class AdminUserServiceTests {
 
         // then
         verifyNoInteractions(repository, appUsers)
-        StepVerifier.create(result).expectError(AdminUserForbiddenException::class.java).verify()
+        StepVerifier.create(result).expectError(AccessDeniedException::class.java).verify()
         verifyNoInteractions(appUsers)
     }
 
