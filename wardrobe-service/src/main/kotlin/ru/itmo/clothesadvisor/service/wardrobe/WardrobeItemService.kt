@@ -14,7 +14,6 @@ import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItem
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItemHistory
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemHistoryRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
-import ru.itmo.clothesadvisor.service.user.AppUserService
 
 @Service
 @Transactional(readOnly = true)
@@ -22,7 +21,6 @@ internal class WardrobeItemService(
     private val items: WardrobeItemRepository,
     private val history: WardrobeItemHistoryRepository,
     private val categories: WardrobeCategoryService,
-    private val users: AppUserService,
     private val validator: Validator,
 ) {
     @Transactional
@@ -32,12 +30,11 @@ internal class WardrobeItemService(
             throw ConstraintViolationException(violations)
         }
 
-        val owner = users.findById(ownerId) ?: throw EntityNotFoundException()
         val category = categories.getById(request.categoryId)
 
         return toResponse(
             items.create(
-                requireNotNull(owner.id),
+                ownerId,
                 category,
                 request.name,
                 request.color,

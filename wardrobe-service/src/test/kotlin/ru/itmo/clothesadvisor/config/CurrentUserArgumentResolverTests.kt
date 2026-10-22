@@ -17,10 +17,11 @@ import ru.itmo.clothesadvisor.model.user.AppUser
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
 import ru.itmo.clothesadvisor.repository.user.AppUserRepository
+import ru.itmo.clothesadvisor.service.user.CurrentUserService
 
 class CurrentUserArgumentResolverTests {
     private val users = mock(AppUserRepository::class.java)
-    private val resolver = CurrentUserArgumentResolver(users)
+    private val resolver = CurrentUserArgumentResolver(CurrentUserService(users))
     private val parameter = mock(MethodParameter::class.java)
 
     @Test

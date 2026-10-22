@@ -12,6 +12,7 @@ import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItem
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItemPhoto
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemPhotoRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
+import ru.itmo.clothesadvisor.service.user.CurrentUserService
 import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
 
 @Service
@@ -19,6 +20,7 @@ internal class WardrobeItemPhotoService(
     private val items: WardrobeItemRepository,
     private val photos: WardrobeItemPhotoRepository,
     private val storage: S3PhotoStorage,
+    private val users: CurrentUserService,
     transactionManager: PlatformTransactionManager,
 ) {
     private val transaction = TransactionTemplate(transactionManager)
@@ -28,6 +30,7 @@ internal class WardrobeItemPhotoService(
         itemId: Long,
         files: List<MultipartFile>,
     ): List<WardrobeItemPhotoResponse> {
+        users.requireActive(ownerId)
         val existingCount = transaction.execute {
             findOwnedItem(ownerId, itemId)
             photos.countByItemId(itemId)
@@ -38,12 +41,20 @@ internal class WardrobeItemPhotoService(
 
         upload(validatedPhotos)
 
+        users.requireActive(ownerId)
         return saveMetadata(ownerId, itemId, validatedPhotos)
     }
 
     fun list(ownerId: Long, itemId: Long): List<WardrobeItemPhotoResponse> = transaction.execute {
         findOwnedItem(ownerId, itemId)
         photos.findAllByItemIdOrderByIdAsc(itemId).map(::toResponse)
+    }
+
+    fun getOwnContent(ownerId: Long, itemId: Long, photoId: Long): WardrobeItemPhotoContent {
+        users.requireActive(ownerId)
+        val content = getContent(ownerId, itemId, photoId)
+        users.requireActive(ownerId)
+        return content
     }
 
     fun getContent(ownerId: Long, itemId: Long, photoId: Long): WardrobeItemPhotoContent {
