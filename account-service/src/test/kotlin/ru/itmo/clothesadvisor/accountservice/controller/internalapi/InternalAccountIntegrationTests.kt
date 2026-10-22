@@ -345,8 +345,11 @@ class InternalAccountIntegrationTests : PostgresIntegrationTest() {
         assertThat(publicError.body()).isEqualTo("""{"error":"invalid_request"}""")
         assertThat(schema.statusCode()).isEqualTo(200)
         val paths: Map<String, Any?> = JsonPath.read(schema.body(), "$.paths")
-        assertThat(paths.keys).containsAll(publicPaths)
+        assertThat(paths.keys).containsExactlyInAnyOrderElementsOf(publicPaths)
         assertThat(paths.keys).noneMatch { it.startsWith("/internal") }
+        assertThat(JsonPath.read<String>(schema.body(), "$.info.title")).isEqualTo("Account API")
+        assertThat(JsonPath.read<List<String>>(schema.body(), "$.servers[*].url"))
+            .containsExactly("/")
         assertThat(schema.body()).doesNotContain("InternalUserResponse", "InternalApiErrorResponse")
     }
 

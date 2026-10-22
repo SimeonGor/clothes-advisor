@@ -8,6 +8,7 @@ import io.swagger.v3.oas.models.media.MediaType
 import io.swagger.v3.oas.models.media.Schema
 import io.swagger.v3.oas.models.parameters.Parameter
 import io.swagger.v3.oas.models.responses.ApiResponse
+import io.swagger.v3.oas.models.servers.Server
 import java.math.BigDecimal
 import org.springdoc.core.customizers.OperationCustomizer
 import org.springframework.context.annotation.Bean
@@ -23,7 +24,7 @@ internal class OpenApiConfiguration {
         OpenAPI()
             .info(
                 Info()
-                    .title("Clothes Advisor API")
+                    .title("Wardrobe API")
                     .version("1")
                     .description(
                         "Локальный API. Действующий пользователь передаётся в X-User-Id " +
@@ -33,6 +34,7 @@ internal class OpenApiConfiguration {
                             "заблокированный — 403.",
                     ),
             )
+            .addServersItem(Server().url("/"))
 
     @Bean
     fun currentUserHeader(): OperationCustomizer = OperationCustomizer { operation, handlerMethod ->

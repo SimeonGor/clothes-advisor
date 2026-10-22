@@ -3,6 +3,7 @@ package ru.itmo.clothesadvisor.controller.wardrobe
 import io.swagger.v3.oas.annotations.Operation
 import io.swagger.v3.oas.annotations.Parameter
 import io.swagger.v3.oas.annotations.headers.Header
+import io.swagger.v3.oas.annotations.media.ArraySchema
 import io.swagger.v3.oas.annotations.media.Content
 import io.swagger.v3.oas.annotations.media.Schema
 import io.swagger.v3.oas.annotations.responses.ApiResponse
@@ -76,6 +77,7 @@ internal class WardrobeItemPhotoController(private val photos: WardrobeItemPhoto
     fun add(
         @Parameter(hidden = true) user: CurrentUser,
         @PathVariable itemId: Long,
+        @Parameter(array = ArraySchema(schema = Schema(type = "string", format = "binary")))
         @RequestPart("photos", required = false) files: List<@JvmSuppressWildcards Part>,
     ): Mono<List<WardrobeItemPhotoResponse>> =
         readPhotoParts(files).flatMap { bytes ->
