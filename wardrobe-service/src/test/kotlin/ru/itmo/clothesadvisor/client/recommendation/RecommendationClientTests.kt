@@ -4,8 +4,10 @@ import com.sun.net.httpserver.HttpServer
 import feign.Client
 import feign.Request
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry
+import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import java.math.BigDecimal
 import java.net.InetSocketAddress
+import java.time.Instant
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -15,6 +17,14 @@ import org.assertj.core.api.Assertions.catchThrowable
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.mockito.Mockito.any
+import org.mockito.Mockito.eq
+import org.mockito.Mockito.mock
+import org.mockito.Mockito.refEq
+import org.mockito.Mockito.times
+import org.mockito.Mockito.verify
+import org.mockito.Mockito.verifyNoInteractions
+import org.mockito.Mockito.`when`
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration
 import org.springframework.boot.test.context.SpringBootTest
@@ -27,12 +37,35 @@ import org.springframework.context.annotation.Profile
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
+import org.springframework.transaction.PlatformTransactionManager
+import org.springframework.transaction.support.SimpleTransactionStatus
+import reactor.core.publisher.Mono
+import reactor.core.scheduler.Schedulers
 import ru.itmo.clothesadvisor.config.ExternalClientsConfiguration
+import ru.itmo.clothesadvisor.dto.ai.CreateAiOutfitRequest
+import ru.itmo.clothesadvisor.dto.outfit.CreateOutfitRequest
+import ru.itmo.clothesadvisor.dto.outfit.OutfitResponse
+import ru.itmo.clothesadvisor.dto.outfit.OutfitWeatherDto
 import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionCandidate
 import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionRequest
 import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionWeather
+import ru.itmo.clothesadvisor.dto.user.CurrentUser
+import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemPhotoContent
 import ru.itmo.clothesadvisor.model.ai.AiOutfitException
 import ru.itmo.clothesadvisor.model.ai.AiOutfitFailure
+import ru.itmo.clothesadvisor.model.outfit.OutfitSource
+import ru.itmo.clothesadvisor.model.user.UserRole
+import ru.itmo.clothesadvisor.model.wardrobe.WardrobeCategory
+import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItem
+import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItemPhoto
+import ru.itmo.clothesadvisor.model.weather.PrecipitationType
+import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemPhotoRepository
+import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
+import ru.itmo.clothesadvisor.repository.weather.PrecipitationTypeRepository
+import ru.itmo.clothesadvisor.service.ai.AiOutfitService
+import ru.itmo.clothesadvisor.service.outfit.OutfitService
+import ru.itmo.clothesadvisor.service.user.CurrentUserService
+import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemPhotoService
 
 @SpringBootTest(
     classes = [RecommendationClientTests.ClientApplication::class],
@@ -62,6 +95,7 @@ class RecommendationClientTests {
         body = """{"itemIds":[7]}"""
         disconnect = false
         gate = null
+        entered = CountDownLatch(1)
         breakers.circuitBreaker(BREAKER_NAME).reset()
     }
 
@@ -238,6 +272,99 @@ class RecommendationClientTests {
     }
 
     @Test
+    fun `cancelling a subscriber keeps admission occupied until the real Feign call exits`() {
+        // given
+        val users = mock(CurrentUserService::class.java)
+        val items = mock(WardrobeItemRepository::class.java)
+        val photos = mock(WardrobeItemPhotoRepository::class.java)
+        val precipitation = mock(PrecipitationTypeRepository::class.java)
+        val content = mock(WardrobeItemPhotoService::class.java)
+        val outfits = mock(OutfitService::class.java)
+        val transactions = mock(PlatformTransactionManager::class.java)
+        val meters = SimpleMeterRegistry()
+        val storedAt = Instant.parse("2024-02-03T04:05:06Z")
+        val weather = OutfitWeatherDto(BigDecimal.ONE, 1, BigDecimal.ZERO)
+        val request = CreateAiOutfitRequest("Daily", weather, null)
+        val saved = OutfitResponse(80, 7, 7, OutfitSource.AI, "Daily", listOf(7), weather, storedAt)
+        val item = WardrobeItem(
+            7, WardrobeCategory("TOP", "Top"), "Shirt", "White", "Cotton", storedAt,
+        ).apply { id = 7 }
+        val photo = WardrobeItemPhoto(7, "key", "image/png", 3, storedAt).apply { id = 21 }
+        `when`(transactions.getTransaction(any())).thenAnswer { SimpleTransactionStatus() }
+        `when`(users.requireActive(7)).thenReturn(CurrentUser(7, "user", UserRole.USER))
+        `when`(precipitation.findById(1)).thenReturn(PrecipitationType("NONE", "None"))
+        `when`(items.findOwnedItemsWithPhotos(7, 21)).thenReturn(listOf(item))
+        `when`(items.lockOwnedItemsForShare(7, listOf(7))).thenReturn(listOf(item))
+        `when`(photos.findFirstByItemIdOrderByIdAsc(7)).thenReturn(photo)
+        `when`(photos.findByIdAndItemIdAndItemOwnerId(21, 7, 7)).thenReturn(photo)
+        `when`(content.getContent(7, 7, 21))
+            .thenReturn(WardrobeItemPhotoContent("image/png", byteArrayOf(1, 2, 3)))
+        val outfitRequest = CreateOutfitRequest("Daily", listOf(7), weather)
+        `when`(outfits.createAi(eq(7L), refEq(outfitRequest) ?: outfitRequest))
+            .thenReturn(saved)
+        val service = AiOutfitService(
+            users, items, photos, precipitation, content, client, outfits, transactions, meters, "user",
+        )
+        val release = CountDownLatch(1)
+        val exited = CountDownLatch(1)
+        gate = release
+        val scheduler = Schedulers.newBoundedElastic(1, 10, "ai-feign-admission-test")
+        val creation = Mono.fromCallable {
+                try {
+                    service.create(7, request)
+                } finally {
+                    exited.countDown()
+                }
+            }
+            .subscribeOn(scheduler)
+            .toFuture()
+        try {
+            // when
+            assertThat(entered.await(10, TimeUnit.SECONDS)).isTrue()
+            assertThat(creation.cancel(true)).isTrue()
+
+            // then
+            assertThat(exited.await(250, TimeUnit.MILLISECONDS)).isFalse()
+
+            // when
+            val busy = catchThrowable { service.create(7, request) }
+
+            // then
+            assertFailure(AiOutfitFailure.UNAVAILABLE, busy)
+            assertThat(exited.count).isEqualTo(1)
+            assertThat(calls).hasValue(1)
+            verify(items).findOwnedItemsWithPhotos(7, 21)
+            verify(photos).findFirstByItemIdOrderByIdAsc(7)
+            verify(content).getContent(7, 7, 21)
+            verifyNoInteractions(outfits)
+            assertThat(meters.get("wardrobe.ai.active").gauge().value()).isEqualTo(1.0)
+            assertThat(meters.get("wardrobe.ai.rejected").counter().count()).isEqualTo(1.0)
+            assertThat(meters.get("wardrobe.ai.duration").timers()).allSatisfy {
+                assertThat(it.count()).isZero()
+            }
+
+            // when
+            release.countDown()
+            assertThat(exited.await(10, TimeUnit.SECONDS)).isTrue()
+            val recovered = service.create(7, request)
+
+            // then
+            assertThat(recovered).isSameAs(saved)
+            assertThat(calls).hasValue(2)
+            verify(content, times(2)).getContent(7, 7, 21)
+            assertThat(meters.get("wardrobe.ai.active").gauge().value()).isZero()
+            assertThat(meters.get("wardrobe.ai.duration").tag("outcome", "success").timer().count())
+                .isEqualTo(2)
+        } finally {
+            release.countDown()
+            creation.cancel(true)
+            exited.await(10, TimeUnit.SECONDS)
+            scheduler.dispose()
+            meters.close()
+        }
+    }
+
+    @Test
     fun `fallback unwraps timeout transport and no outfit failures without details`() {
         // given
         val request = Request.create(
@@ -281,7 +408,7 @@ class RecommendationClientTests {
         @Volatile private var received = ""
         @Volatile private var disconnect = false
         @Volatile private var gate: CountDownLatch? = null
-        private val entered = CountDownLatch(1)
+        @Volatile private var entered = CountDownLatch(1)
         private val executor = Executors.newVirtualThreadPerTaskExecutor()
         private val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
             this.executor = Companion.executor
@@ -291,7 +418,7 @@ class RecommendationClientTests {
                 if (disconnect) {
                     exchange.close()
                 } else {
-                    gate?.let { entered.countDown(); it.await(5, TimeUnit.SECONDS) }
+                    gate?.let { entered.countDown(); check(it.await(30, TimeUnit.SECONDS)) }
                     val bytes = body.toByteArray()
                     exchange.responseHeaders.add("Content-Type", "application/json")
                     exchange.sendResponseHeaders(status, bytes.size.toLong())

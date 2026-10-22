@@ -1,6 +1,7 @@
 package ru.itmo.clothesadvisor.recommendationservice
 
 import com.sun.net.httpserver.HttpServer
+import java.math.BigDecimal
 import java.net.InetSocketAddress
 import java.net.URI
 import java.net.http.HttpClient
@@ -23,6 +24,8 @@ import org.springframework.test.context.DynamicPropertySource
 import ru.itmo.clothesadvisor.client.ai.AiOutfitException
 import ru.itmo.clothesadvisor.client.ai.AiOutfitFailure
 import ru.itmo.clothesadvisor.client.ai.OpenAiOutfitClient
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionRequest
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionWeather
 import tools.jackson.databind.json.JsonMapper
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -65,7 +68,11 @@ class RecommendationServiceTests {
                 .GET().build(),
             HttpResponse.BodyHandlers.ofString(),
         )
-        val failure = catchThrowable { outfitClient.requireAvailable() }
+        val selection = OutfitSelectionRequest(
+            OutfitSelectionWeather(BigDecimal.ZERO, BigDecimal.ZERO, "NONE", "None"),
+            emptyList(),
+        )
+        val failure = catchThrowable { outfitClient.select(selection) }
 
         // then
         assertThat(healthResponse.statusCode()).isEqualTo(200)

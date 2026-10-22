@@ -13,11 +13,7 @@ spring:
         enabled: false
     circuitbreaker:
       resilience4j:
-        disable-time-limiter-map:
-          RecommendationClientselectOutfitSelectionRequest: true
-          AccountClientgetUserlong: true
-          AccountClientrequireStylistAccesslonglong: true
-          AccountClientrequireAdminAccesslonglong: true
+        disable-thread-pool: true
 
 resilience4j:
   circuitbreaker:
