@@ -19,18 +19,17 @@ import ru.itmo.clothesadvisor.model.EntityNotFoundException
 import ru.itmo.clothesadvisor.model.ai.AiOutfitException
 import ru.itmo.clothesadvisor.model.ai.AiOutfitFailure
 import ru.itmo.clothesadvisor.model.user.UserRole
-import ru.itmo.clothesadvisor.model.user.UserStatus
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItem
-import ru.itmo.clothesadvisor.repository.user.AppUserRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemPhotoRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.repository.weather.PrecipitationTypeRepository
 import ru.itmo.clothesadvisor.service.outfit.OutfitService
+import ru.itmo.clothesadvisor.service.user.CurrentUserService
 import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemPhotoService
 
 @Service
 internal class AiOutfitService(
-    private val users: AppUserRepository,
+    private val currentUsers: CurrentUserService,
     private val items: WardrobeItemRepository,
     private val photos: WardrobeItemPhotoRepository,
     private val precipitation: PrecipitationTypeRepository,
@@ -46,17 +45,15 @@ internal class AiOutfitService(
         }
 
     fun create(ownerId: Long, request: CreateAiOutfitRequest): OutfitResponse {
-        requireActiveUser(ownerId)
-        if (ownerLogin.isBlank() || users.findByLogin(ownerLogin)?.id != ownerId) {
-            throw AiOutfitException(AiOutfitFailure.UNAVAILABLE)
-        }
+        requireAiAccess(ownerId)
 
         val prepared = prepareCandidates(ownerId, request)
         val selection =
             OutfitSelectionRequest(prepared.weather, loadImages(ownerId, prepared.candidates))
-        requireActiveUser(ownerId)
+        requireAiAccess(ownerId)
         val response = recommendation.select(selection)
         validateSelection(response, prepared.candidates.map { requireNotNull(it.item.id) }.toSet())
+        requireAiAccess(ownerId)
 
         return saveOutfit(ownerId, request, prepared.candidates, response.itemIds)
     }
@@ -65,8 +62,6 @@ internal class AiOutfitService(
         ownerId: Long,
         request: CreateAiOutfitRequest,
     ): PreparedCandidates = transaction.execute {
-        requireActiveUser(ownerId)
-
         val ids = request.candidateItemIds
         if (
             ids != null &&
@@ -122,7 +117,7 @@ internal class AiOutfitService(
         candidates: List<PreparedCandidate>,
     ): List<OutfitSelectionCandidate> =
         candidates.map { candidate ->
-            requireActiveUser(ownerId)
+            requireAiAccess(ownerId)
             val itemId = requireNotNull(candidate.item.id)
             val content =
                 try {
@@ -130,7 +125,7 @@ internal class AiOutfitService(
                 } catch (_: EntityNotFoundException) {
                     throw AiOutfitException(AiOutfitFailure.SOURCE_CHANGED)
                 }
-            requireActiveUser(ownerId)
+            requireAiAccess(ownerId)
             OutfitSelectionCandidate(
                 itemId = itemId,
                 name = candidate.item.name,
@@ -151,9 +146,6 @@ internal class AiOutfitService(
     ): OutfitResponse {
         val candidateIds = candidates.map { requireNotNull(it.item.id) }
         return transaction.execute {
-            if (users.lockActiveUserForShare(ownerId) == null) {
-                throw AccessDeniedException("Access denied")
-            }
             if (items.lockOwnedItemsForShare(ownerId, candidateIds).size != candidates.size) {
                 throw AiOutfitException(AiOutfitFailure.SOURCE_CHANGED)
             }
@@ -176,9 +168,18 @@ internal class AiOutfitService(
         }
     }
 
-    private fun requireActiveUser(ownerId: Long) {
-        if (!users.existsByIdAndRoleAndStatus(ownerId, UserRole.USER, UserStatus.ACTIVE)) {
+    private fun requireAiAccess(ownerId: Long) {
+        val user =
+            try {
+                currentUsers.requireActive(ownerId)
+            } catch (_: EntityNotFoundException) {
+                throw AccessDeniedException("Access denied")
+            }
+        if (user.role != UserRole.USER) {
             throw AccessDeniedException("Access denied")
+        }
+        if (ownerLogin.isBlank() || user.login != ownerLogin) {
+            throw AiOutfitException(AiOutfitFailure.UNAVAILABLE)
         }
     }
 

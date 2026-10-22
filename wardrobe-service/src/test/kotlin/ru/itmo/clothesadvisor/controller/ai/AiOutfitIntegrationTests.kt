@@ -56,6 +56,7 @@ import ru.itmo.clothesadvisor.repository.outfit.OutfitItemRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemPhotoRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.service.user.AppUserService
+import ru.itmo.clothesadvisor.service.user.CurrentUserService
 import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemPhotoService
 import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemService
 import ru.itmo.clothesadvisor.storage.wardrobe.PhotoStorageUnavailableException
@@ -75,6 +76,7 @@ class AiOutfitIntegrationTests : PostgresIntegrationTest() {
     @MockitoSpyBean private lateinit var wardrobe: WardrobeItemRepository
     @MockitoSpyBean private lateinit var photos: WardrobeItemPhotoRepository
     @MockitoSpyBean private lateinit var composition: OutfitItemRepository
+    @MockitoSpyBean private lateinit var currentUsers: CurrentUserService
     private val http = HttpClient.newHttpClient()
     private val providerCalls = AtomicInteger()
     private val downloaded = mutableListOf<String>()
@@ -85,6 +87,12 @@ class AiOutfitIntegrationTests : PostgresIntegrationTest() {
 
     @BeforeEach
     fun externalCallsOutsideTransactions() {
+        doAnswer { call ->
+                assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
+                mockingDetails(currentUsers).mockCreationSettings.defaultAnswer.answer(call)
+            }
+            .`when`(currentUsers)
+            .requireActive(anyLong())
         doAnswer { call ->
                 assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
                 downloaded += call.getArgument<String>(0)
@@ -549,12 +557,31 @@ class AiOutfitIntegrationTests : PostgresIntegrationTest() {
         assertThat(providerCalls).hasValue(1)
     }
 
-    @ParameterizedTest(
-        name =
-            "final lock observes owner blocking when blockOwnerAccount={0}, otherwise photo deletion",
-    )
+    @Test
+    fun `login change during recommendation is unavailable before persistence`() {
+        // given
+        val owner = connectedUser()
+        val actorId = actorId(owner)
+        val item = item(owner)
+        select = {
+            jdbc.update("UPDATE app_user SET login = ? WHERE id = ?", "renamed", owner.id)
+            OutfitSelectionResponse(listOf(item))
+        }
+
+        // when
+        val response = request("POST", actorId = actorId, body = body())
+
+        // then
+        assertEmpty(response, 503)
+        assertThat(providerCalls).hasValue(1)
+        assertNoOutfits(owner)
+    }
+
+    @ParameterizedTest(name = "candidate lock wait with late account change={0}")
     @ValueSource(booleans = [true, false])
-    fun `final lock waits then observes the committed invalidation`(blockOwnerAccount: Boolean) {
+    fun `candidate lock preserves final authorization but rechecks source photos`(
+        blockOwnerAccount: Boolean,
+    ) {
 
         // given
         val owner = connectedUser()
@@ -582,22 +609,17 @@ class AiOutfitIntegrationTests : PostgresIntegrationTest() {
                             blockerPid.set(
                                 jdbc.queryForObject("SELECT pg_backend_pid()", Int::class.java)!!,
                             )
+                            jdbc.queryForObject(
+                                "SELECT id FROM wardrobe_item WHERE id = ? FOR NO KEY UPDATE",
+                                Long::class.java,
+                                item,
+                            )
                             if (blockOwnerAccount) {
-                                jdbc.queryForObject(
-                                    "SELECT id FROM app_user WHERE id = ? FOR UPDATE",
-                                    Long::class.java,
-                                    owner.id,
-                                )
                                 jdbc.update(
                                     "UPDATE app_user SET status = 'BLOCKED' WHERE id = ?",
                                     owner.id,
                                 )
                             } else {
-                                jdbc.queryForObject(
-                                    "SELECT id FROM wardrobe_item WHERE id = ? FOR NO KEY UPDATE",
-                                    Long::class.java,
-                                    item,
-                                )
                                 jdbc.update(
                                     "DELETE FROM wardrobe_item_photo WHERE wardrobe_item_id = ?",
                                     item,
@@ -618,9 +640,21 @@ class AiOutfitIntegrationTests : PostgresIntegrationTest() {
 
             // then
             assertThat(creation.get(15, TimeUnit.SECONDS).statusCode())
-                .isEqualTo(if (blockOwnerAccount) 403 else 409)
+                .isEqualTo(if (blockOwnerAccount) 201 else 409)
         }
-        assertNoOutfits(owner)
+        if (blockOwnerAccount) {
+            assertThat(count("outfit", "owner_id", owner.id!!)).isEqualTo(1)
+
+            // when
+            val nextRequest = request("POST", actorId = actorId, body = body())
+
+            // then
+            assertThat(nextRequest.statusCode()).isEqualTo(403)
+            assertThat(dto(nextRequest)).containsEntry("error", "forbidden")
+            assertThat(count("outfit", "owner_id", owner.id!!)).isEqualTo(1)
+        } else {
+            assertNoOutfits(owner)
+        }
     }
 
     @Test
@@ -712,7 +746,9 @@ class AiOutfitIntegrationTests : PostgresIntegrationTest() {
         while (System.nanoTime() < deadline) {
             if (
                 jdbc.queryForObject(
-                    "SELECT count(*) FROM pg_stat_activity WHERE ? = ANY(pg_blocking_pids(pid))",
+                    """SELECT count(*) FROM pg_stat_activity
+                    WHERE ? = ANY(pg_blocking_pids(pid)) AND query LIKE '%wardrobe_item%'
+                    AND wait_event_type = 'Lock'""",
                     Long::class.java,
                     pid,
                 )!! > 0
@@ -720,7 +756,7 @@ class AiOutfitIntegrationTests : PostgresIntegrationTest() {
                 return
             Thread.sleep(10)
         }
-        throw AssertionError("Expected a database lock waiter blocked by $pid")
+        throw AssertionError("Expected a wardrobe item lock waiter blocked by $pid")
     }
 
     private fun connectedUser(): AppUser = jdbc.insertUser("user", "!", UserRole.USER)
