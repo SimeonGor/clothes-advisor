@@ -4,6 +4,7 @@ import org.springframework.data.r2dbc.repository.Query
 import org.springframework.data.repository.Repository
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
+import ru.itmo.clothesadvisor.accountservice.model.access.AdminAccessState
 import ru.itmo.clothesadvisor.accountservice.model.user.AppUser
 import ru.itmo.clothesadvisor.accountservice.model.user.UserRole
 import ru.itmo.clothesadvisor.accountservice.model.user.UserStatus
@@ -18,6 +19,17 @@ internal interface AppUserRepository : Repository<AppUser, Long> {
 
     @Query("SELECT count(*) FROM app_user")
     fun count(): Mono<Long>
+
+    @Query(
+        """
+        SELECT EXISTS (
+            SELECT 1 FROM app_user WHERE id = :adminId AND role = 'ADMIN' AND status = 'ACTIVE'
+        ) AS admin_allowed, EXISTS (
+            SELECT 1 FROM app_user WHERE id = :ownerId
+        ) AS owner_exists
+        """,
+    )
+    fun findAdminAccessState(adminId: Long, ownerId: Long): Mono<AdminAccessState>
 
     @Query("SELECT * FROM app_user WHERE id IN (:actorId, :targetId) ORDER BY id FOR UPDATE")
     fun findLockedRows(actorId: Long, targetId: Long): Flux<AppUser>

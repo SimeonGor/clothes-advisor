@@ -10,6 +10,19 @@ import ru.itmo.clothesadvisor.accountservice.model.access.AccessGrantId
 import ru.itmo.clothesadvisor.accountservice.model.user.AppUser
 
 internal interface AccessGrantRepository : Repository<AccessGrant, AccessGrantId> {
+    @Query(
+        """
+        SELECT EXISTS (
+            SELECT 1 FROM access_grant g
+            JOIN app_user o ON o.id = g.owner_id JOIN app_user s ON s.id = g.stylist_id
+            WHERE g.owner_id = :ownerId AND g.stylist_id = :stylistId
+                AND o.role = 'USER' AND o.status = 'ACTIVE'
+                AND s.role = 'STYLIST' AND s.status = 'ACTIVE'
+        )
+        """,
+    )
+    fun hasActiveAccess(stylistId: Long, ownerId: Long): Mono<Boolean>
+
     @Modifying
     @Query(
         """
