@@ -6,7 +6,7 @@ REST-сервис для подбора одежды из личного гар�
 - **STYLIST** с разрешения владельца просматривает гардероб, создаёт образы и оценивает чужие.
 - **ADMIN** управляет ролями и блокировками, просматривает и удаляет фотографии и образы.
 
-Стек: Kotlin, Spring Boot, PostgreSQL, Spring Data JDBC, Flyway, Yandex Object Storage и OpenAI. Приложение — монолит; пакеты разделены по техническим слоям, внутри — по предметным областям.
+Стек: Kotlin, Spring Boot, PostgreSQL, Spring Data JDBC, Flyway, Yandex Object Storage и OpenAI. В ЛР2 приложение разделяется на сервисы: гардероб и пользователи пока находятся в `wardrobe-service`, AI-подбор — в `recommendation-service`. Пакеты разделены по техническим слоям, внутри — по предметным областям.
 
 Несекретные настройки OpenAPI и сервисов хранятся в `config-repository/` и выдаются локальным Config Server. Compose монтирует каталог серверу только для чтения; пароли и credentials остаются в переменных окружения и secret mounts. При недоступном Config Server приложение не запускается. Уже запущенное приложение продолжает работать со значениями, загруженными при старте; перезапустите его, чтобы получить изменения. Config Server запускается первым, затем Eureka Discovery Server; `wardrobe-service` регистрируется в Eureka под этим именем. Порт Eureka доступен только внутри Compose-сети.
 
@@ -88,11 +88,11 @@ curl http://127.0.0.1:8080/api/wardrobe/items \
 - `CHATGPT_CREDENTIALS_DIR` — абсолютный путь к каталогу этих файлов вне репозитория. Процессу приложения нужен доступ на чтение файлов через ОС; рекомендуется ограничить доступ к credentials своей учётной записью.
 - `OPENAI_MODEL` — доступная аккаунту модель с поддержкой изображений и структурированного ответа.
 
-Подключение уже включено в `compose.yaml`; команда запуска та же: `docker compose up --build -d`. Каталог должен существовать до запуска: он монтируется в `/run/chatgpt` только для чтения. Контейнер работает без root, с UID владельца файлов из `APP_UID`.
+Подключение уже включено в `compose.yaml`; команда запуска та же: `docker compose up --build -d`. Каталог должен существовать до запуска: он монтируется только в `recommendation-service`, в `/run/chatgpt`, для чтения. Контейнер работает без root, с UID владельца файлов из `APP_UID`. Wardrobe не получает credentials ChatGPT: он читает фотографии из S3 и отправляет кандидатов recommendation через Feign и Eureka.
 
 Если нужен отдельный PKCS12 для OpenAI, положите его в тот же каталог и задайте `CHATGPT_TRUST_STORE=/run/chatgpt/<имя файла>`; пароль хранилища — `changeit`. Иначе оставьте переменную пустой. Это доверие применяется только к клиенту OpenAI.
 
-Без действующего подключения AI возвращает 503; остальные функции работают. Для запуска без AI можно указать пустой каталог и оставить `OPENAI_MODEL` пустым. После истечения токена нужен повторный вход через утилиту, перезапуск контейнера не требуется. OAuth-токены не храните в `.env` или Git.
+Без действующего подключения или при недоступном recommendation AI возвращает 503; остальные функции работают. Проверка данных и чтение фотографий выполняются до обращения к recommendation; при ошибке образ не сохраняется. Для запуска без AI можно указать пустой каталог и оставить `OPENAI_MODEL` пустым. После истечения токена нужен повторный вход через утилиту, перезапуск контейнера не требуется. OAuth-токены не храните в `.env` или Git.
 
 ## Сборка и тесты
 
@@ -109,7 +109,7 @@ curl http://127.0.0.1:8080/api/wardrobe/items \
 ./gradlew :wardrobe-service:transportTest # максимальный пакет изображений, отдельная JVM с heap 3 ГиБ
 ```
 
-Код приложения находится в `wardrobe-service`, Config Server — в `config-server`, Eureka — в `discovery-server`, единая HTTP-точка входа — в `api-gateway`. Для запуска без Docker нужны PostgreSQL и переменные окружения из `.env`: Gradle сам этот файл не читает. Сначала выполните `./gradlew :config-server:bootRun`, затем `./gradlew :discovery-server:bootRun`, `APP_PORT=8081 ./gradlew :wardrobe-service:bootRun` и `./gradlew :api-gateway:bootRun`. Backend регистрируется в Eureka; после её запуска ему может потребоваться короткое время, чтобы появиться в Gateway. Команды запускаются из корня репозитория; конкретный модуль можно указать явно: `./gradlew :wardrobe-service:test`.
+Код гардероба находится в `wardrobe-service`, AI — в `recommendation-service`, Config Server — в `config-server`, Eureka — в `discovery-server`, единая HTTP-точка входа — в `api-gateway`. Для запуска без Docker нужны PostgreSQL и переменные окружения из `.env`: Gradle сам этот файл не читает. Сначала выполните `./gradlew :config-server:bootRun`, затем `./gradlew :discovery-server:bootRun`, `APP_PORT=8081 ./gradlew :wardrobe-service:bootRun`, `APP_PORT=8083 ./gradlew :recommendation-service:bootRun` и `./gradlew :api-gateway:bootRun`. Сервисы регистрируются в Eureka; обнаружение после запуска может занять некоторое время. Команды запускаются из корня репозитория; конкретный модуль можно указать явно: `./gradlew :wardrobe-service:test`.
 
 Общий отчёт JaCoCo: `build/reports/jacoco/testCodeCoverageReport/html/index.html` и `build/reports/jacoco/testCodeCoverageReport/testCodeCoverageReport.xml`. Порог ≥70% применяется к строкам backend-модулей; классы из покрытия не исключаются. Unit-тесты сервисов используют Mockito без Spring и БД. Интеграционные тесты работают с PostgreSQL Testcontainers, готовят и проверяют данные через JDBC, очищают их после теста. HTTP-клиенты проверяются на локальных заглушках; секреты из `.env` и реальные вызовы S3/OpenAI не нужны.
 

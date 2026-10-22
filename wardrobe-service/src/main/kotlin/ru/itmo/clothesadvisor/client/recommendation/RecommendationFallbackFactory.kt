@@ -8,10 +8,10 @@ import java.net.http.HttpTimeoutException
 import java.util.concurrent.TimeoutException
 import java.util.function.Predicate
 import org.springframework.cloud.openfeign.FallbackFactory
-import ru.itmo.clothesadvisor.client.ai.AiOutfitException
-import ru.itmo.clothesadvisor.client.ai.AiOutfitFailure
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionRequest
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionResponse
+import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionRequest
+import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionResponse
+import ru.itmo.clothesadvisor.model.ai.AiOutfitException
+import ru.itmo.clothesadvisor.model.ai.AiOutfitFailure
 
 class RecommendationFallbackFactory : FallbackFactory<RecommendationClient> {
     override fun create(cause: Throwable): RecommendationClient {

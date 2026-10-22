@@ -26,10 +26,6 @@ kotlin {
     jvmToolchain(25)
 }
 
-tasks.jar {
-    exclude("application*.yml", "ru/itmo/clothesadvisor/recommendationservice/**")
-}
-
 tasks.withType<Test> {
     useJUnitPlatform()
     inputs.file(

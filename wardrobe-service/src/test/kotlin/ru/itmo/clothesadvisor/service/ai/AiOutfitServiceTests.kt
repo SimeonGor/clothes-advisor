@@ -17,19 +17,19 @@ import org.mockito.Mockito.verifyNoInteractions
 import org.mockito.Mockito.`when`
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.SimpleTransactionStatus
-import ru.itmo.clothesadvisor.client.ai.AiOutfitException
-import ru.itmo.clothesadvisor.client.ai.AiOutfitFailure
-import ru.itmo.clothesadvisor.client.ai.OpenAiOutfitClient
+import ru.itmo.clothesadvisor.client.recommendation.RecommendationClient
 import ru.itmo.clothesadvisor.dto.ai.CreateAiOutfitRequest
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionCandidate
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionRequest
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionResponse
 import ru.itmo.clothesadvisor.dto.outfit.CreateOutfitRequest
 import ru.itmo.clothesadvisor.dto.outfit.OutfitResponse
 import ru.itmo.clothesadvisor.dto.outfit.OutfitWeatherDto
+import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionCandidate
+import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionRequest
+import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionResponse
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemPhotoContent
 import ru.itmo.clothesadvisor.model.AccessDeniedException
 import ru.itmo.clothesadvisor.model.EntityNotFoundException
+import ru.itmo.clothesadvisor.model.ai.AiOutfitException
+import ru.itmo.clothesadvisor.model.ai.AiOutfitFailure
 import ru.itmo.clothesadvisor.model.outfit.OutfitSource
 import ru.itmo.clothesadvisor.model.user.AppUser
 import ru.itmo.clothesadvisor.model.user.UserRole
@@ -44,6 +44,7 @@ import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.repository.weather.PrecipitationTypeRepository
 import ru.itmo.clothesadvisor.service.outfit.OutfitService
 import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemPhotoService
+import ru.itmo.clothesadvisor.storage.wardrobe.PhotoStorageUnavailableException
 
 class AiOutfitServiceTests {
     private val users = mock(AppUserRepository::class.java)
@@ -55,7 +56,7 @@ class AiOutfitServiceTests {
     private var providerFailure: AiOutfitFailure? = null
     private var receivedSelection: OutfitSelectionRequest? = null
     private val provider =
-        mock(OpenAiOutfitClient::class.java) { call ->
+        mock(RecommendationClient::class.java) { call ->
             if (call.method.name == "select") {
                 receivedSelection = call.getArgument(0)
                 providerFailure?.let { throw AiOutfitException(it) }
@@ -170,6 +171,9 @@ class AiOutfitServiceTests {
 
     @Test
     fun `invalid explicit IDs and foreign items stop before image reads`() {
+        // given
+        providerFailure = AiOutfitFailure.UNAVAILABLE
+
         for (ids in listOf(emptyList(), listOf(null), listOf(0L), listOf(11L, 11L))) {
 
             // given: invalid explicit candidate IDs
@@ -266,6 +270,38 @@ class AiOutfitServiceTests {
         assertFailure(AiOutfitFailure.TIMEOUT, failure)
         verify(users, never()).lockActiveUserForShare(7)
         verifyNoInteractions(outfits)
+    }
+
+    @Test
+    fun `unavailable recommendation is reported after image reads without final locks or save`() {
+        // given
+        providerFailure = AiOutfitFailure.UNAVAILABLE
+
+        // when
+        val failure = catchThrowable { service.create(7, request()) }
+
+        // then
+        assertFailure(AiOutfitFailure.UNAVAILABLE, failure)
+        verify(content).getContent(7, 11, 21)
+        assertThat(receivedSelection).isNotNull()
+        verify(users, never()).lockActiveUserForShare(7)
+        verify(items, never()).lockOwnedItemsForShare(7, listOf(11))
+        verifyNoInteractions(outfits)
+    }
+
+    @Test
+    fun `storage failure precedes unavailable recommendation without remote call or save`() {
+        // given
+        providerFailure = AiOutfitFailure.UNAVAILABLE
+        `when`(content.getContent(7, 11, 21)).thenThrow(PhotoStorageUnavailableException())
+
+        // when
+        val failure = catchThrowable { service.create(7, request()) }
+
+        // then
+        assertThat(failure).isInstanceOf(PhotoStorageUnavailableException::class.java)
+        verifyNoInteractions(provider, outfits)
+        verify(users, never()).lockActiveUserForShare(7)
     }
 
     @Test

@@ -22,10 +22,13 @@ import org.springframework.test.context.ActiveProfiles
 import ru.itmo.clothesadvisor.client.ai.OpenAiOutfitClient
 import ru.itmo.clothesadvisor.client.recommendation.RecommendationClient
 import ru.itmo.clothesadvisor.config.RecommendationClientRegistration
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionCandidate
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionRequest
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionResponse
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionWeather
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionCandidate as ServerSelectionCandidate
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionRequest as ServerSelectionRequest
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionResponse as ServerSelectionResponse
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionWeather as ServerSelectionWeather
+import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionCandidate
+import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionRequest
+import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionWeather
 import ru.itmo.clothesadvisor.recommendationservice.RecommendationServiceApplication
 
 @SpringBootTest(
@@ -59,7 +62,13 @@ class RecommendationPayloadTests {
                 OutfitSelectionCandidate(it, "Item $it", "TOP", "Top", "White", "Cotton", "image/jpeg", image)
             },
         )
-        `when`(provider.select(selection)).thenReturn(OutfitSelectionResponse(listOf(20, 1)))
+        val expected = ServerSelectionRequest(
+            ServerSelectionWeather(BigDecimal("-12.3456789"), BigDecimal.ZERO, "NONE", "None"),
+            (1L..20).map {
+                ServerSelectionCandidate(it, "Item $it", "TOP", "Top", "White", "Cotton", "image/jpeg", image)
+            },
+        )
+        `when`(provider.select(expected)).thenReturn(ServerSelectionResponse(listOf(20, 1)))
         val pools = ManagementFactory.getMemoryPoolMXBeans()
         pools.forEach { it.resetPeakUsage() }
         SpringApplicationBuilder(ClientApplication::class.java).run(
@@ -72,7 +81,7 @@ class RecommendationPayloadTests {
 
             // then
             assertThat(response.itemIds).containsExactly(20, 1)
-            verify(provider).select(selection)
+            verify(provider).select(expected)
             println(
                 "Maximum-payload memory pool peaks: " +
                     pools.joinToString { "${it.name}=${it.peakUsage.used}" },

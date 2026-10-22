@@ -7,9 +7,9 @@ import feign.codec.Encoder
 import feign.codec.ErrorDecoder
 import java.util.concurrent.TimeUnit
 import org.springframework.context.annotation.Bean
-import ru.itmo.clothesadvisor.client.ai.AiOutfitException
-import ru.itmo.clothesadvisor.client.ai.AiOutfitFailure
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionResponse
+import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionResponse
+import ru.itmo.clothesadvisor.model.ai.AiOutfitException
+import ru.itmo.clothesadvisor.model.ai.AiOutfitFailure
 import tools.jackson.core.JacksonException
 import tools.jackson.core.StreamReadFeature
 import tools.jackson.core.exc.JacksonIOException
@@ -79,6 +79,9 @@ class RecommendationClientConfiguration {
 
     @Bean
     fun recommendationRetryer(): Retryer = Retryer.NEVER_RETRY
+
+    @Bean
+    fun recommendationDiscoveryCapability() = RecommendationDiscoveryCapability()
 
     @Bean
     fun recommendationFallbackFactory() = RecommendationFallbackFactory()

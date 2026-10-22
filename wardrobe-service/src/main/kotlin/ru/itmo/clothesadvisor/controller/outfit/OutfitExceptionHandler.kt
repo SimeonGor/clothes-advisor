@@ -5,8 +5,8 @@ import org.springframework.dao.OptimisticLockingFailureException
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
-import ru.itmo.clothesadvisor.client.ai.AiOutfitException
 import ru.itmo.clothesadvisor.controller.ai.AiOutfitController
+import ru.itmo.clothesadvisor.model.ai.AiOutfitException
 import ru.itmo.clothesadvisor.service.outfit.InvalidOutfitRequestException
 import ru.itmo.clothesadvisor.service.rating.RatingConflictException
 import ru.itmo.clothesadvisor.storage.wardrobe.PhotoStorageUnavailableException

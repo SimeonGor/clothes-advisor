@@ -6,18 +6,18 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.TransactionDefinition
 import org.springframework.transaction.support.TransactionTemplate
-import ru.itmo.clothesadvisor.client.ai.AiOutfitException
-import ru.itmo.clothesadvisor.client.ai.AiOutfitFailure
-import ru.itmo.clothesadvisor.client.ai.OpenAiOutfitClient
+import ru.itmo.clothesadvisor.client.recommendation.RecommendationClient
 import ru.itmo.clothesadvisor.dto.ai.CreateAiOutfitRequest
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionCandidate
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionRequest
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionResponse
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionWeather
 import ru.itmo.clothesadvisor.dto.outfit.CreateOutfitRequest
 import ru.itmo.clothesadvisor.dto.outfit.OutfitResponse
+import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionCandidate
+import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionRequest
+import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionResponse
+import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionWeather
 import ru.itmo.clothesadvisor.model.AccessDeniedException
 import ru.itmo.clothesadvisor.model.EntityNotFoundException
+import ru.itmo.clothesadvisor.model.ai.AiOutfitException
+import ru.itmo.clothesadvisor.model.ai.AiOutfitFailure
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItem
@@ -35,7 +35,7 @@ internal class AiOutfitService(
     private val photos: WardrobeItemPhotoRepository,
     private val precipitation: PrecipitationTypeRepository,
     private val photoContent: WardrobeItemPhotoService,
-    private val provider: OpenAiOutfitClient,
+    private val recommendation: RecommendationClient,
     private val outfits: OutfitService,
     transactionManager: PlatformTransactionManager,
     @Value("\${app.openai.owner-login:user}") private val ownerLogin: String,
@@ -51,12 +51,11 @@ internal class AiOutfitService(
             throw AiOutfitException(AiOutfitFailure.UNAVAILABLE)
         }
 
-        provider.requireAvailable()
         val prepared = prepareCandidates(ownerId, request)
         val selection =
             OutfitSelectionRequest(prepared.weather, loadImages(ownerId, prepared.candidates))
         requireActiveUser(ownerId)
-        val response = provider.select(selection)
+        val response = recommendation.select(selection)
         validateSelection(response, prepared.candidates.map { requireNotNull(it.item.id) }.toSet())
 
         return saveOutfit(ownerId, request, prepared.candidates, response.itemIds)
