@@ -39,6 +39,10 @@ kotlin {
 tasks.withType<Test> {
     useJUnitPlatform()
     inputs.file(rootProject.layout.projectDirectory.file("config-repository/account-service.yml"))
+    inputs.dir(rootProject.layout.projectDirectory.dir("ops/account-transfer"))
+    inputs.dir(
+        rootProject.layout.projectDirectory.dir("wardrobe-service/src/main/resources/db/migration"),
+    )
 }
 
 jacoco {
