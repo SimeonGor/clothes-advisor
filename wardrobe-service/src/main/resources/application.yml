@@ -3,10 +3,7 @@ server:
 
 app:
   openai:
-    credentials-directory: ${CHATGPT_CREDENTIALS_DIR:}
     owner-login: user
-    model: ${OPENAI_MODEL:}
-    trust-store: ${CHATGPT_TRUST_STORE:}
   s3:
     endpoint: ${S3_ENDPOINT:https://storage.yandexcloud.net}
     bucket: ${S3_BUCKET:}

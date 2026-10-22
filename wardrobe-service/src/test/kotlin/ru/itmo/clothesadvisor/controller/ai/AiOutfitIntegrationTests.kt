@@ -23,7 +23,6 @@ import org.mockito.ArgumentMatchers.anyList
 import org.mockito.ArgumentMatchers.anyLong
 import org.mockito.ArgumentMatchers.anyString
 import org.mockito.Mockito.doAnswer
-import org.mockito.Mockito.doThrow
 import org.mockito.Mockito.mockingDetails
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.verifyNoInteractions
@@ -38,18 +37,18 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate
-import ru.itmo.clothesadvisor.client.ai.AiOutfitException
-import ru.itmo.clothesadvisor.client.ai.AiOutfitFailure
-import ru.itmo.clothesadvisor.client.ai.OpenAiOutfitClient
+import ru.itmo.clothesadvisor.client.recommendation.RecommendationClient
 import ru.itmo.clothesadvisor.config.PostgresIntegrationTest
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
 import ru.itmo.clothesadvisor.config.insertItem
 import ru.itmo.clothesadvisor.config.insertUser
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionRequest
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionResponse
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionWeather
+import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionRequest
+import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionResponse
+import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionWeather
 import ru.itmo.clothesadvisor.dto.wardrobe.CreateWardrobeItemRequest
 import ru.itmo.clothesadvisor.dto.wardrobe.UpdateWardrobeItemRequest
+import ru.itmo.clothesadvisor.model.ai.AiOutfitException
+import ru.itmo.clothesadvisor.model.ai.AiOutfitFailure
 import ru.itmo.clothesadvisor.model.user.AppUser
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
@@ -72,7 +71,7 @@ class AiOutfitIntegrationTests : PostgresIntegrationTest() {
     @Autowired private lateinit var jdbc: JdbcTemplate
     @Autowired private lateinit var transactionManager: PlatformTransactionManager
     @MockitoBean private lateinit var storage: S3PhotoStorage
-    @MockitoBean private lateinit var provider: OpenAiOutfitClient
+    @MockitoBean private lateinit var provider: RecommendationClient
     @MockitoSpyBean private lateinit var wardrobe: WardrobeItemRepository
     @MockitoSpyBean private lateinit var photos: WardrobeItemPhotoRepository
     @MockitoSpyBean private lateinit var composition: OutfitItemRepository
@@ -396,23 +395,31 @@ class AiOutfitIntegrationTests : PostgresIntegrationTest() {
     }
 
     @Test
-    fun `unconfigured AI and remote failures leave no outfit or partial rows`() {
+    fun `unavailable recommendation is discovered after image reads without partial rows`() {
 
         // given
         val owner = connectedUser()
         val actorId = actorId(owner)
-        item(owner)
-        doThrow(AiOutfitException(AiOutfitFailure.UNAVAILABLE)).`when`(provider).requireAvailable()
+        val id = item(owner)
+        select = { throw AiOutfitException(AiOutfitFailure.UNAVAILABLE) }
 
         // when
         val unavailableProvider = request("POST", actorId = actorId, body = body())
 
         // then
         assertEmpty(unavailableProvider, 503)
-        verifyNoInteractions(storage)
+        assertThat(downloaded).containsExactly("photo-$id")
+        assertThat(providerCalls).hasValue(1)
+        assertNoOutfits(owner)
+    }
 
-        // given: credentials are now available
-        doAnswer { null }.`when`(provider).requireAvailable()
+    @Test
+    fun `remote and storage failures leave no outfit or partial rows`() {
+        // given
+        val owner = connectedUser()
+        val actorId = actorId(owner)
+        item(owner)
+
         for (failure in
             listOf(
                 AiOutfitFailure.NO_OUTFIT,

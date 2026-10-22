@@ -19,11 +19,11 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
-import ru.itmo.clothesadvisor.client.ai.AiOutfitException
-import ru.itmo.clothesadvisor.client.ai.AiOutfitFailure
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionCandidate
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionRequest
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionWeather
+import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionCandidate
+import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionRequest
+import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionWeather
+import ru.itmo.clothesadvisor.model.ai.AiOutfitException
+import ru.itmo.clothesadvisor.model.ai.AiOutfitFailure
 
 @SpringBootTest(
     classes = [RecommendationClientTests.ClientApplication::class],

@@ -18,6 +18,7 @@ import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration
 import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.cloud.client.discovery.simple.SimpleDiscoveryProperties
 import org.springframework.cloud.openfeign.FeignClientFactory
 import org.springframework.cloud.openfeign.loadbalancer.FeignBlockingLoadBalancerClient
 import org.springframework.context.annotation.Import
@@ -26,12 +27,12 @@ import org.springframework.context.annotation.Profile
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
-import ru.itmo.clothesadvisor.client.ai.AiOutfitException
-import ru.itmo.clothesadvisor.client.ai.AiOutfitFailure
 import ru.itmo.clothesadvisor.config.RecommendationClientRegistration
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionCandidate
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionRequest
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionWeather
+import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionCandidate
+import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionRequest
+import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionWeather
+import ru.itmo.clothesadvisor.model.ai.AiOutfitException
+import ru.itmo.clothesadvisor.model.ai.AiOutfitFailure
 
 @SpringBootTest(
     classes = [RecommendationClientTests.ClientApplication::class],
@@ -48,6 +49,7 @@ class RecommendationClientTests {
     @Autowired private lateinit var client: RecommendationClient
     @Autowired private lateinit var factory: FeignClientFactory
     @Autowired private lateinit var breakers: CircuitBreakerRegistry
+    @Autowired private lateinit var discovery: SimpleDiscoveryProperties
     private val selection = OutfitSelectionRequest(
         OutfitSelectionWeather(BigDecimal("-1.23456789"), BigDecimal.ZERO, "NONE", "None"),
         listOf(OutfitSelectionCandidate(7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", "AQID")),
@@ -83,6 +85,30 @@ class RecommendationClientTests {
         assertThat(options.isFollowRedirects).isFalse()
         assertThat(received).contains("-1.23456789", "AQID")
         assertThat(breakers.allCircuitBreakers.map { it.name }).containsExactly(BREAKER_NAME)
+    }
+
+    @Test
+    fun `empty discovery registry is unavailable without HTTP and restored registry recovers`() {
+        // given
+        val instances = requireNotNull(discovery.instances.remove("recommendation-service"))
+
+        try {
+            // when
+            val failure = catchThrowable { client.select(selection) }
+
+            // then
+            assertFailure(AiOutfitFailure.UNAVAILABLE, failure)
+            assertThat(calls).hasValue(0)
+        } finally {
+            discovery.instances["recommendation-service"] = instances
+        }
+
+        // when
+        val recovered = client.select(selection)
+
+        // then
+        assertThat(recovered.itemIds).containsExactly(7)
+        assertThat(calls).hasValue(1)
     }
 
     @Test
