@@ -8,6 +8,7 @@ COPY config-server/build.gradle.kts ./config-server/
 COPY discovery-server/build.gradle.kts ./discovery-server/
 COPY api-gateway/build.gradle.kts ./api-gateway/
 COPY recommendation-service/build.gradle.kts ./recommendation-service/
+COPY account-service/build.gradle.kts ./account-service/
 COPY api-gateway/src/main/ ./api-gateway/src/main/
 RUN chmod +x ./gradlew && ./gradlew --no-daemon --max-workers=1 \
     -Pkotlin.compiler.execution.strategy=in-process :api-gateway:bootJar
