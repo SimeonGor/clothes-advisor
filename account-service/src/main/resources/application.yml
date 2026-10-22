@@ -10,5 +10,14 @@ spring:
     user: ${DB_USER:account}
     password: ${DB_PASSWORD}
 
-server:
-  port: ${APP_PORT:8080}
+---
+spring:
+  config:
+    activate:
+      on-profile: "!test"
+    import: "configserver:${CONFIG_SERVER_URL:http://localhost:8888}"
+  cloud:
+    config:
+      fail-fast: true
+      request-connect-timeout: 2000
+      request-read-timeout: 5000
