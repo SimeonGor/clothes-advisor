@@ -13,6 +13,7 @@ dependencies {
     jacocoAggregation(project(":discovery-server"))
     jacocoAggregation(project(":api-gateway"))
     jacocoAggregation(project(":recommendation-service"))
+    jacocoAggregation(project(":account-service"))
 }
 
 jacoco {
