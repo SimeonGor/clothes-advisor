@@ -1,6 +1,9 @@
 package ru.itmo.clothesadvisor.service.ai
 
+import io.micrometer.core.instrument.MeterRegistry
 import java.util.Base64
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
 import org.springframework.transaction.PlatformTransactionManager
@@ -37,25 +40,48 @@ internal class AiOutfitService(
     private val recommendation: RecommendationClient,
     private val outfits: OutfitService,
     transactionManager: PlatformTransactionManager,
+    meters: MeterRegistry,
     @Value("\${app.openai.owner-login:user}") private val ownerLogin: String,
 ) {
+    private val active = AtomicBoolean()
+    private val rejected = meters.counter("wardrobe.ai.rejected")
+    private val successfulDuration = meters.timer("wardrobe.ai.duration", "outcome", "success")
+    private val failedDuration = meters.timer("wardrobe.ai.duration", "outcome", "failure")
     private val transaction =
         TransactionTemplate(transactionManager).apply {
             isolationLevel = TransactionDefinition.ISOLATION_READ_COMMITTED
         }
 
+    init {
+        meters.gauge("wardrobe.ai.active", active) { if (it.get()) 1.0 else 0.0 }
+    }
+
     fun create(ownerId: Long, request: CreateAiOutfitRequest): OutfitResponse {
         requireAiAccess(ownerId)
+        if (!active.compareAndSet(false, true)) {
+            rejected.increment()
+            throw AiOutfitException(AiOutfitFailure.UNAVAILABLE)
+        }
 
-        val prepared = prepareCandidates(ownerId, request)
-        val selection =
-            OutfitSelectionRequest(prepared.weather, loadImages(ownerId, prepared.candidates))
-        requireAiAccess(ownerId)
-        val response = recommendation.select(selection)
-        validateSelection(response, prepared.candidates.map { requireNotNull(it.item.id) }.toSet())
-        requireAiAccess(ownerId)
+        val startedAt = System.nanoTime()
+        var succeeded = false
+        try {
+            val prepared = prepareCandidates(ownerId, request)
+            val selection =
+                OutfitSelectionRequest(prepared.weather, loadImages(ownerId, prepared.candidates))
+            requireAiAccess(ownerId)
+            val response = recommendation.select(selection)
+            validateSelection(response, prepared.candidates.map { requireNotNull(it.item.id) }.toSet())
+            requireAiAccess(ownerId)
 
-        return saveOutfit(ownerId, request, prepared.candidates, response.itemIds)
+            val saved = saveOutfit(ownerId, request, prepared.candidates, response.itemIds)
+            succeeded = true
+            return saved
+        } finally {
+            active.set(false)
+            val duration = if (succeeded) successfulDuration else failedDuration
+            duration.record(System.nanoTime() - startedAt, TimeUnit.NANOSECONDS)
+        }
     }
 
     private fun prepareCandidates(
