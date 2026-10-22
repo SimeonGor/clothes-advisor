@@ -1,6 +1,9 @@
 package ru.itmo.clothesadvisor.recommendationservice
 
 import com.sun.net.httpserver.HttpServer
+import io.micrometer.tracing.Tracer
+import io.opentelemetry.sdk.trace.export.SpanExporter
+import java.math.BigDecimal
 import java.net.InetSocketAddress
 import java.net.URI
 import java.net.http.HttpClient
@@ -10,6 +13,7 @@ import java.nio.file.Files
 import java.time.Clock
 import java.time.Duration
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
@@ -18,16 +22,25 @@ import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.mockito.Mockito.doAnswer
+import org.slf4j.MDC
+import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.boot.test.web.server.LocalServerPort
+import org.springframework.context.ApplicationContext
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Import
 import org.springframework.context.annotation.Primary
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
 import ru.itmo.clothesadvisor.client.ai.ChatGptCredentialFixture
+import ru.itmo.clothesadvisor.client.ai.OpenAiOutfitClient
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionCandidate
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionRequest
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionWeather
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
@@ -40,6 +53,9 @@ class OutfitSelectionHttpTests {
     }
 
     @LocalServerPort private var port = 0
+    @Autowired private lateinit var tracer: Tracer
+    @Autowired private lateinit var context: ApplicationContext
+    @MockitoSpyBean private lateinit var outfitClient: OpenAiOutfitClient
     private val http = HttpClient.newHttpClient()
     private val valid = """
         {
@@ -81,6 +97,55 @@ class OutfitSelectionHttpTests {
         assertThat(response.statusCode()).isEqualTo(200)
         assertThat(response.body()).isEqualTo("""{"itemIds":[7]}""")
         assertThat(calls).hasValue(1)
+    }
+
+    @Test
+    fun `provider worker retains request trace and MDC and isolates the next request`() {
+        // given
+        val traceId = "0123456789abcdef0123456789abcdef"
+        val parentSpanId = "0123456789abcdef"
+        data class WorkerTrace(
+            val traceId: String?,
+            val spanId: String?,
+            val mdcTraceId: String?,
+            val mdcSpanId: String?,
+            val thread: String,
+        )
+        val workers = CopyOnWriteArrayList<WorkerTrace>()
+        val selection = OutfitSelectionRequest(
+            OutfitSelectionWeather(BigDecimal("-1.23456789"), BigDecimal.ZERO, "NONE", "None"),
+            listOf(OutfitSelectionCandidate(
+                7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", "AQID",
+            )),
+        )
+        doAnswer { call ->
+            val span = tracer.currentSpan()?.context()
+            workers += WorkerTrace(span?.traceId(), span?.spanId(), MDC.get("traceId"),
+                MDC.get("spanId"), Thread.currentThread().name)
+            call.callRealMethod()
+        }.`when`(outfitClient).select(selection)
+
+        // when
+        val correlated = http.send(
+            request(valid, "00-$traceId-$parentSpanId-01"), HttpResponse.BodyHandlers.ofString(),
+        )
+        val independent = http.send(request(valid), HttpResponse.BodyHandlers.ofString())
+
+        // then
+        assertThat(correlated.statusCode()).isEqualTo(200)
+        assertThat(independent.statusCode()).isEqualTo(200)
+        assertThat(calls).hasValue(2)
+        assertThat(workers).hasSize(2)
+        assertThat(workers[0].traceId).isEqualTo(traceId)
+        assertThat(workers[0].spanId).matches("[0-9a-f]{16}").isNotEqualTo(parentSpanId)
+        assertThat(workers[1].traceId).matches("[0-9a-f]{32}").isNotEqualTo(traceId)
+        workers.forEach {
+            assertThat(it.mdcTraceId).isEqualTo(it.traceId)
+            assertThat(it.mdcSpanId).isEqualTo(it.spanId)
+            assertThat(it.thread).startsWith("boundedElastic-")
+        }
+        assertThat(tracer).isNotSameAs(Tracer.NOOP)
+        assertThat(context.getBeansOfType(SpanExporter::class.java)).isEmpty()
     }
 
     @Test
@@ -145,24 +210,27 @@ class OutfitSelectionHttpTests {
         // when
         val pending = http.sendAsync(request(valid), HttpResponse.BodyHandlers.ofString())
         assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue()
-        val health = http.send(
-            HttpRequest.newBuilder(URI("http://127.0.0.1:$port/actuator/health"))
-                .timeout(Duration.ofMillis(800)).GET().build(),
-            HttpResponse.BodyHandlers.ofString(),
-        )
+        val probes = listOf("liveness", "readiness").map { group ->
+            http.send(
+                HttpRequest.newBuilder(URI("http://127.0.0.1:$port/actuator/health/$group"))
+                    .timeout(Duration.ofMillis(800)).GET().build(),
+                HttpResponse.BodyHandlers.ofString(),
+            )
+        }
         val response = pending.get(5, TimeUnit.SECONDS)
         release.countDown()
 
         // then
-        assertThat(health.statusCode()).isEqualTo(200)
+        assertThat(probes.map { it.statusCode() }).containsOnly(200)
         assertThat(response.statusCode()).isEqualTo(504)
         assertThat(response.body()).isEqualTo("""{"code":"timeout"}""")
         assertThat(calls).hasValue(1)
     }
 
-    private fun request(body: String) =
+    private fun request(body: String, traceparent: String? = null) =
         HttpRequest.newBuilder(URI("http://127.0.0.1:$port/api/outfit-selections"))
             .header("Content-Type", "application/json")
+            .apply { traceparent?.let { header("traceparent", it) } }
             .POST(HttpRequest.BodyPublishers.ofString(body)).build()
 
     companion object {

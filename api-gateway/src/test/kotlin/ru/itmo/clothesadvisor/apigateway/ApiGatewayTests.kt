@@ -1,6 +1,8 @@
 package ru.itmo.clothesadvisor.apigateway
 
 import com.sun.net.httpserver.HttpServer
+import io.micrometer.tracing.Tracer
+import io.opentelemetry.sdk.trace.export.SpanExporter
 import java.net.InetSocketAddress
 import java.net.URI
 import java.net.http.HttpClient
@@ -16,6 +18,7 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.cloud.gateway.config.HttpClientFactory
 import org.springframework.cloud.gateway.config.HttpClientProperties
+import org.springframework.context.ApplicationContext
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
@@ -26,6 +29,8 @@ class ApiGatewayTests {
     @LocalServerPort private var port = 0
     @Autowired private lateinit var httpClientProperties: HttpClientProperties
     @Autowired private lateinit var httpClientFactory: HttpClientFactory
+    @Autowired private lateinit var tracer: Tracer
+    @Autowired private lateinit var context: ApplicationContext
     private val http = HttpClient.newHttpClient()
 
     @AfterEach
@@ -131,7 +136,9 @@ class ApiGatewayTests {
             "/v3/api-docs/swagger-config", "/v3/api-docs.yaml")
         val blockedPaths = listOf("/internal/health", "/internal/users/7",
             "/internal/stylist-access/2/clients/7", "/internal/admin-access/3/users/7",
-            "/eureka/apps", "/wardrobe-service/actuator/health", "/unknown.js")
+            "/eureka/apps", "/wardrobe-service/actuator/health", "/unknown.js",
+            "/wardrobe-service/actuator/metrics", "/account-service/actuator/metrics",
+            "/recommendation-service/actuator/health", "/actuator/metrics")
 
         // when
         val routed = (frontendPaths + docsPaths).map(::get)
@@ -213,6 +220,48 @@ class ApiGatewayTests {
         assertThat(retryDisabled).isTrue()
     }
 
+    @Test
+    fun `gateway creates downstream child spans and isolates the next request without an exporter`() {
+        // given
+        val traceId = "0123456789abcdef0123456789abcdef"
+        val parentSpanId = "0123456789abcdef"
+        val request = HttpRequest.newBuilder(uri("/api/test/items"))
+            .header("traceparent", "00-$traceId-$parentSpanId-01").GET().build()
+
+        // when
+        val correlated = http.send(request, HttpResponse.BodyHandlers.ofString())
+        val independent = get("/api/test/items")
+
+        // then
+        assertThat(correlated.statusCode()).isEqualTo(200)
+        assertThat(independent.statusCode()).isEqualTo(200)
+        val first = backendRequests[0].traceparent
+        val second = backendRequests[1].traceparent
+        assertThat(first).matches("00-$traceId-[0-9a-f]{16}-01")
+        assertThat(first!!.split('-')[2]).isNotEqualTo(parentSpanId)
+        assertThat(second).matches("00-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}")
+        assertThat(second!!.split('-')[1]).isNotEqualTo(traceId).isNotEqualTo("0".repeat(32))
+        assertThat(tracer).isNotSameAs(Tracer.NOOP)
+        assertThat(context.getBeansOfType(SpanExporter::class.java)).isEmpty()
+    }
+
+    @Test
+    fun `gateway exposes native liveness and readiness`() {
+        // given
+        val paths = listOf("/actuator/health/liveness", "/actuator/health/readiness")
+
+        // when
+        val responses = paths.map(::get)
+
+        // then
+        responses.forEach {
+            assertThat(it.statusCode()).isEqualTo(200)
+            assertThat(it.body()).isEqualTo("""{"status":"UP"}""")
+        }
+        assertThat(backendRequests).isEmpty()
+        assertThat(accountRequests).isEmpty()
+    }
+
     private fun uri(path: String) = URI("http://127.0.0.1:$port$path")
     private fun get(path: String): HttpResponse<String> =
         http.send(HttpRequest.newBuilder(uri(path)).GET().build(), HttpResponse.BodyHandlers.ofString())
@@ -236,6 +285,7 @@ class ApiGatewayTests {
                     userId = exchange.requestHeaders.getFirst("X-User-Id"),
                     host = exchange.requestHeaders.getFirst("Host"),
                     contentType = exchange.requestHeaders.getFirst("Content-Type"),
+                    traceparent = exchange.requestHeaders.getFirst("traceparent"),
                 )
                 val path = exchange.requestURI.path
                 val responseBody = when (path) {
@@ -326,5 +376,6 @@ class ApiGatewayTests {
         val userId: String?,
         val host: String?,
         val contentType: String?,
+        val traceparent: String? = null,
     )
 }
