@@ -1,5 +1,6 @@
 package ru.itmo.clothesadvisor.config
 
+import java.math.BigDecimal
 import java.net.http.HttpClient
 import java.nio.file.Files
 import java.nio.file.Path
@@ -17,6 +18,8 @@ import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import ru.itmo.clothesadvisor.client.ai.AiOutfitException
 import ru.itmo.clothesadvisor.client.ai.ChatGptCredentialFixture
 import ru.itmo.clothesadvisor.client.ai.OpenAiOutfitClient
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionRequest
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionWeather
 import tools.jackson.databind.json.JsonMapper
 
 class OpenAiConfigurationTests {
@@ -92,8 +95,7 @@ class OpenAiConfigurationTests {
             // then
             assertThat(context).hasNotFailed()
 
-            // when: availability check must succeed in this context
-            context.getBean(OpenAiOutfitClient::class.java).requireAvailable()
+            assertThat(context).hasSingleBean(OpenAiOutfitClient::class.java)
         }
         for (path in listOf(invalid, temporary.resolve("missing.p12"))) {
 
@@ -107,7 +109,11 @@ class OpenAiConfigurationTests {
                 val client = context.getBean(OpenAiOutfitClient::class.java)
 
                 // when
-                val failure = catchThrowable { client.requireAvailable() }
+                val selection = OutfitSelectionRequest(
+                    OutfitSelectionWeather(BigDecimal.ZERO, BigDecimal.ZERO, "NONE", "None"),
+                    emptyList(),
+                )
+                val failure = catchThrowable { client.select(selection) }
 
                 // then
                 assertThat(failure).isInstanceOfSatisfying(AiOutfitException::class.java) {
