@@ -1,0 +1,131 @@
+package ru.itmo.clothesadvisor.config
+
+import com.jayway.jsonpath.JsonPath
+import java.net.URI
+import java.net.http.HttpClient
+import java.net.http.HttpRequest
+import java.net.http.HttpResponse
+import java.time.Duration
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.AfterEach
+import org.junit.jupiter.api.Test
+import org.junit.jupiter.api.parallel.Execution
+import org.junit.jupiter.api.parallel.ExecutionMode
+import org.springframework.boot.test.context.SpringBootTest
+import org.springframework.boot.test.web.server.LocalServerPort
+import org.springframework.test.context.ActiveProfiles
+
+@SpringBootTest(
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+    properties = ["springdoc.api-docs.enabled=true", "springdoc.swagger-ui.enabled=true"],
+)
+@ActiveProfiles("test", "local")
+@Execution(ExecutionMode.SAME_THREAD)
+class OpenApiIntegrationTests : PostgresIntegrationTest() {
+    @LocalServerPort private var port = 0
+    private val client = HttpClient.newHttpClient()
+
+    @AfterEach
+    fun closeHttpClient() = client.close()
+
+    @Test
+    fun `generated wardrobe spec retains public requests responses and actor headers`() {
+        // given
+        val request = HttpRequest.newBuilder(URI("http://localhost:$port/v3/api-docs"))
+            .timeout(Duration.ofSeconds(15)).GET().build()
+        val publicDictionaries = setOf(
+            "/api/wardrobe/categories", "/api/weather/precipitation-types",
+        )
+        val accountPaths = setOf(
+            "/api/admin/users", "/api/admin/users/{id}", "/api/me/stylist-access",
+            "/api/me/stylist-access/{stylistId}", "/api/stylist/clients",
+        )
+
+        // when
+        val response = client.send(request, HttpResponse.BodyHandlers.ofString())
+
+        // then
+        assertThat(response.statusCode()).isEqualTo(200)
+        val spec = JsonPath.parse(response.body())
+        assertThat(spec.read<String>("$.info.title")).isEqualTo("Wardrobe API")
+        assertThat(spec.read<List<String>>("$.servers[*].url")).containsExactly("/")
+        val paths = spec.read<Map<String, Map<String, Any?>>>("$.paths")
+        assertThat(paths.keys).isNotEmpty().allMatch { it.startsWith("/api/") }
+            .noneMatch { it.startsWith("/api/recommendation") || it in accountPaths }
+        assertThat(paths.keys).containsAll(publicDictionaries)
+        val operationIds = spec.read<List<String>>("$.paths.*.*.operationId")
+        assertThat(operationIds).hasSize(paths.values.sumOf { it.size })
+            .doesNotHaveDuplicates().allMatch { it.isNotBlank() }
+        paths.forEach { (path, operations) ->
+            operations.keys.forEach { method ->
+                val headers = spec.read<List<Map<String, Any?>>>(
+                    "$.paths['$path'].$method.parameters[?(@.name == 'X-User-Id')]",
+                )
+                if (path in publicDictionaries) {
+                    assertThat(headers).`as`("$method $path has no actor").isEmpty()
+                } else {
+                    assertThat(headers).`as`("$method $path requires one actor").hasSize(1)
+                    assertThat(headers.single()).containsEntry("in", "header")
+                        .containsEntry("required", true)
+                }
+            }
+        }
+
+        val schemas = spec.read<Map<String, Any?>>("$.components.schemas")
+        val references = spec.read<List<String>>("$..['\$ref']")
+        assertThat(references).isNotEmpty()
+        references.forEach { reference ->
+            assertThat(reference).startsWith("#/components/schemas/")
+            assertThat(schemas).containsKey(reference.removePrefix("#/components/schemas/"))
+        }
+        assertThat(schemas).doesNotContainKeys("CurrentUser", "InternalUserResponse")
+
+        val create = "$.paths['/api/wardrobe/items'].post"
+        val content = "$create.requestBody.content"
+        assertThat(spec.read<Map<String, Any?>>(content).keys)
+            .containsExactlyInAnyOrder("application/json", "multipart/form-data")
+        assertThat(spec.read<String>("$content['application/json'].schema['\$ref']"))
+            .isEqualTo("#/components/schemas/CreateWardrobeItemRequest")
+        val multipart = "$content['multipart/form-data']"
+        assertThat(spec.read<String>("$multipart.encoding.item.contentType"))
+            .isEqualTo("application/json")
+        val multipartSchema = "$multipart.schema"
+        assertThat(spec.read<List<String>>("$multipartSchema.required")).contains("item")
+        assertThat(spec.read<String>("$multipartSchema.properties.item['\$ref']"))
+            .isEqualTo("#/components/schemas/CreateWardrobeItemRequest")
+        assertThat(spec.read<String>("$multipartSchema.properties.photos.type")).isEqualTo("array")
+        assertThat(spec.read<Map<String, Any?>>("$multipartSchema.properties.photos.items"))
+            .containsEntry("type", "string").containsEntry("format", "binary")
+        val addPhotos = "$.paths['/api/wardrobe/items/{itemId}/photos'].post.requestBody"
+        val uploadedPhotos =
+            "$addPhotos.content['multipart/form-data'].schema.properties.photos"
+        assertThat(spec.read<String>("$uploadedPhotos.type")).isEqualTo("array")
+        assertThat(spec.read<Map<String, Any?>>("$uploadedPhotos.items"))
+            .containsEntry("type", "string").containsEntry("format", "binary")
+        assertThat(spec.read<String>(
+            "$create.responses['400'].content['application/json'].schema['\$ref']",
+        )).isEqualTo("#/components/schemas/ApiErrorResponse")
+        assertThat(spec.read<String>("$create.responses['201'].headers.Location.schema.format"))
+            .isEqualTo("uri")
+
+        val outfitList = "$.paths['/api/outfits'].get.responses['200']"
+        assertThat(spec.read<String>("$outfitList.headers['X-Total-Count'].schema.type"))
+            .isEqualTo("integer")
+        assertThat(spec.read<String>("$outfitList.headers['X-Total-Count'].schema.format"))
+            .isEqualTo("int64")
+        val photoPath = "/api/wardrobe/items/{itemId}/photos/{photoId}/content"
+        val photo = "$.paths['$photoPath'].get.responses['200']"
+        assertThat(spec.read<Map<String, Any?>>("$photo.content").keys)
+            .containsExactlyInAnyOrder("image/jpeg", "image/png")
+        listOf("image/jpeg", "image/png").forEach { mediaType ->
+            assertThat(spec.read<String>("$photo.content['$mediaType'].schema.type"))
+                .isEqualTo("string")
+            assertThat(spec.read<String>("$photo.content['$mediaType'].schema.format"))
+                .isEqualTo("binary")
+        }
+        assertThat(spec.read<List<String>>("$photo.headers['Cache-Control'].schema.enum"))
+            .containsExactly("no-store")
+        assertThat(spec.read<List<String>>("$photo.headers['X-Content-Type-Options'].schema.enum"))
+            .containsExactly("nosniff")
+    }
+}

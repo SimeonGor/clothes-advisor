@@ -1,5 +1,6 @@
 package ru.itmo.clothesadvisor.apigateway
 
+import com.jayway.jsonpath.JsonPath
 import com.sun.net.httpserver.HttpServer
 import io.micrometer.tracing.Tracer
 import io.opentelemetry.sdk.trace.export.SpanExporter
@@ -129,27 +130,61 @@ class ApiGatewayTests {
     }
 
     @Test
-    fun `UI and docs reach separate services while internal paths stay closed`() {
+    fun `gateway serves native Swagger UI and routes only the two selected specs`() {
         // given
         val frontendPaths = listOf("/", "/index.html", "/demo.js", "/demo.css")
-        val docsPaths = listOf("/swagger-ui.html", "/swagger-ui/index.html", "/v3/api-docs",
-            "/v3/api-docs/swagger-config", "/v3/api-docs.yaml")
+        val assets = listOf("/swagger-ui/swagger-ui.css", "/swagger-ui/swagger-ui-bundle.js",
+            "/swagger-ui/swagger-ui-standalone-preset.js", "/swagger-ui/swagger-initializer.js")
         val blockedPaths = listOf("/internal/health", "/internal/users/7",
             "/internal/stylist-access/2/clients/7", "/internal/admin-access/3/users/7",
             "/eureka/apps", "/wardrobe-service/actuator/health", "/unknown.js",
             "/wardrobe-service/actuator/metrics", "/account-service/actuator/metrics",
-            "/recommendation-service/actuator/health", "/actuator/metrics")
+            "/recommendation-service/actuator/health", "/actuator/metrics",
+            "/v3/api-docs/recommendation", "/v3/api-docs/internal", "/v3/api-docs/unknown",
+            "/v3/api-docs/account/nested", "/v3/api-docs/wardrobe/nested")
 
         // when
-        val routed = (frontendPaths + docsPaths).map(::get)
+        val frontend = frontendPaths.map(::get)
+        val welcome = get("/swagger-ui.html")
+        val html = get("/swagger-ui/index.html")
+        val resources = assets.map(::get)
+        val config = get("/v3/api-docs/swagger-config")
+        val accountSpec = get("/v3/api-docs/account")
+        val wardrobeSpec = get("/v3/api-docs/wardrobe")
         val blocked = blockedPaths.map(::get)
 
         // then
-        assertThat(routed.map { it.statusCode() }).containsOnly(200)
+        assertThat(frontend.map { it.statusCode() }).containsOnly(200)
         assertThat(frontendRequests).containsExactlyElementsOf(frontendPaths)
-        assertThat(backendRequests.map { it.path }).containsExactlyElementsOf(docsPaths)
+        assertThat(welcome.statusCode()).isEqualTo(302)
+        assertThat(welcome.headers().firstValue("Location").orElseThrow())
+            .endsWith("/swagger-ui/index.html")
+        assertThat(html.statusCode()).isEqualTo(200)
+        assertThat(html.body()).contains("swagger-ui", "swagger-ui-bundle.js")
+        assertThat(resources.map { it.statusCode() }).containsOnly(200)
+        assertThat(resources.last().body()).contains("/v3/api-docs/swagger-config")
+            .doesNotContain("petstore.swagger.io")
+        assertThat(config.statusCode()).isEqualTo(200)
+        assertThat(JsonPath.read<List<Map<String, String>>>(config.body(), "$.urls"))
+            .containsExactlyInAnyOrder(
+                mapOf("name" to "Account", "url" to "/v3/api-docs/account"),
+                mapOf("name" to "Wardrobe", "url" to "/v3/api-docs/wardrobe"),
+            )
+        assertThat(JsonPath.read<String>(config.body(), "$['urls.primaryName']"))
+            .isEqualTo("Wardrobe")
+        assertThat(JsonPath.read<String>(config.body(), "$.validatorUrl")).isEmpty()
+        assertThat(config.body()).doesNotContain("petstore.swagger.io")
+        assertThat(accountSpec.statusCode()).isEqualTo(200)
+        assertThat(wardrobeSpec.statusCode()).isEqualTo(200)
+        assertThat(accountSpec.body()).isEqualTo(accountDocs)
+        assertThat(wardrobeSpec.body()).isEqualTo(wardrobeDocs)
+        assertThat(accountRequests.single().path).isEqualTo("/v3/api-docs")
+        assertThat(backendRequests.single().path).isEqualTo("/v3/api-docs")
+        assertThat(accountRequests.single().host).isEqualTo("127.0.0.1:$port")
+        assertThat(backendRequests.single().host).isEqualTo("127.0.0.1:$port")
+        assertThat(accountRequests.single().method).isEqualTo("GET")
+        assertThat(backendRequests.single().method).isEqualTo("GET")
         assertThat(blocked.map { it.statusCode() }).containsOnly(404)
-        assertThat(accountRequests).isEmpty()
     }
 
     @Test
@@ -267,6 +302,10 @@ class ApiGatewayTests {
         http.send(HttpRequest.newBuilder(uri(path)).GET().build(), HttpResponse.BodyHandlers.ofString())
 
     companion object {
+        private val accountDocs =
+            """{"openapi":"3.1.0","info":{"title":"Account stub","version":"1"},"paths":{}}"""
+        private val wardrobeDocs =
+            """{"openapi":"3.1.0","info":{"title":"Wardrobe stub","version":"1"},"paths":{}}"""
         private val backendRequests = CopyOnWriteArrayList<BackendRequest>()
         private val accountRequests = CopyOnWriteArrayList<BackendRequest>()
         private val frontendRequests = CopyOnWriteArrayList<String>()
@@ -289,6 +328,7 @@ class ApiGatewayTests {
                 )
                 val path = exchange.requestURI.path
                 val responseBody = when (path) {
+                    "/v3/api-docs" -> wardrobeDocs.encodeToByteArray()
                     "/api/test/items" -> if (exchange.requestMethod == "POST") requestBody else
                         "${exchange.requestURI}|${exchange.requestHeaders.getFirst("X-User-Id")}".encodeToByteArray()
                     "/api/test/photos" -> "uploaded".encodeToByteArray()
@@ -298,6 +338,10 @@ class ApiGatewayTests {
                     else -> "ok".encodeToByteArray()
                 }
                 when (path) {
+                    "/v3/api-docs" -> {
+                        exchange.responseHeaders.add("Content-Type", "application/json")
+                        exchange.sendResponseHeaders(200, responseBody.size.toLong())
+                    }
                     "/api/test/items" -> if (exchange.requestMethod == "POST") {
                         exchange.responseHeaders.add("Location", "/api/test/items/9")
                         exchange.sendResponseHeaders(201, responseBody.size.toLong())
@@ -338,7 +382,14 @@ class ApiGatewayTests {
                     exchange.requestHeaders.getFirst("Host"),
                     exchange.requestHeaders.getFirst("Content-Type"),
                 )
-                val response = if (body.isEmpty()) "account".encodeToByteArray() else body
+                val response = when {
+                    exchange.requestURI.path == "/v3/api-docs" -> {
+                        exchange.responseHeaders.add("Content-Type", "application/json")
+                        accountDocs.encodeToByteArray()
+                    }
+                    body.isEmpty() -> "account".encodeToByteArray()
+                    else -> body
+                }
                 exchange.responseHeaders.add("Location", "/account-location")
                 exchange.responseHeaders.add("X-Total-Count", "11")
                 exchange.sendResponseHeaders(200, response.size.toLong())
