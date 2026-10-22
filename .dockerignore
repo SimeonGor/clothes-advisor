@@ -2,7 +2,8 @@
 .env
 authorized_key.json
 .idea
-.gradle
+**/.gradle
+**/.kotlin
 **/build
 docs
 *.iml
