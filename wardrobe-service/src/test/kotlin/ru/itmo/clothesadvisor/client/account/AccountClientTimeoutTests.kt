@@ -32,7 +32,7 @@ import ru.itmo.clothesadvisor.model.access.AccountUnavailableException
 )
 @ActiveProfiles("test", "account-client-test", "account-client-timeout-test")
 class AccountClientTimeoutTests {
-    @Autowired private lateinit var client: AccountClient
+    @Autowired private lateinit var client: BlockingAccountClient
     @Autowired private lateinit var breakers: CircuitBreakerRegistry
     @LocalServerPort private var port = 0
 

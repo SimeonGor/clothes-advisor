@@ -3,7 +3,6 @@ package ru.itmo.clothesadvisor.client.account
 import com.sun.net.httpserver.HttpServer
 import feign.Client
 import feign.Request
-import feign.Retryer
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry
 import io.micrometer.tracing.Tracer
 import java.math.BigDecimal
@@ -22,7 +21,6 @@ import org.assertj.core.api.Assertions.catchThrowable
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
-import org.junit.jupiter.api.TestReporter
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
 import org.slf4j.MDC
@@ -31,6 +29,7 @@ import org.springframework.boot.autoconfigure.EnableAutoConfiguration
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.cloud.client.discovery.simple.reactive.SimpleReactiveDiscoveryProperties
+import org.springframework.cloud.client.discovery.simple.InstanceProperties
 import org.springframework.cloud.openfeign.FeignClientFactory
 import org.springframework.cloud.openfeign.loadbalancer.FeignBlockingLoadBalancerClient
 import org.springframework.context.ApplicationContext
@@ -73,7 +72,7 @@ class AccountClientTests {
     @RestController
     @Profile("account-client-test")
     internal class Probe(
-        private val client: AccountClient,
+        private val client: BlockingAccountClient,
         private val recommendation: RecommendationClient,
         private val tracer: Tracer,
     ) {
@@ -110,7 +109,9 @@ class AccountClientTests {
         val thread: String,
     )
 
-    @Autowired private lateinit var client: AccountClient
+    @Autowired private lateinit var client: BlockingAccountClient
+    @Autowired private lateinit var reactiveClient: AccountClient
+    @Autowired private lateinit var properties: AccountClientProperties
     @Autowired private lateinit var recommendation: RecommendationClient
     @Autowired private lateinit var factory: FeignClientFactory
     @Autowired private lateinit var breakers: CircuitBreakerRegistry
@@ -126,6 +127,10 @@ class AccountClientTests {
         body = VALID_USER
         disconnect = false
         gate = null
+        splitBody = false
+        responseContentType = "application/json"
+        secondCalls.set(0)
+        bodyStarted = CountDownLatch(1)
         entered = CountDownLatch(1)
         probe.traces.clear()
         receivedTraceparent = null
@@ -226,8 +231,7 @@ class AccountClientTests {
     @Test
     fun `account transport options and decoder remain isolated from recommendation`() {
         // given
-        val options = factory.getInstance("account-service", Request.Options::class.java)!!
-        val transport = factory.getInstance("account-service", Client::class.java)
+        val transport = factory.getInstance("recommendation-service", Client::class.java)
         val recommendationOptions = factory.getInstance(
             "recommendation-service", Request.Options::class.java,
         )!!
@@ -245,11 +249,9 @@ class AccountClientTests {
         // then
         assertThat(user.id).isEqualTo(7)
         assertThat(result.itemIds).containsExactly(7)
-        assertThat(options.connectTimeoutMillis()).isEqualTo(2_000)
-        assertThat(options.readTimeoutMillis()).isEqualTo(5_000)
-        assertThat(options.isFollowRedirects).isFalse()
-        assertThat(factory.getInstance("account-service", Retryer::class.java))
-            .isSameAs(Retryer.NEVER_RETRY)
+        assertThat(properties.connectTimeout.toMillis()).isEqualTo(2_000)
+        assertThat(properties.readTimeout.toMillis()).isEqualTo(5_000)
+        assertThat(reactiveClient.toString()).contains("http://account-service")
         assertThat(transport).isInstanceOf(FeignBlockingLoadBalancerClient::class.java)
         assertThat((transport as FeignBlockingLoadBalancerClient).delegate)
             .isInstanceOf(Client.Default::class.java)
@@ -257,6 +259,127 @@ class AccountClientTests {
         assertThat(recommendationOptions.readTimeoutMillis()).isEqualTo(90_000)
         assertThat(context.getBeansOfType(Request.Options::class.java)).isEmpty()
         assertThat(calls).hasValue(2)
+    }
+
+    @Test
+    fun `reactive client is lazy and completes on a nonblocking thread after the whole body`() {
+        // given
+        splitBody = true
+        val release = CountDownLatch(1)
+        gate = release
+        val result = reactiveClient.getUser(7)
+        val completedOn = CopyOnWriteArrayList<Boolean>()
+        assertThat(calls).hasValue(0)
+
+        // when
+        val pending = result.doOnNext { completedOn += Schedulers.isInNonBlockingThread() }
+            .subscribeOn(Schedulers.parallel()).toFuture()
+        try {
+            assertThat(bodyStarted.await(2, TimeUnit.SECONDS)).isTrue()
+            assertThat(pending).isNotDone()
+            assertThat(breakers.circuitBreaker(breakerName("user"))
+                .metrics.numberOfBufferedCalls).isZero()
+            release.countDown()
+            val user = requireNotNull(pending.get(5, TimeUnit.SECONDS))
+
+            // then
+            assertThat(user.id).isEqualTo(7)
+            assertThat(completedOn).containsExactly(true)
+            assertThat(calls).hasValue(1)
+            assertThat(breakers.circuitBreaker(breakerName("user"))
+                .metrics.numberOfSuccessfulCalls).isEqualTo(1)
+        } finally {
+            release.countDown()
+            pending.cancel(true)
+        }
+    }
+
+    @Test
+    fun `cancelling a split response releases the half open permit without recording success`() {
+        // given
+        splitBody = true
+        val release = CountDownLatch(1)
+        gate = release
+        val breaker = breakers.circuitBreaker(breakerName("user"))
+        breaker.transitionToOpenState()
+        breaker.transitionToHalfOpenState()
+        val cancelled = CountDownLatch(1)
+        val pending = reactiveClient.getUser(7).doFinally { cancelled.countDown() }.toFuture()
+
+        try {
+            assertThat(bodyStarted.await(2, TimeUnit.SECONDS)).isTrue()
+
+            // when
+            pending.cancel(true)
+            assertThat(cancelled.await(2, TimeUnit.SECONDS)).isTrue()
+            release.countDown()
+            gate = null
+            splitBody = false
+            client.getUser(7)
+            client.getUser(7)
+
+            // then
+            assertThat(breaker.state.name).isEqualTo("CLOSED")
+            assertThat(calls).hasValue(3)
+        } finally {
+            release.countDown()
+            pending.cancel(true)
+        }
+    }
+
+    @Test
+    fun `same reactive client round robins two discovery instances`() {
+        // given
+        val instances = discovery.getInstances("account-service")
+        val registered = instances.toList()
+        instances.add(InstanceProperties().apply {
+            uri = URI("http://127.0.0.1:${secondServer.address.port}")
+            serviceId = "account-service"
+            instanceId = "account-second"
+        })
+
+        try {
+            // when
+            val logins = (1..4).map { reactiveClient.getUser(7).block()!!.login }
+
+            // then
+            assertThat(logins).containsExactlyInAnyOrder("user", "user", "second", "second")
+            assertThat(logins[0]).isEqualTo(logins[2]).isNotEqualTo(logins[1])
+            assertThat(calls).hasValue(2)
+            assertThat(secondCalls).hasValue(2)
+        } finally {
+            instances.clear()
+            instances.addAll(registered)
+        }
+    }
+
+    @Test
+    fun `valid user JSON is decoded even with an unrelated content type`() {
+        // given
+        responseContentType = "text/plain"
+
+        // when
+        val user = client.getUser(7)
+
+        // then
+        assertThat(user.id).isEqualTo(7)
+        assertThat(calls).hasValue(1)
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = [1_048_576, 1_048_577])
+    fun `account response size limit accepts its boundary and rejects larger bodies`(responseSize: Int) {
+        // given
+        body = VALID_USER + " ".repeat(responseSize - VALID_USER.length)
+
+        // when
+        val response = publicResponse("user")
+
+        // then
+        val expectedStatus = if (responseSize == 1_048_576) 204 else 503
+        assertThat(response.statusCode()).isEqualTo(expectedStatus)
+        assertThat(calls).hasValue(1)
+        assertThat(response.body()).doesNotContain("maxInMemorySize", "DataBufferLimitException")
     }
 
     @Test
@@ -437,9 +560,7 @@ class AccountClientTests {
 
     @ParameterizedTest
     @ValueSource(strings = ["user", "stylist", "admin"])
-    fun `early connection close fails closed and reports JDK GET attempts`(
-        method: String, reporter: TestReporter,
-    ) {
+    fun `early connection close fails closed with exactly one HTTP attempt`(method: String) {
         // given
         disconnect = true
 
@@ -448,8 +569,7 @@ class AccountClientTests {
 
         // then
         assertUnavailable(failure)
-        assertThat(calls.get()).isPositive()
-        reporter.publishEntry("$method EOF HTTP attempts", calls.get().toString())
+        assertThat(calls).hasValue(1)
     }
 
     @ParameterizedTest
@@ -559,6 +679,7 @@ class AccountClientTests {
         private const val RECOMMENDATION_BREAKER = "RecommendationClientselectOutfitSelectionRequest"
         private val METHODS = listOf("user", "stylist", "admin")
         private val calls = AtomicInteger()
+        private val secondCalls = AtomicInteger()
         @Volatile private var status = 200
         @Volatile private var body = VALID_USER
         @Volatile private var receivedPath = ""
@@ -567,6 +688,9 @@ class AccountClientTests {
         @Volatile private var receivedBody = ""
         @Volatile private var receivedTraceparent: String? = null
         @Volatile private var disconnect = false
+        @Volatile private var splitBody = false
+        @Volatile private var responseContentType = "application/json"
+        @Volatile private var bodyStarted = CountDownLatch(1)
         @Volatile private var gate: CountDownLatch? = null
         @Volatile private var entered = CountDownLatch(1)
         private val executor = Executors.newVirtualThreadPerTaskExecutor()
@@ -581,7 +705,9 @@ class AccountClientTests {
                     receivedTraceparent = it.requestHeaders.getFirst("traceparent")
                     receivedBody = it.requestBody.bufferedReader().readText()
                     if (disconnect) return@createContext
-                    gate?.let { release ->
+                    val responseGate = gate
+                    val split = splitBody
+                    responseGate?.takeUnless { split }?.let { release ->
                         entered.countDown()
                         release.await(5, TimeUnit.SECONDS)
                     }
@@ -589,13 +715,38 @@ class AccountClientTests {
                     val responseStatus = if (recommendation) 200 else status
                     val bytes = if (recommendation) """{"itemIds":[7]}""".toByteArray()
                     else body.toByteArray()
-                    it.responseHeaders.add("Content-Type", "application/json")
+                    it.responseHeaders.add("Content-Type", responseContentType)
                     if (responseStatus == 302) {
                         it.responseHeaders.add("Location", "/redirect-must-not-be-followed")
                     }
                     val noBody = responseStatus == 204 || bytes.isEmpty()
                     it.sendResponseHeaders(responseStatus, if (noBody) -1 else bytes.size.toLong())
-                    if (!noBody) it.responseBody.write(bytes)
+                    if (!noBody) {
+                        if (split) {
+                            val midpoint = bytes.size / 2
+                            it.responseBody.write(bytes, 0, midpoint)
+                            it.responseBody.flush()
+                            bodyStarted.countDown()
+                            responseGate?.await(5, TimeUnit.SECONDS)
+                            it.responseBody.write(bytes, midpoint, bytes.size - midpoint)
+                        } else {
+                            it.responseBody.write(bytes)
+                        }
+                    }
+                }
+            }
+            start()
+        }
+
+        private val secondServer = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            this.executor = Companion.executor
+            createContext("/internal/users/7") { exchange ->
+                exchange.use {
+                    secondCalls.incrementAndGet()
+                    val bytes = VALID_USER.replace("user", "second").toByteArray()
+                    it.responseHeaders.add("Content-Type", "application/json")
+                    it.sendResponseHeaders(200, bytes.size.toLong())
+                    it.responseBody.write(bytes)
                 }
             }
             start()
@@ -616,6 +767,7 @@ class AccountClientTests {
         fun close() {
             gate?.countDown()
             server.stop(0)
+            secondServer.stop(0)
             executor.close()
         }
     }

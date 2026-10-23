@@ -6,7 +6,7 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.TransactionDefinition
 import org.springframework.transaction.support.TransactionTemplate
-import ru.itmo.clothesadvisor.client.account.AccountClient
+import ru.itmo.clothesadvisor.client.account.BlockingAccountClient
 import ru.itmo.clothesadvisor.dto.rating.CreateRatingRequest
 import ru.itmo.clothesadvisor.dto.rating.RatingHistoryResponse
 import ru.itmo.clothesadvisor.dto.rating.RatingResponse
@@ -26,7 +26,7 @@ internal class RatingConflictException : RuntimeException()
 @Service
 internal class OutfitRatingService(
     private val outfits: OutfitRepository,
-    private val accounts: AccountClient,
+    private val accounts: BlockingAccountClient,
     private val ratings: OutfitRatingRepository,
     private val history: OutfitRatingHistoryRepository,
     transactionManager: PlatformTransactionManager,

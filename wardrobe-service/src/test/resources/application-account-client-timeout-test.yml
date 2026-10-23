@@ -1,7 +1,3 @@
-spring:
-  cloud:
-    openfeign:
-      client:
-        config:
-          account-service:
-            read-timeout: 200
+app:
+  account-client:
+    read-timeout: 200ms

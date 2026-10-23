@@ -9,7 +9,7 @@ import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.bean.override.mockito.MockitoBean
 import org.springframework.transaction.support.TransactionSynchronizationManager
 import reactor.core.scheduler.Schedulers
-import ru.itmo.clothesadvisor.client.account.AccountClient
+import ru.itmo.clothesadvisor.client.account.BlockingAccountClient
 import ru.itmo.clothesadvisor.dto.account.AccountUserResponse
 import ru.itmo.clothesadvisor.model.AccessDeniedException
 import ru.itmo.clothesadvisor.model.EntityNotFoundException
@@ -19,7 +19,7 @@ import ru.itmo.clothesadvisor.model.user.UserStatus
 // JDBC rows represent the remote account fixture; transport is tested by AccountClientTests.
 abstract class AccountBackedIntegrationTest : PostgresIntegrationTest() {
     @Autowired private lateinit var accountFixtures: JdbcTemplate
-    @MockitoBean internal lateinit var accounts: AccountClient
+    @MockitoBean internal lateinit var accounts: BlockingAccountClient
 
     @BeforeEach
     fun configureAccountFixture() {

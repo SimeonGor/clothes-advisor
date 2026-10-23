@@ -5,30 +5,23 @@ import java.net.SocketTimeoutException
 import java.util.concurrent.ExecutionException
 import java.util.concurrent.TimeoutException
 import org.assertj.core.api.Assertions.assertThat
-import org.assertj.core.api.Assertions.catchThrowable
 import org.junit.jupiter.api.Test
 import ru.itmo.clothesadvisor.model.AccessDeniedException
 import ru.itmo.clothesadvisor.model.EntityNotFoundException
 import ru.itmo.clothesadvisor.model.access.AccountUnavailableException
 
-class AccountFallbackFactoryTests {
+class AccountFailureTests {
     @Test
-    fun `wrapped domain denials retain their type without upstream details on all methods`() {
+    fun `wrapped domain denials retain their type without upstream details`() {
         // given
         val denials = listOf(EntityNotFoundException("private detail"),
             AccessDeniedException("private detail"))
 
         denials.forEach { denial ->
-            val fallback = AccountFallbackFactory().create(
-                ExecutionException(IllegalStateException("private wrapper", denial)),
-            )
+            val cause = ExecutionException(IllegalStateException("private wrapper", denial))
 
             // when
-            val failures = listOf(
-                catchThrowable { fallback.getUser(7) },
-                catchThrowable { fallback.requireStylistAccess(3, 7) },
-                catchThrowable { fallback.requireAdminAccess(5, 7) },
-            )
+            val failures = listOf(accountFailure(cause), accountFailure(cause))
 
             // then
             failures.forEach { failure ->
@@ -50,14 +43,10 @@ class AccountFallbackFactoryTests {
         )
 
         causes.forEach { cause ->
-            val fallback = AccountFallbackFactory().create(ExecutionException(cause))
+            val wrapped = ExecutionException(cause)
 
             // when
-            val failures = listOf(
-                catchThrowable { fallback.getUser(7) },
-                catchThrowable { fallback.requireStylistAccess(3, 7) },
-                catchThrowable { fallback.requireAdminAccess(5, 7) },
-            )
+            val failures = listOf(accountFailure(wrapped), accountFailure(wrapped))
 
             // then
             failures.forEach { failure ->

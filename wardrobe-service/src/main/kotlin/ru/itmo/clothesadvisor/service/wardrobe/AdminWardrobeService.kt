@@ -2,14 +2,14 @@ package ru.itmo.clothesadvisor.service.wardrobe
 
 import org.springframework.data.domain.Pageable
 import org.springframework.stereotype.Service
-import ru.itmo.clothesadvisor.client.account.AccountClient
+import ru.itmo.clothesadvisor.client.account.BlockingAccountClient
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemPhotoContent
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemPhotoResponse
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemResponse
 
 @Service
 internal class AdminWardrobeService(
-    private val accounts: AccountClient,
+    private val accounts: BlockingAccountClient,
     private val items: WardrobeItemService,
     private val photos: WardrobeItemPhotoService,
 ) {

@@ -22,7 +22,7 @@ import org.mockito.Mockito.verifyNoInteractions
 import org.mockito.Mockito.`when`
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.SimpleTransactionStatus
-import ru.itmo.clothesadvisor.client.account.AccountClient
+import ru.itmo.clothesadvisor.client.account.BlockingAccountClient
 import ru.itmo.clothesadvisor.dto.outfit.CreateOutfitRequest
 import ru.itmo.clothesadvisor.dto.outfit.OutfitWeatherDto
 import ru.itmo.clothesadvisor.model.EntityNotFoundException
@@ -43,7 +43,7 @@ class OutfitServiceTests {
     private val weather = mock(OutfitWeatherRepository::class.java)
     private val wardrobe = mock(WardrobeItemRepository::class.java)
     private val precipitation = mock(PrecipitationTypeRepository::class.java)
-    private val access = mock(AccountClient::class.java)
+    private val access = mock(BlockingAccountClient::class.java)
     private val ratings = mock(OutfitRatingService::class.java)
     private val validation = Validation.buildDefaultValidatorFactory()
     private val transactions = mock(PlatformTransactionManager::class.java)

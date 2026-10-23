@@ -9,7 +9,7 @@ import org.springframework.stereotype.Service
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.TransactionDefinition
 import org.springframework.transaction.support.TransactionTemplate
-import ru.itmo.clothesadvisor.client.account.AccountClient
+import ru.itmo.clothesadvisor.client.account.BlockingAccountClient
 import ru.itmo.clothesadvisor.dto.outfit.CreateOutfitRequest
 import ru.itmo.clothesadvisor.dto.outfit.OutfitResponse
 import ru.itmo.clothesadvisor.dto.outfit.OutfitWeatherDto
@@ -36,7 +36,7 @@ internal class OutfitService(
     private val weather: OutfitWeatherRepository,
     private val wardrobe: WardrobeItemRepository,
     private val precipitation: PrecipitationTypeRepository,
-    private val accounts: AccountClient,
+    private val accounts: BlockingAccountClient,
     private val ratings: OutfitRatingService,
     private val validator: Validator,
     transactionManager: PlatformTransactionManager,
