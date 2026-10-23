@@ -148,7 +148,7 @@ describe("Экран «Сегодня»", () => {
 
   it("сохраняет выбор между страницами и передаёт более 20 кандидатов без обрезки", async () => {
     const saved: Outfit = {
-      id: 42,
+      id: 42, ownerId: 1, authorId: 1, source: "AI", likes: 0, dislikes: 0, createdAt: "2026-01-01T00:00:00Z",
       name: "Заметки о поле",
       itemIds: [1, 13],
       weather: { temperatureC: 15, windSpeedMps: 0, precipitationTypeId: 7 },
@@ -292,7 +292,7 @@ describe("Экран «Сегодня»", () => {
   it("не сбрасывает форму до завершения первоначальной загрузки сохранённых вещей", async () => {
     let finishRead!: (response: Response) => void;
     const saved: Outfit = {
-      id: 93,
+      id: 93, ownerId: 1, authorId: 1, source: "AI", likes: 0, dislikes: 0, createdAt: "2026-01-01T00:00:00Z",
       name: "Сохранённый образ",
       itemIds: [1],
       weather: { temperatureC: 15, windSpeedMps: 0, precipitationTypeId: 7 },
@@ -335,7 +335,7 @@ describe("Экран «Сегодня»", () => {
     let finishRetry!: (response: Response) => void;
     let reads = 0;
     const saved: Outfit = {
-      id: 94,
+      id: 94, ownerId: 1, authorId: 1, source: "AI", likes: 0, dislikes: 0, createdAt: "2026-01-01T00:00:00Z",
       name: "Образ для повтора",
       itemIds: [1],
       weather: { temperatureC: 15, windSpeedMps: 0, precipitationTypeId: 7 },

@@ -38,9 +38,17 @@ export function canDeleteWardrobePhoto(context: WorkspaceContext): boolean {
 }
 export type Precipitation = { id: number; name: string; code: string };
 export type Outfit = {
-  id: number; name: string; itemIds: number[];
+  id: number; ownerId: number; authorId: number; source: "USER" | "STYLIST" | "AI";
+  name: string; itemIds: number[]; likes: number; dislikes: number; createdAt: string;
   weather: { temperatureC: number; windSpeedMps: number; precipitationTypeId: number };
+  myRating?: { vote: "LIKE" | "DISLIKE"; version: number } | null;
 };
+
+export function outfitsPath(context: WorkspaceContext): string {
+  if (context.kind === "own") return "/api/outfits";
+  if (context.kind === "client") return `/api/stylist/clients/${context.ownerId}/outfits`;
+  return `/api/admin/users/${context.ownerId}/outfits`;
+}
 
 export class ApiError extends Error {
   constructor(readonly status: number) { super(`HTTP ${status}`); }
@@ -88,6 +96,18 @@ export async function allPages<T>(
       return all;
     }
   }
+}
+
+export function resourceErrorMessage(error: unknown, writing = false): string {
+  if (writing && (!(error instanceof ApiError) || error.status >= 500)) {
+    return "Не удалось получить подтверждение. Проверьте данные перед повтором: действие могло выполниться.";
+  }
+  if (!(error instanceof ApiError)) return "Нет связи. Проверьте подключение и повторите загрузку.";
+  if (error.status === 400) return "Проверьте введённые данные.";
+  if (error.status === 403) return "Недостаточно прав. Проверьте выбранный аккаунт.";
+  if (error.status === 404) return "Данные не найдены или доступ к ним отозван.";
+  if (error.status === 409) return "Данные изменились. Обновите их перед повтором.";
+  return "Сервис временно недоступен. Повторите загрузку позже.";
 }
 
 export function errorMessage(error: unknown): string {
