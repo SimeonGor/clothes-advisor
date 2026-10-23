@@ -16,8 +16,14 @@ const wardrobeItem = (id: number): WardrobeItem => ({
   categoryId: 1,
   color: "оливковый",
   material: "хлопок",
+  version: 1,
+  createdAt: "2026-01-01T00:00:00Z",
+  modifiedAt: "2026-01-01T00:00:00Z",
 });
-const photo = (id: number): Photo => ({ id: id + 100, itemId: id });
+const photo = (id: number): Photo => ({
+  id: id + 100, itemId: id, contentType: "image/jpeg", sizeBytes: 3,
+  createdAt: "2026-01-01T00:00:00Z",
+});
 const originalCreateObjectUrl = URL.createObjectURL;
 const originalRevokeObjectUrl = URL.revokeObjectURL;
 

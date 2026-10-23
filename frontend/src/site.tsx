@@ -7,6 +7,7 @@ import {
   mutationErrorMessage,
   request,
   type Account,
+  type Actor,
   type Outfit,
   type Photo,
   type Precipitation,
@@ -14,7 +15,6 @@ import {
 } from "./api";
 import styles from "./site.module.css";
 
-type Actor = Pick<Account, "id" | "login" | "role">;
 const pageSize = 12;
 
 function ReadError({ error, retry }: { error: unknown; retry: () => void }) {
@@ -76,15 +76,15 @@ export function AccountPicker({ onChoose }: { onChoose: (account: Actor) => void
           <small>{account.role}{loading === account.id ? " · проверяем" : ""}</small>
         </button>
       ))}
-      <a className={styles.legacy} href="/">Открыть прежний интерфейс ↗</a>
     </main>
   );
 }
 
-function PhotoImage({ actor, item, photo }: {
+export function PhotoImage({ actor, item, photo, itemsBase = "/api/wardrobe/items" }: {
   actor: Actor;
   item: WardrobeItem;
   photo: Photo;
+  itemsBase?: string;
 }) {
   const [url, setUrl] = React.useState("");
   const [failed, setFailed] = React.useState(false);
@@ -94,7 +94,7 @@ function PhotoImage({ actor, item, photo }: {
   React.useEffect(() => {
     const controller = new AbortController();
     setFailed(false);
-    fetch(`/api/wardrobe/items/${item.id}/photos/${photo.id}/content`, {
+    fetch(`${itemsBase}/${item.id}/photos/${photo.id}/content`, {
       headers: { "X-User-Id": String(actor.id) },
       credentials: "same-origin",
       cache: "no-store",
@@ -119,7 +119,7 @@ function PhotoImage({ actor, item, photo }: {
       if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
       objectUrl.current = "";
     };
-  }, [actor.id, item.id, photo.id, attempt, objectUrl]);
+  }, [actor.id, item.id, photo.id, attempt, objectUrl, itemsBase]);
 
   function imageFailed() {
     if (objectUrl.current) URL.revokeObjectURL(objectUrl.current);
@@ -215,20 +215,12 @@ export function Today({ account, onSwitch, onPending, pending }: {
   pending: boolean;
 }) {
   if (account.role !== "USER") {
-    return (
-      <main className={styles.pick} id="main">
-        <p className={styles.eyebrow}>ПРЕЖНИЙ ИНТЕРФЕЙС</p>
-        <h1>{account.login}</h1>
-        <p className={styles.muted}>
-          «Что надеть сегодня?» доступно для USER.
-          Инструменты роли {account.role} находятся в прежнем интерфейсе.
-        </p>
-        <a className={styles.legacy} href="/">Открыть прежний интерфейс ↗</a>
-        <button className={styles.textButton} onClick={onSwitch}>
-          Выбрать другой аккаунт
-        </button>
+    return <SiteShell account={account} onSwitch={onSwitch} pending={pending} active="wardrobe">
+      <main className={styles.main} id="main"><header className={styles.top}><span>ПЕРСОНАЛЬНЫЙ СТИЛЬ</span></header>
+        <section className={styles.intro}><div><p className={styles.eyebrow}>ВАШЕ ПРОСТРАНСТВО</p>
+          <h1>Гардероб</h1><p className={styles.muted}>Экран «Сегодня» доступен для аккаунтов USER.</p></div></section>
       </main>
-    );
+    </SiteShell>;
   }
   return (
     <TodayForUser
@@ -237,6 +229,53 @@ export function Today({ account, onSwitch, onPending, pending }: {
       onPending={onPending}
       pending={pending}
     />
+  );
+}
+
+export function SiteShell({ account, onSwitch, pending, active, children }: {
+  account: Actor;
+  onSwitch: () => void;
+  pending: boolean;
+  active: "today" | "wardrobe";
+  children: React.ReactNode;
+}) {
+  function guard(event: React.MouseEvent<HTMLAnchorElement>) {
+    if (pending) event.preventDefault();
+  }
+
+  return (
+    <div className={styles.shell} id="main">
+      <aside className={styles.sidebar}>
+        <Link className={styles.brand} to="/today" onClick={guard} aria-disabled={pending}>
+          <span className={styles.brandMark}>ca</span><span>clothes advisor</span>
+        </Link>
+        <p className={styles.navLabel}>ВАШЕ ПРОСТРАНСТВО</p>
+        {account.role === "USER" && (
+          <Link
+            className={active === "today" ? styles.activeNav : styles.navLink}
+            to="/today"
+            aria-current={active === "today" ? "page" : undefined}
+            aria-disabled={pending}
+            onClick={guard}
+          >Сегодня <span>↗</span></Link>
+        )}
+        <Link
+          className={active === "wardrobe" ? styles.activeNav : styles.navLink}
+          to="/wardrobe"
+          aria-current={active === "wardrobe" ? "page" : undefined}
+          aria-disabled={pending}
+          onClick={guard}
+        >Гардероб <span>↗</span></Link>
+        <div className={styles.sidebarBottom}>
+          <p className={styles.navLabel}>АККАУНТ</p>
+          <span className={styles.accountName}>{account.login}</span>
+          <button className={styles.textButton} disabled={pending} onClick={onSwitch}>
+            Сменить аккаунт
+          </button>
+        </div>
+      </aside>
+      {children}
+    </div>
   );
 }
 
@@ -386,39 +425,7 @@ function TodayForUser({ account, onSwitch, onPending, pending }: {
   }
 
   return (
-    <div className={styles.shell} id="main">
-      <aside className={styles.sidebar}>
-        <a
-          className={styles.brand}
-          href="/app/today"
-          aria-disabled={pending}
-          onClick={(event) => pending && event.preventDefault()}
-        >
-          <span className={styles.brandMark}>ca</span><span>clothes advisor</span>
-        </a>
-        <p className={styles.navLabel}>ВАШЕ ПРОСТРАНСТВО</p>
-        <Link
-          className={styles.activeNav}
-          to="/today"
-          aria-current="page"
-          onClick={(event) => pending && event.preventDefault()}
-          aria-disabled={pending}
-        >Сегодня <span>↗</span></Link>
-        <div className={styles.sidebarBottom}>
-          <p className={styles.navLabel}>АККАУНТ</p>
-          <span className={styles.accountName}>{account.login}</span>
-          <button className={styles.textButton} disabled={pending} onClick={onSwitch}>
-            Сменить аккаунт
-          </button>
-          <a
-            className={styles.legacy}
-            href="/"
-            aria-disabled={pending}
-            onClick={(event) => pending && event.preventDefault()}
-          >Прежний интерфейс ↗</a>
-        </div>
-      </aside>
-
+    <SiteShell account={account} onSwitch={onSwitch} pending={pending} active="today">
       <main className={styles.main}>
         <header className={styles.top}>
           <span>ПЕРСОНАЛЬНЫЙ СТИЛЬ</span>
@@ -618,7 +625,7 @@ function TodayForUser({ account, onSwitch, onPending, pending }: {
           </section>
         )}
       </main>
-    </div>
+    </SiteShell>
   );
 }
 
