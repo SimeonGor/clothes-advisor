@@ -12,8 +12,17 @@ spring:
       retry:
         enabled: false
     circuitbreaker:
+      bulkhead:
+        resilience4j:
+          enabled: false
       resilience4j:
         disable-thread-pool: true
+
+app:
+  account-client:
+    connect-timeout: 2s
+    read-timeout: 5s
+    max-response-size: 1MB
 
 resilience4j:
   circuitbreaker:

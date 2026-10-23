@@ -14,7 +14,7 @@ import org.springframework.mock.web.server.MockServerWebExchange
 import org.springframework.web.reactive.BindingContext
 import reactor.core.publisher.Mono
 import reactor.core.scheduler.Schedulers
-import ru.itmo.clothesadvisor.client.account.AccountClient
+import ru.itmo.clothesadvisor.client.account.BlockingAccountClient
 import ru.itmo.clothesadvisor.dto.account.AccountUserResponse
 import ru.itmo.clothesadvisor.dto.user.CurrentUser
 import ru.itmo.clothesadvisor.model.AccessDeniedException
@@ -24,7 +24,7 @@ import ru.itmo.clothesadvisor.model.user.UserStatus
 import ru.itmo.clothesadvisor.service.user.CurrentUserService
 
 class CurrentUserArgumentResolverTests {
-    private val users = mock(AccountClient::class.java)
+    private val users = mock(BlockingAccountClient::class.java)
     private val resolver = CurrentUserArgumentResolver(CurrentUserService(users))
     private val parameter = mock(MethodParameter::class.java)
 

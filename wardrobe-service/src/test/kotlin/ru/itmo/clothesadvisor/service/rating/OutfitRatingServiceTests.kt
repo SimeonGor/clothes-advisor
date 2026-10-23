@@ -18,7 +18,7 @@ import org.mockito.Mockito.verifyNoInteractions
 import org.mockito.Mockito.`when`
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.SimpleTransactionStatus
-import ru.itmo.clothesadvisor.client.account.AccountClient
+import ru.itmo.clothesadvisor.client.account.BlockingAccountClient
 import ru.itmo.clothesadvisor.dto.rating.CreateRatingRequest
 import ru.itmo.clothesadvisor.dto.rating.RatingResponse
 import ru.itmo.clothesadvisor.dto.rating.UpdateRatingRequest
@@ -37,7 +37,7 @@ import ru.itmo.clothesadvisor.repository.rating.OutfitRatingRepository
 
 class OutfitRatingServiceTests {
     private val outfits = mock(OutfitRepository::class.java)
-    private val access = mock(AccountClient::class.java)
+    private val access = mock(BlockingAccountClient::class.java)
     private val ratings = mock(OutfitRatingRepository::class.java)
     private val history = mock(OutfitRatingHistoryRepository::class.java)
     private val transactions = mock(PlatformTransactionManager::class.java)

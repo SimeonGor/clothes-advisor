@@ -1,28 +1,23 @@
 package ru.itmo.clothesadvisor.client.account
 
-import org.springframework.cloud.openfeign.FeignClient
-import org.springframework.web.bind.annotation.GetMapping
-import org.springframework.web.bind.annotation.PathVariable
+import feign.Param
+import feign.RequestLine
+import reactor.core.publisher.Mono
 import ru.itmo.clothesadvisor.dto.account.AccountUserResponse
 
-@FeignClient(
-    name = "account-service",
-    configuration = [AccountClientConfiguration::class],
-    fallbackFactory = AccountFallbackFactory::class,
-)
 internal interface AccountClient {
-    @GetMapping("/internal/users/{userId}")
-    fun getUser(@PathVariable("userId") userId: Long): AccountUserResponse
+    @RequestLine("GET /internal/users/{userId}")
+    fun getUser(@Param("userId") userId: Long): Mono<AccountUserResponse>
 
-    @GetMapping("/internal/stylist-access/{stylistId}/clients/{ownerId}")
+    @RequestLine("GET /internal/stylist-access/{stylistId}/clients/{ownerId}")
     fun requireStylistAccess(
-        @PathVariable("stylistId") stylistId: Long,
-        @PathVariable("ownerId") ownerId: Long,
-    )
+        @Param("stylistId") stylistId: Long,
+        @Param("ownerId") ownerId: Long,
+    ): Mono<Void>
 
-    @GetMapping("/internal/admin-access/{adminId}/users/{ownerId}")
+    @RequestLine("GET /internal/admin-access/{adminId}/users/{ownerId}")
     fun requireAdminAccess(
-        @PathVariable("adminId") adminId: Long,
-        @PathVariable("ownerId") ownerId: Long,
-    )
+        @Param("adminId") adminId: Long,
+        @Param("ownerId") ownerId: Long,
+    ): Mono<Void>
 }
