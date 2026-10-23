@@ -2,7 +2,6 @@ plugins {
     kotlin("jvm") version "2.3.21"
     kotlin("plugin.spring") version "2.3.21"
     id("org.springframework.boot") version "4.1.1"
-    jacoco
 }
 
 group = "ru.itmo"
@@ -29,7 +28,6 @@ dependencies {
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("io.projectreactor:reactor-test")
-    testImplementation("org.springframework:spring-jdbc")
     testImplementation("org.testcontainers:testcontainers-postgresql")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
@@ -45,15 +43,4 @@ tasks.withType<Test> {
     inputs.dir(
         layout.projectDirectory.dir("../wardrobe-service/src/main/resources/db/migration"),
     )
-}
-
-jacoco {
-    toolVersion = "0.8.14"
-}
-
-tasks.jacocoTestReport {
-    dependsOn(tasks.test)
-    reports {
-        xml.required = true
-    }
 }

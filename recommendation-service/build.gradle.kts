@@ -2,7 +2,6 @@ plugins {
     kotlin("jvm") version "2.3.21"
     kotlin("plugin.spring") version "2.3.21"
     id("org.springframework.boot") version "4.1.1"
-    jacoco
 }
 
 group = "ru.itmo"
@@ -33,15 +32,4 @@ tasks.withType<Test> {
     inputs.file(
         layout.projectDirectory.file("../config-repository/recommendation-service/recommendation-service.yml"),
     )
-}
-
-jacoco {
-    toolVersion = "0.8.14"
-}
-
-tasks.jacocoTestReport {
-    dependsOn(tasks.test)
-    reports {
-        xml.required = true
-    }
 }

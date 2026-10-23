@@ -192,7 +192,7 @@ upsert или перезаписи цели. Повторный импорт у�
 
 ```bash
 ./gradlew :account-service:test --tests '*AccountDataTransferTests' \
-  --no-daemon --max-workers=1 -Pkotlin.compiler.execution.strategy=in-process
+  --no-daemon -Pkotlin.compiler.execution.strategy=in-process
 ```
 
 Нужен доступный Docker для Testcontainers. Тест владеет отдельным контейнером

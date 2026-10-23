@@ -5,7 +5,7 @@ COPY gradlew ./
 COPY gradle/ ./gradle/
 COPY discovery-server/build.gradle.kts discovery-server/settings.gradle.kts ./
 COPY discovery-server/src/main/ ./src/main/
-RUN chmod +x ./gradlew && ./gradlew --no-daemon --max-workers=1 \
+RUN chmod +x ./gradlew && ./gradlew --no-daemon \
     -Pkotlin.compiler.execution.strategy=in-process bootJar
 
 FROM eclipse-temurin:25-jre

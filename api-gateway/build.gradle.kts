@@ -2,7 +2,6 @@ plugins {
     kotlin("jvm") version "2.3.21"
     kotlin("plugin.spring") version "2.3.21"
     id("org.springframework.boot") version "4.1.1"
-    jacoco
 }
 
 group = "ru.itmo"
@@ -20,27 +19,8 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-micrometer-tracing-opentelemetry")
     implementation("io.micrometer:micrometer-tracing-bridge-otel")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
-
-    testImplementation("org.springframework.boot:spring-boot-starter-test")
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
 kotlin {
     jvmToolchain(25)
-}
-
-tasks.withType<Test> {
-    useJUnitPlatform()
-    inputs.file(layout.projectDirectory.file("../config-repository/api-gateway/api-gateway.yml"))
-}
-
-jacoco {
-    toolVersion = "0.8.14"
-}
-
-tasks.jacocoTestReport {
-    dependsOn(tasks.test)
-    reports {
-        xml.required = true
-    }
 }
