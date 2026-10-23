@@ -12,15 +12,16 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import reactor.core.publisher.Mono
-import reactor.core.scheduler.Schedulers
 import ru.itmo.clothesadvisor.controller.toPageRequest
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeCategoryResponse
-import ru.itmo.clothesadvisor.service.wardrobe.WardrobeCategoryService
+import ru.itmo.clothesadvisor.service.wardrobe.ReactiveWardrobeCategoryService
 
 @Tag(name = "Справочники", description = "Публичное чтение; X-User-Id не требуется.")
 @RestController
 @RequestMapping("/api/wardrobe/categories")
-internal class WardrobeCategoryController(private val wardrobeCategories: WardrobeCategoryService) {
+internal class WardrobeCategoryController(
+    private val wardrobeCategories: ReactiveWardrobeCategoryService,
+) {
     @GetMapping
     @Operation(summary = "Категории вещей", description = "Массив справочника; без X-Total-Count.")
     @ApiResponses(
@@ -35,10 +36,9 @@ internal class WardrobeCategoryController(private val wardrobeCategories: Wardro
         @RequestParam(defaultValue = "0") @Min(0) page: Int,
         @RequestParam(defaultValue = "50") @Min(1) @Max(50) size: Int,
     ): Mono<List<WardrobeCategoryResponse>> =
-        Mono.fromCallable {
-                wardrobeCategories.list(toPageRequest(page, size)).map {
-                    WardrobeCategoryResponse(requireNotNull(it.id), it.code, it.name)
-                }
+        wardrobeCategories.list(toPageRequest(page, size)).map { categories ->
+            categories.map {
+                WardrobeCategoryResponse(requireNotNull(it.id), it.code, it.name)
             }
-            .subscribeOn(Schedulers.boundedElastic())
+        }
 }

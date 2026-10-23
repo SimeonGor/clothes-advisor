@@ -19,11 +19,9 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
-import reactor.core.publisher.Mono
-import reactor.core.scheduler.Schedulers
 import ru.itmo.clothesadvisor.controller.toPageRequest
 import ru.itmo.clothesadvisor.dto.user.CurrentUser
-import ru.itmo.clothesadvisor.service.outfit.AdminOutfitService
+import ru.itmo.clothesadvisor.service.outfit.ReactiveAdminOutfitService
 
 @Tag(
     name = "Модерация образов",
@@ -32,7 +30,7 @@ import ru.itmo.clothesadvisor.service.outfit.AdminOutfitService
 )
 @RestController
 @RequestMapping("/api/admin/users/{ownerId}/outfits")
-internal class AdminOutfitController(private val outfits: AdminOutfitService) {
+internal class AdminOutfitController(private val outfits: ReactiveAdminOutfitService) {
     @GetMapping
     @Operation(summary = "Список образов владельца", description = "По ID по убыванию.")
     @ApiResponses(
@@ -67,14 +65,11 @@ internal class AdminOutfitController(private val outfits: AdminOutfitService) {
         @RequestParam(defaultValue = "0") @Min(0) page: Int,
         @RequestParam(defaultValue = "50") @Min(1) @Max(50) size: Int,
     ) =
-        Mono.fromCallable {
-                outfits.list(user.id, ownerId, toPageRequest(page, size)).let {
-                    ResponseEntity.ok()
-                        .header("X-Total-Count", it.totalElements.toString())
-                        .body(it.content)
-                }
-            }
-            .subscribeOn(Schedulers.boundedElastic())
+        outfits.list(user.id, ownerId, toPageRequest(page, size)).map {
+            ResponseEntity.ok()
+                .header("X-Total-Count", it.totalElements.toString())
+                .body(it.content)
+        }
 
     @GetMapping("/{id}")
     @Operation(
@@ -95,10 +90,7 @@ internal class AdminOutfitController(private val outfits: AdminOutfitService) {
         @PathVariable ownerId: Long,
         @PathVariable id: Long,
     ) =
-        Mono.fromCallable {
-                outfits.get(user.id, ownerId, id)
-            }
-            .subscribeOn(Schedulers.boundedElastic())
+        outfits.get(user.id, ownerId, id)
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -124,8 +116,5 @@ internal class AdminOutfitController(private val outfits: AdminOutfitService) {
         @PathVariable ownerId: Long,
         @PathVariable id: Long,
     ) =
-        Mono.fromRunnable<Void> {
-                outfits.delete(user.id, ownerId, id)
-            }
-            .subscribeOn(Schedulers.boundedElastic())
+        outfits.delete(user.id, ownerId, id)
 }

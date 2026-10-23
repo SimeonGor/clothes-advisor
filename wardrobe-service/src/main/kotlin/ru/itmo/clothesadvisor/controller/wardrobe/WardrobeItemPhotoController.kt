@@ -21,10 +21,9 @@ import org.springframework.web.bind.annotation.RequestPart
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
 import reactor.core.publisher.Mono
-import reactor.core.scheduler.Schedulers
 import ru.itmo.clothesadvisor.dto.user.CurrentUser
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemPhotoResponse
-import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemPhotoService
+import ru.itmo.clothesadvisor.service.wardrobe.ReactiveWardrobeService
 
 @Tag(
     name = "Фотографии владельца",
@@ -32,7 +31,7 @@ import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemPhotoService
 )
 @RestController
 @RequestMapping("/api/wardrobe/items/{itemId}/photos")
-internal class WardrobeItemPhotoController(private val photos: WardrobeItemPhotoService) {
+internal class WardrobeItemPhotoController(private val wardrobe: ReactiveWardrobeService) {
     @PostMapping(consumes = [MediaType.MULTIPART_FORM_DATA_VALUE])
     @ResponseStatus(HttpStatus.CREATED)
     @Operation(
@@ -81,8 +80,7 @@ internal class WardrobeItemPhotoController(private val photos: WardrobeItemPhoto
         @RequestPart("photos", required = false) files: List<@JvmSuppressWildcards Part>,
     ): Mono<List<WardrobeItemPhotoResponse>> =
         readPhotoParts(files).flatMap { bytes ->
-            Mono.fromCallable { photos.add(user.id, itemId, bytes) }
-                .subscribeOn(Schedulers.boundedElastic())
+            wardrobe.addPhotos(user.id, itemId, bytes)
         }
 
     @GetMapping
@@ -97,7 +95,7 @@ internal class WardrobeItemPhotoController(private val photos: WardrobeItemPhoto
         ),
     )
     fun list(@Parameter(hidden = true) user: CurrentUser, @PathVariable itemId: Long) =
-        Mono.fromCallable { photos.list(user.id, itemId) }.subscribeOn(Schedulers.boundedElastic())
+        wardrobe.listPhotos(user.id, itemId)
 
     @GetMapping("/{photoId}/content")
     @Operation(
@@ -148,10 +146,8 @@ internal class WardrobeItemPhotoController(private val photos: WardrobeItemPhoto
         @PathVariable itemId: Long,
         @PathVariable photoId: Long,
     ) =
-        Mono.fromCallable {
-                photos.getOwnContent(user.id, itemId, photoId).toPhotoContentResponse()
-            }
-            .subscribeOn(Schedulers.boundedElastic())
+        wardrobe.getPhotoContent(user.id, itemId, photoId)
+            .map { it.toPhotoContentResponse() }
 
     @DeleteMapping("/{photoId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -172,6 +168,5 @@ internal class WardrobeItemPhotoController(private val photos: WardrobeItemPhoto
         @PathVariable itemId: Long,
         @PathVariable photoId: Long,
     ) =
-        Mono.fromRunnable<Void> { photos.delete(user.id, itemId, photoId) }
-            .subscribeOn(Schedulers.boundedElastic())
+        wardrobe.deletePhoto(user.id, itemId, photoId)
 }
