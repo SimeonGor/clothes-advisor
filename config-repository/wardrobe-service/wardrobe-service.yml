@@ -17,14 +17,26 @@ spring:
 
 resilience4j:
   circuitbreaker:
+    configs:
+      remote-service:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 100
+        minimum-number-of-calls: 100
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 60s
+        permitted-number-of-calls-in-half-open-state: 10
     instances:
       RecommendationClientselectOutfitSelectionRequest:
+        base-config: remote-service
         ignore-exception-predicate: ru.itmo.clothesadvisor.client.recommendation.NoOutfitFailurePredicate
       AccountClientgetUserlong:
+        base-config: remote-service
         ignore-exception-predicate: ru.itmo.clothesadvisor.client.account.AccountDomainFailurePredicate
       AccountClientrequireStylistAccesslonglong:
+        base-config: remote-service
         ignore-exception-predicate: ru.itmo.clothesadvisor.client.account.AccountDomainFailurePredicate
       AccountClientrequireAdminAccesslonglong:
+        base-config: remote-service
         ignore-exception-predicate: ru.itmo.clothesadvisor.client.account.AccountDomainFailurePredicate
 
 springdoc:

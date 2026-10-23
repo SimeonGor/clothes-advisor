@@ -17,6 +17,11 @@ management:
 
 resilience4j:
   circuitbreaker:
+    configs:
+      remote-service:
+        failure-rate-threshold: 75
+        wait-duration-in-open-state: 30s
+        permitted-number-of-calls-in-half-open-state: 2
     instances:
       AccountClientgetUserlong:
         minimum-number-of-calls: 2
