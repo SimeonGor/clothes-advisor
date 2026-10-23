@@ -6,7 +6,7 @@ import {
   ApiError,
   canDeleteWardrobePhoto,
   canEditWardrobe,
-  errorMessage,
+  resourceErrorMessage,
   request,
   wardrobeItemsPath,
   type Actor,
@@ -52,7 +52,7 @@ function writeError(error: unknown, action: string): string {
     return `${action}. Проверьте поля вещи и повторите попытку.`;
   }
   if (error instanceof ApiError) return `${action} (код ${error.status}). Данные формы сохранены.`;
-  return `${action}: ${errorMessage(error)}`;
+  return `${action}: ${resourceErrorMessage(error, true)}`;
 }
 
 function useWrite(onPending: (pending: boolean) => void) {
@@ -153,7 +153,7 @@ function WardrobeCard({ actor, item, category, base }: {
 }
 
 function ReadError({ error, retry }: { error: unknown; retry: () => void }) {
-  return <div className={styles.error} role="alert"><p>{errorMessage(error)}</p>
+  return <div className={styles.error} role="alert"><p>{resourceErrorMessage(error)}</p>
     <button type="button" onClick={retry}>Повторить загрузку</button></div>;
 }
 

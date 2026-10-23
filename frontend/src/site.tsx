@@ -12,6 +12,7 @@ import {
   type Photo,
   type Precipitation,
   type WardrobeItem,
+  type WorkspaceContext,
 } from "./api";
 import styles from "./site.module.css";
 
@@ -232,13 +233,20 @@ export function Today({ account, onSwitch, onPending, pending }: {
   );
 }
 
-export function SiteShell({ account, onSwitch, pending, active, children }: {
+export function SiteShell({ account, onSwitch, pending, active, context = { kind: "own" }, children }: {
   account: Actor;
   onSwitch: () => void;
   pending: boolean;
-  active: "today" | "wardrobe";
+  active: "today" | "wardrobe" | "outfits";
+  context?: WorkspaceContext;
   children: React.ReactNode;
 }) {
+  const wardrobePath = context.kind === "own" ? "/wardrobe"
+    : context.kind === "client" ? `/clients/${context.ownerId}/wardrobe`
+      : `/accounts/${context.ownerId}/wardrobe`;
+  const outfitsPath = context.kind === "own" ? "/outfits"
+    : context.kind === "client" ? `/clients/${context.ownerId}/outfits`
+      : `/accounts/${context.ownerId}/outfits`;
   function guard(event: React.MouseEvent<HTMLAnchorElement>) {
     if (pending) event.preventDefault();
   }
@@ -246,7 +254,7 @@ export function SiteShell({ account, onSwitch, pending, active, children }: {
   return (
     <div className={styles.shell} id="main">
       <aside className={styles.sidebar}>
-        <Link className={styles.brand} to="/today" onClick={guard} aria-disabled={pending}>
+        <Link className={styles.brand} to={context.kind === "own" && account.role === "USER" ? "/today" : wardrobePath} onClick={guard} aria-disabled={pending}>
           <span className={styles.brandMark}>ca</span><span>clothes advisor</span>
         </Link>
         <p className={styles.navLabel}>ВАШЕ ПРОСТРАНСТВО</p>
@@ -261,11 +269,12 @@ export function SiteShell({ account, onSwitch, pending, active, children }: {
         )}
         <Link
           className={active === "wardrobe" ? styles.activeNav : styles.navLink}
-          to="/wardrobe"
+          to={wardrobePath}
           aria-current={active === "wardrobe" ? "page" : undefined}
           aria-disabled={pending}
           onClick={guard}
         >Гардероб <span>↗</span></Link>
+        <Link className={active === "outfits" ? styles.activeNav : styles.navLink} to={outfitsPath} aria-current={active === "outfits" ? "page" : undefined} aria-disabled={pending} onClick={guard}>Образы <span>↗</span></Link>
         <div className={styles.sidebarBottom}>
           <p className={styles.navLabel}>АККАУНТ</p>
           <span className={styles.accountName}>{account.login}</span>
@@ -619,6 +628,7 @@ function TodayForUser({ account, onSwitch, onPending, pending }: {
             <div className={styles.grid}>
               {result.items.map((item) => <ResultCard key={item.id} actor={account} item={item} />)}
             </div>
+            <Link className={styles.textButton} to={`/outfits/${result.outfit.id}`}>Открыть сохранённый образ</Link>
             <button className={styles.textButton} type="button" disabled={pending || resultLoading} onClick={startAnotherOutfit}>
               Составить ещё один образ
             </button>

@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import { AccountPicker, SiteShell, Today } from "./site";
 import { Wardrobe, WardrobeEditor } from "./wardrobe";
+import { OutfitDetail, OutfitEditor, Outfits } from "./outfits";
 import styles from "./site.module.css";
 import type { Actor } from "./api";
 
@@ -42,6 +43,15 @@ function AppRoutes({ account, onChoose, onSwitch, onPending, pending }: {
           ? <SiteShell account={account} onSwitch={onSwitch} pending={pending} active="wardrobe">
               <WardrobeEditor key={`${account.id}:${location.pathname}`} actor={account} onPending={onPending} pending={pending} />
             </SiteShell>
+          : <AccountPicker onChoose={(picked) => choose(picked, location.pathname)} />} />
+        <Route path="/outfits" element={account
+          ? <SiteShell account={account} onSwitch={onSwitch} pending={pending} active="outfits"><Outfits actor={account} pending={pending} /></SiteShell>
+          : <AccountPicker onChoose={(picked) => choose(picked, "/outfits")} />} />
+        <Route path="/outfits/new" element={account
+          ? <SiteShell account={account} onSwitch={onSwitch} pending={pending} active="outfits"><OutfitEditor key={`${account.id}:${location.pathname}`} actor={account} onPending={onPending} pending={pending} /></SiteShell>
+          : <AccountPicker onChoose={(picked) => choose(picked, "/outfits/new")} />} />
+        <Route path="/outfits/:outfitId" element={account
+          ? <SiteShell account={account} onSwitch={onSwitch} pending={pending} active="outfits"><OutfitDetail key={`${account.id}:${location.pathname}`} actor={account} onPending={onPending} pending={pending} /></SiteShell>
           : <AccountPicker onChoose={(picked) => choose(picked, location.pathname)} />} />
         <Route path="*" element={<Navigate to="/wardrobe" replace />} />
       </Routes>
