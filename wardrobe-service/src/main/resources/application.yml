@@ -1,6 +1,11 @@
 server:
   port: ${APP_PORT:8080}
 
+# The polling locator logs remote URIs/errors; the poller emits sanitized outcomes instead.
+logging:
+  level:
+    org.springframework.cloud.config.client.ConfigServicePropertySourceLocator: "OFF"
+
 app:
   openai:
     owner-login: user

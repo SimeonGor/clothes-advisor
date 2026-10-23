@@ -23,6 +23,9 @@ app:
     connect-timeout: 2s
     read-timeout: 5s
     max-response-size: 1MB
+  recommendation-client:
+    connect-timeout: 5s
+    read-timeout: 90s
 
 resilience4j:
   circuitbreaker:
