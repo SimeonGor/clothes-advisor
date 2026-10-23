@@ -24,6 +24,8 @@ Recommendation предоставляет один `POST /api/outfit-selections`
 
 Config Server доступен по фиксированному адресу Compose и не зависит от Eureka для первоначального запуска. Бизнес-сервисы и Gateway получают конфигурацию и используют Eureka; frontend в Eureka не регистрируется. Вся система запускается одним `docker compose up --build`.
 
+Compose публикует только Gateway и Eureka на loopback хоста. Приложения общаются по изолированной сети `backend`; к сетям `wardrobe-data` и `account-data` подключены только соответствующий сервис и его PostgreSQL. Выход наружу нужен wardrobe/recommendation (`egress`), публикация портов — Gateway/Eureka (`edge`). Многосетевые сервисы регистрируют в Eureka DNS-имена Compose. JVM-приложения и frontend запускаются от непривилегированного пользователя с `no-new-privileges`. Это сетевые ограничения локального стенда, не аутентификация и не защита от владельца Docker.
+
 ![Компоненты](diagrams/components.png)
 
 ## Устройство сервиса
