@@ -37,13 +37,25 @@ internal data class AccountClientProperties(
 @EnableConfigurationProperties(AccountClientProperties::class)
 internal class AccountClientConfiguration {
     @Bean
-    fun accountClient(
+    fun accountClientFactory(
         builder: WebClient.Builder,
         loadBalancer: ReactorLoadBalancerExchangeFilterFunction,
         breakers: CircuitBreakerRegistry,
-        properties: AccountClientProperties,
         mapper: JsonMapper,
-    ): AccountClient {
+    ) = AccountClientFactory(builder, loadBalancer, breakers, mapper)
+
+    @Bean
+    fun accountClient(factory: AccountClientFactory, properties: AccountClientProperties) =
+        ReloadableAccountClient(factory.create(properties))
+}
+
+internal class AccountClientFactory(
+    private val builder: WebClient.Builder,
+    private val loadBalancer: ReactorLoadBalancerExchangeFilterFunction,
+    private val breakers: CircuitBreakerRegistry,
+    private val mapper: JsonMapper,
+) {
+    fun create(properties: AccountClientProperties): AccountClient {
         val webClient = builder.clone()
             .codecs { it.defaultCodecs().maxInMemorySize(Math.toIntExact(properties.maxResponseSize.toBytes())) }
             .filter(AccountResponseFilter(breakers).filter())
@@ -60,6 +72,16 @@ internal class AccountClientConfiguration {
             .errorMapper { _, error -> accountFailure(error) }
             .target(AccountClient::class.java, "http://account-service")
     }
+}
+
+internal class ReloadableAccountClient(@Volatile var target: AccountClient) : AccountClient {
+    override fun getUser(userId: Long) = Mono.defer { target.getUser(userId) }
+
+    override fun requireStylistAccess(stylistId: Long, ownerId: Long): Mono<Void> =
+        Mono.defer { target.requireStylistAccess(stylistId, ownerId) }
+
+    override fun requireAdminAccess(adminId: Long, ownerId: Long): Mono<Void> =
+        Mono.defer { target.requireAdminAccess(adminId, ownerId) }
 }
 
 private class AccountResponseFilter(private val breakers: CircuitBreakerRegistry) {

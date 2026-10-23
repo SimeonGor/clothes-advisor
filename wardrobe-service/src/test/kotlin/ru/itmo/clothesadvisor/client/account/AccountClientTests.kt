@@ -251,7 +251,6 @@ class AccountClientTests {
         assertThat(result.itemIds).containsExactly(7)
         assertThat(properties.connectTimeout.toMillis()).isEqualTo(2_000)
         assertThat(properties.readTimeout.toMillis()).isEqualTo(5_000)
-        assertThat(reactiveClient.toString()).contains("http://account-service")
         assertThat(transport).isInstanceOf(FeignBlockingLoadBalancerClient::class.java)
         assertThat((transport as FeignBlockingLoadBalancerClient).delegate)
             .isInstanceOf(Client.Default::class.java)

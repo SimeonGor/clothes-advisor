@@ -8,6 +8,7 @@ import feign.codec.ErrorDecoder
 import java.util.concurrent.TimeUnit
 import org.springframework.context.annotation.Bean
 import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionResponse
+import ru.itmo.clothesadvisor.config.LiveClientSettings
 import ru.itmo.clothesadvisor.model.ai.AiOutfitException
 import ru.itmo.clothesadvisor.model.ai.AiOutfitFailure
 import tools.jackson.core.JacksonException
@@ -75,7 +76,10 @@ class RecommendationClientConfiguration {
     }
 
     @Bean
-    fun recommendationOptions() = Request.Options(5, TimeUnit.SECONDS, 90, TimeUnit.SECONDS, false)
+    internal fun recommendationOptions(settings: LiveClientSettings): Request.Options =
+        object : Request.Options(5, TimeUnit.SECONDS, 90, TimeUnit.SECONDS, false) {
+            override fun getMethodOptions(methodName: String): Request.Options = settings.recommendationOptions()
+        }
 
     @Bean
     fun recommendationRetryer(): Retryer = Retryer.NEVER_RETRY
