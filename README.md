@@ -114,18 +114,17 @@ curl http://127.0.0.1:8080/api/wardrobe/items \
 ./gradlew -p api-gateway bootJar            # аналогично для Gateway, Config и Eureka
 ./gradlew bootJar                 # JAR всех backend-сервисов через общую сборку
 ./gradlew test                    # unit- и интеграционные тесты
-./gradlew check                   # тесты и покрытие строк ≥70%
-./gradlew testCodeCoverageReport  # общий отчёт покрытия
+./gradlew check                   # проверки бизнес-сервисов
 ./gradlew :wardrobe-service:transportTest # максимальный пакет изображений, отдельная JVM с heap 3 ГиБ
 ```
 
-Dockerfile каждого сервиса копирует только wrapper, собственные файлы сборки и `src/main`. Корневая многомодульная сборка сохранена для общих команд, покрытия и транспортного теста между wardrobe и recommendation; в Docker она не используется. Транспортный тест запускается только из корневой сборки. Интеграционные тесты используют конфигурации из соседнего `config-repository`, а тест переноса аккаунтов — также старые миграции wardrobe; поэтому тесты запускаются из полного checkout.
+Dockerfile каждого сервиса копирует только wrapper, собственные файлы сборки и `src/main`. Корневая многомодульная сборка сохранена для общих команд и транспортного теста между wardrobe и recommendation; в Docker она не используется. Транспортный тест запускается только из корневой сборки. Интеграционные тесты используют конфигурации из соседнего `config-repository`, а тест переноса аккаунтов — также старые миграции wardrobe; поэтому тесты запускаются из полного checkout.
 
 Код гардероба находится в `wardrobe-service`, аккаунтов — в `account-service`, AI — в `recommendation-service`, Config Server — в `config-server`, Eureka — в `discovery-server`, единая HTTP-точка входа — в `api-gateway`. Для запуска без Docker нужны PostgreSQL и переменные окружения из `.env`: Gradle сам этот файл не читает. Сначала выполните `./gradlew :config-server:bootRun`, затем `./gradlew :discovery-server:bootRun`, `APP_PORT=8081 ./gradlew :wardrobe-service:bootRun`, `APP_PORT=8083 ./gradlew :recommendation-service:bootRun` и `./gradlew :api-gateway:bootRun`. Сервисы регистрируются в Eureka; обнаружение после запуска может занять некоторое время. Команды запускаются из корня репозитория; конкретный модуль можно указать явно: `./gradlew :wardrobe-service:test`.
 
 Account также подключается к Config/Eureka и нужен wardrobe для запросов с пользователем: `APP_PORT=8084 ./gradlew :account-service:bootRun`. Ему нужна отдельная БД `account_db`: `DB_R2DBC_URL` — R2DBC-адрес, `DB_URL` — JDBC-адрес той же БД для Flyway, `DB_USER` и `DB_PASSWORD` — её учётные данные. При отдельном запуске account передайте в `DB_PASSWORD` значение `ACCOUNT_DB_PASSWORD`; Compose делает это автоматически. Не направляйте его на рабочую БД wardrobe.
 
-Общий отчёт JaCoCo: `build/reports/jacoco/testCodeCoverageReport/html/index.html` и `build/reports/jacoco/testCodeCoverageReport/testCodeCoverageReport.xml`. Порог ≥70% применяется к строкам backend-модулей; классы из покрытия не исключаются. Unit-тесты сервисов используют Mockito без Spring и БД. Интеграционные тесты работают с PostgreSQL Testcontainers, готовят и проверяют данные через JDBC, очищают их после теста. HTTP-клиенты проверяются на локальных заглушках; секреты из `.env` и реальные вызовы S3/OpenAI не нужны.
+Тесты находятся в трёх бизнес-сервисах. Unit-тесты используют Mockito без Spring и БД. Интеграционные тесты работают с PostgreSQL Testcontainers, готовят и проверяют данные через JDBC, очищают их после теста. HTTP-клиенты проверяются на локальных заглушках; секреты из `.env` и реальные вызовы S3/OpenAI не нужны. JaCoCo и автоматическая проверка процента покрытия удалены. Gateway, Eureka и Config Server проверяются запуском и HTTP-запросами к собранным приложениям.
 
 Для Colima на macOS перед тестами:
 

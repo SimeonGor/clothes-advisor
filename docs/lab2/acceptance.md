@@ -15,13 +15,13 @@
 | Reactor + R2DBC | Account | HTTP-интеграционные тесты с PostgreSQL и проверка реального R2DBC-сигнала |
 | Reactor + Spring Data JDBC | Wardrobe | WebFlux, JDBC на worker-потоке; интеграционные проверки транзакций, multipart и внешних вызовов |
 
-Production-зависимостей на JAR другого бизнес-сервиса нет. Общие Gradle-файлы нужны для конфигурации сборки. Агрегация JaCoCo и использование recommendation в отдельном `transportTest` — только проверочная инфраструктура.
+Production-зависимостей на JAR другого бизнес-сервиса нет. Общие Gradle-файлы нужны для конфигурации сборки. Использование recommendation в отдельном `transportTest` — только проверочная инфраструктура.
 
 ## Сборка и тесты
 
 ```shell
 ./gradlew clean check bootJar :wardrobe-service:transportTest \
-  --continue --no-daemon --max-workers=1 \
+  --continue --no-daemon \
   -Pkotlin.compiler.execution.strategy=in-process
 ```
 
@@ -36,7 +36,7 @@ Production-зависимостей на JAR другого бизнес-сер�
 | config-server | 4 |
 | discovery-server | 1 |
 
-Результаты JUnit находятся в `<module>/build/test-results`, общий отчёт JaCoCo — в `build/reports/jacoco/testCodeCoverageReport`. Сервисы проверяются с Mockito, SQL и транзакции — на PostgreSQL Testcontainers. Дополнительные дублирующие тесты в документальном этапе не добавлялись.
+Результаты JUnit находятся в `<module>/build/test-results`. Сервисы проверяются с Mockito, SQL и транзакции — на PostgreSQL Testcontainers. По правкам от 23 октября инфраструктурные тестовые каталоги и JaCoCo удалены; приведённый выше результат покрытия относится к исходной приёмке, а не текущей сборке.
 
 Основные регрессионные сценарии:
 
