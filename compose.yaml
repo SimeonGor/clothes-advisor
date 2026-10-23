@@ -1,5 +1,12 @@
+x-runtime-security: &runtime-security
+  security_opt:
+    - no-new-privileges:true
+
 services:
   frontend:
+    <<: *runtime-security
+    networks:
+      - backend
     build:
       context: ./frontend
     healthcheck:
@@ -9,6 +16,9 @@ services:
       retries: 10
 
   config-server:
+    <<: *runtime-security
+    networks:
+      - backend
     build:
       context: .
       dockerfile: config-server/Dockerfile
@@ -28,6 +38,10 @@ services:
       retries: 10
 
   discovery-server:
+    <<: *runtime-security
+    networks:
+      - edge
+      - backend
     build:
       context: .
       dockerfile: discovery-server/Dockerfile
@@ -45,6 +59,10 @@ services:
       retries: 10
 
   api-gateway:
+    <<: *runtime-security
+    networks:
+      - edge
+      - backend
     build:
       context: .
       dockerfile: api-gateway/Dockerfile
@@ -72,13 +90,13 @@ services:
       retries: 10
 
   postgres:
+    networks:
+      - wardrobe-data
     image: postgres:18-alpine
     environment:
       POSTGRES_DB: ${DB_NAME:-clothes_advisor}
       POSTGRES_USER: ${DB_USER:-clothes_advisor}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
-    ports:
-      - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql
     healthcheck:
@@ -88,6 +106,11 @@ services:
       retries: 10
 
   app:
+    <<: *runtime-security
+    networks:
+      - backend
+      - wardrobe-data
+      - egress
     build:
       context: .
       dockerfile: wardrobe-service/Dockerfile
@@ -95,6 +118,8 @@ services:
         APP_UID: ${APP_UID:?Set APP_UID to the credential owner UID (id -u)}
     environment:
       DB_URL: jdbc:postgresql://postgres:5432/${DB_NAME:-clothes_advisor}
+      EUREKA_INSTANCE_HOSTNAME: app
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "false"
       DB_USER: ${DB_USER:-clothes_advisor}
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
       CONFIG_SERVER_URL: http://config-server:8888
@@ -119,6 +144,8 @@ services:
       retries: 10
 
   account-postgres:
+    networks:
+      - account-data
     image: postgres:18-alpine
     environment:
       POSTGRES_DB: account_db
@@ -133,11 +160,17 @@ services:
       retries: 10
 
   account-service:
+    <<: *runtime-security
+    networks:
+      - backend
+      - account-data
     build:
       context: .
       dockerfile: account-service/Dockerfile
     environment:
       DB_R2DBC_URL: r2dbc:postgresql://account-postgres:5432/account_db
+      EUREKA_INSTANCE_HOSTNAME: account-service
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "false"
       DB_URL: jdbc:postgresql://account-postgres:5432/account_db
       DB_USER: account
       DB_PASSWORD: ${ACCOUNT_DB_PASSWORD:?ACCOUNT_DB_PASSWORD must be set}
@@ -158,6 +191,10 @@ services:
       retries: 10
 
   recommendation-service:
+    <<: *runtime-security
+    networks:
+      - backend
+      - egress
     build:
       context: .
       dockerfile: recommendation-service/Dockerfile
@@ -167,6 +204,8 @@ services:
       CONFIG_SERVER_URL: http://config-server:8888
       EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
       OPENAI_MODEL: ${OPENAI_MODEL:-}
+      EUREKA_INSTANCE_HOSTNAME: recommendation-service
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "false"
       CHATGPT_CREDENTIALS_DIR: /run/chatgpt
       CHATGPT_TRUST_STORE: ${CHATGPT_TRUST_STORE:-}
     volumes:
@@ -186,6 +225,16 @@ services:
       interval: 5s
       timeout: 5s
       retries: 10
+
+networks:
+  edge:
+  backend:
+    internal: true
+  wardrobe-data:
+    internal: true
+  account-data:
+    internal: true
+  egress:
 
 volumes:
   postgres-data:
