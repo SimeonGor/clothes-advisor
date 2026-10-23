@@ -185,8 +185,15 @@ class AccountClientTests {
             assertThat(receivedMethod).isEqualTo("GET")
             assertThat(receivedUserHeader).isNull()
             assertThat(receivedBody).isEmpty()
-            assertThat(breakers.circuitBreaker(breakerName(method)).metrics.numberOfSuccessfulCalls)
+            val breaker = breakers.circuitBreaker(breakerName(method))
+            assertThat(breaker.metrics.numberOfSuccessfulCalls)
                 .isEqualTo(1)
+            val config = breaker.circuitBreakerConfig
+            assertThat(config.slidingWindowSize).isEqualTo(2)
+            assertThat(config.minimumNumberOfCalls).isEqualTo(2)
+            assertThat(config.failureRateThreshold).isEqualTo(75f)
+            assertThat(config.waitIntervalFunctionInOpenState.apply(1)).isEqualTo(30_000L)
+            assertThat(config.permittedNumberOfCallsInHalfOpenState).isEqualTo(2)
         }
         assertThat(calls).hasValue(3)
         assertThat(breakers.allCircuitBreakers.map { it.name }).containsExactlyInAnyOrder(
