@@ -5,8 +5,37 @@ export type WardrobeItem = {
   categoryId: number;
   color: string;
   material: string;
+  version: number;
+  createdAt: string;
+  modifiedAt: string;
 };
-export type Photo = { id: number; itemId: number };
+export type Photo = {
+  id: number;
+  itemId: number;
+  contentType: string;
+  sizeBytes: number;
+  createdAt: string;
+};
+export type Category = { id: number; code: string; name: string };
+export type Actor = Pick<Account, "id" | "login" | "role">;
+export type WorkspaceContext =
+  | { kind: "own" }
+  | { kind: "client"; ownerId: number }
+  | { kind: "admin"; ownerId: number };
+
+export function wardrobeItemsPath(context: WorkspaceContext): string {
+  if (context.kind === "own") return "/api/wardrobe/items";
+  if (context.kind === "client") return `/api/stylist/clients/${context.ownerId}/wardrobe/items`;
+  return `/api/admin/users/${context.ownerId}/wardrobe/items`;
+}
+
+export function canEditWardrobe(context: WorkspaceContext): boolean {
+  return context.kind === "own";
+}
+
+export function canDeleteWardrobePhoto(context: WorkspaceContext): boolean {
+  return context.kind === "own" || context.kind === "admin";
+}
 export type Precipitation = { id: number; name: string; code: string };
 export type Outfit = {
   id: number; name: string; itemIds: number[];
@@ -24,7 +53,9 @@ export async function request<T>(
 ): Promise<T> {
   const headers = new Headers(options.headers);
   if (actorId !== undefined) headers.set("X-User-Id", String(actorId));
-  if (options.body) headers.set("Content-Type", "application/json");
+  if (options.body && !(options.body instanceof FormData)) {
+    headers.set("Content-Type", "application/json");
+  }
   const response = await fetch(path, {
     ...options,
     headers,
