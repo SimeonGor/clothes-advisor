@@ -12,16 +12,15 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import reactor.core.publisher.Mono
-import reactor.core.scheduler.Schedulers
 import ru.itmo.clothesadvisor.controller.toPageRequest
 import ru.itmo.clothesadvisor.dto.weather.PrecipitationTypeResponse
-import ru.itmo.clothesadvisor.service.weather.PrecipitationTypeService
+import ru.itmo.clothesadvisor.service.weather.ReactivePrecipitationTypeService
 
 @Tag(name = "Справочники", description = "Публичное чтение; X-User-Id не требуется.")
 @RestController
 @RequestMapping("/api/weather/precipitation-types")
 internal class PrecipitationTypeController(
-    private val precipitationTypes: PrecipitationTypeService,
+    private val precipitationTypes: ReactivePrecipitationTypeService,
 ) {
     @GetMapping
     @Operation(summary = "Виды осадков", description = "Массив справочника; без X-Total-Count.")
@@ -37,10 +36,9 @@ internal class PrecipitationTypeController(
         @RequestParam(defaultValue = "0") @Min(0) page: Int,
         @RequestParam(defaultValue = "50") @Min(1) @Max(50) size: Int,
     ): Mono<List<PrecipitationTypeResponse>> =
-        Mono.fromCallable {
-                precipitationTypes.list(toPageRequest(page, size)).map {
-                    PrecipitationTypeResponse(requireNotNull(it.id), it.code, it.name)
-                }
+        precipitationTypes.list(toPageRequest(page, size)).map { types ->
+            types.map {
+                PrecipitationTypeResponse(requireNotNull(it.id), it.code, it.name)
             }
-            .subscribeOn(Schedulers.boundedElastic())
+        }
 }

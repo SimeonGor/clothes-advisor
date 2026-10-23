@@ -18,11 +18,9 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
-import reactor.core.publisher.Mono
-import reactor.core.scheduler.Schedulers
 import ru.itmo.clothesadvisor.controller.toPageRequest
 import ru.itmo.clothesadvisor.dto.user.CurrentUser
-import ru.itmo.clothesadvisor.service.wardrobe.AdminWardrobeService
+import ru.itmo.clothesadvisor.service.wardrobe.ReactiveAdminWardrobeService
 
 @Tag(
     name = "Модерация гардероба",
@@ -31,7 +29,7 @@ import ru.itmo.clothesadvisor.service.wardrobe.AdminWardrobeService
 )
 @RestController
 @RequestMapping("/api/admin/users/{ownerId}/wardrobe/items")
-internal class AdminWardrobeController(private val wardrobe: AdminWardrobeService) {
+internal class AdminWardrobeController(private val wardrobe: ReactiveAdminWardrobeService) {
     @GetMapping
     @Operation(
         summary = "Список вещей владельца",
@@ -57,10 +55,7 @@ internal class AdminWardrobeController(private val wardrobe: AdminWardrobeServic
         @RequestParam(defaultValue = "0") @Min(0) page: Int,
         @RequestParam(defaultValue = "50") @Min(1) @Max(50) size: Int,
     ) =
-        Mono.fromCallable {
-                wardrobe.listItems(user.id, ownerId, toPageRequest(page, size))
-            }
-            .subscribeOn(Schedulers.boundedElastic())
+        wardrobe.listItems(user.id, ownerId, toPageRequest(page, size))
 
     @GetMapping("/{itemId}")
     @Operation(summary = "Карточка вещи владельца", description = "Только просмотр.")
@@ -78,10 +73,7 @@ internal class AdminWardrobeController(private val wardrobe: AdminWardrobeServic
         @PathVariable ownerId: Long,
         @PathVariable itemId: Long,
     ) =
-        Mono.fromCallable {
-                wardrobe.getItem(user.id, ownerId, itemId)
-            }
-            .subscribeOn(Schedulers.boundedElastic())
+        wardrobe.getItem(user.id, ownerId, itemId)
 
     @GetMapping("/{itemId}/photos")
     @Operation(summary = "Фотографии вещи владельца", description = "Метаданные без S3-ссылок.")
@@ -99,10 +91,7 @@ internal class AdminWardrobeController(private val wardrobe: AdminWardrobeServic
         @PathVariable ownerId: Long,
         @PathVariable itemId: Long,
     ) =
-        Mono.fromCallable {
-                wardrobe.listPhotos(user.id, ownerId, itemId)
-            }
-            .subscribeOn(Schedulers.boundedElastic())
+        wardrobe.listPhotos(user.id, ownerId, itemId)
 
     @GetMapping("/{itemId}/photos/{photoId}/content")
     @Operation(
@@ -154,10 +143,8 @@ internal class AdminWardrobeController(private val wardrobe: AdminWardrobeServic
         @PathVariable itemId: Long,
         @PathVariable photoId: Long,
     ) =
-        Mono.fromCallable {
-                wardrobe.getPhotoContent(user.id, ownerId, itemId, photoId).toPhotoContentResponse()
-            }
-            .subscribeOn(Schedulers.boundedElastic())
+        wardrobe.getPhotoContent(user.id, ownerId, itemId, photoId)
+            .map { it.toPhotoContentResponse() }
 
     @DeleteMapping("/{itemId}/photos/{photoId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -179,8 +166,5 @@ internal class AdminWardrobeController(private val wardrobe: AdminWardrobeServic
         @PathVariable itemId: Long,
         @PathVariable photoId: Long,
     ) =
-        Mono.fromRunnable<Void> {
-                wardrobe.deletePhoto(user.id, ownerId, itemId, photoId)
-            }
-            .subscribeOn(Schedulers.boundedElastic())
+        wardrobe.deletePhoto(user.id, ownerId, itemId, photoId)
 }

@@ -24,15 +24,13 @@ import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
 import reactor.core.publisher.Mono
-import reactor.core.scheduler.Schedulers
 import ru.itmo.clothesadvisor.controller.toPageRequest
 import ru.itmo.clothesadvisor.dto.ApiErrorResponse
 import ru.itmo.clothesadvisor.dto.outfit.CreateOutfitRequest
 import ru.itmo.clothesadvisor.dto.rating.CreateRatingRequest
 import ru.itmo.clothesadvisor.dto.rating.UpdateRatingRequest
 import ru.itmo.clothesadvisor.dto.user.CurrentUser
-import ru.itmo.clothesadvisor.service.outfit.OutfitService
-import ru.itmo.clothesadvisor.service.rating.OutfitRatingService
+import ru.itmo.clothesadvisor.service.outfit.ReactiveOutfitService
 
 @Tag(
     name = "Образы и оценки стилиста",
@@ -42,8 +40,7 @@ import ru.itmo.clothesadvisor.service.rating.OutfitRatingService
 @RestController
 @RequestMapping("/api/stylist/clients/{ownerId}/outfits")
 internal class StylistOutfitController(
-    private val outfits: OutfitService,
-    private val ratings: OutfitRatingService,
+    private val outfits: ReactiveOutfitService,
 ) {
     @PostMapping
     @Operation(
@@ -93,13 +90,10 @@ internal class StylistOutfitController(
         @PathVariable ownerId: Long,
         @Valid @RequestBody request: CreateOutfitRequest,
     ) =
-        Mono.fromCallable {
-                outfits.createForClient(user.id, ownerId, request).let {
-                    ResponseEntity.created(URI("/api/stylist/clients/$ownerId/outfits/${it.outfit.id}"))
-                        .body(it)
-                }
-            }
-            .subscribeOn(Schedulers.boundedElastic())
+        outfits.createForClient(user.id, ownerId, request).map {
+            ResponseEntity.created(URI("/api/stylist/clients/$ownerId/outfits/${it.outfit.id}"))
+                .body(it)
+        }
 
     @GetMapping
     @Operation(
@@ -138,14 +132,11 @@ internal class StylistOutfitController(
         @RequestParam(defaultValue = "0") @Min(0) page: Int,
         @RequestParam(defaultValue = "50") @Min(1) @Max(50) size: Int,
     ) =
-        Mono.fromCallable {
-                outfits.listForClient(user.id, ownerId, toPageRequest(page, size)).let {
-                    ResponseEntity.ok()
-                        .header("X-Total-Count", it.totalElements.toString())
-                        .body(it.content)
-                }
-            }
-            .subscribeOn(Schedulers.boundedElastic())
+        outfits.listForClient(user.id, ownerId, toPageRequest(page, size)).map {
+            ResponseEntity.ok()
+                .header("X-Total-Count", it.totalElements.toString())
+                .body(it.content)
+        }
 
     @GetMapping("/{id}")
     @Operation(
@@ -166,10 +157,7 @@ internal class StylistOutfitController(
         @PathVariable ownerId: Long,
         @PathVariable id: Long,
     ) =
-        Mono.fromCallable {
-                outfits.getForClient(user.id, ownerId, id)
-            }
-            .subscribeOn(Schedulers.boundedElastic())
+        outfits.getForClient(user.id, ownerId, id)
 
     @PostMapping("/{id}/rating")
     @Operation(
@@ -209,10 +197,8 @@ internal class StylistOutfitController(
         @PathVariable id: Long,
         @Valid @RequestBody request: CreateRatingRequest,
     ) =
-        Mono.fromCallable {
-                ResponseEntity.status(201).body(ratings.create(user.id, ownerId, id, request))
-            }
-            .subscribeOn(Schedulers.boundedElastic())
+        outfits.createRating(user.id, ownerId, id, request)
+            .map { ResponseEntity.status(201).body(it) }
 
     @PutMapping("/{id}/rating")
     @Operation(
@@ -251,10 +237,7 @@ internal class StylistOutfitController(
         @PathVariable id: Long,
         @Valid @RequestBody request: UpdateRatingRequest,
     ) =
-        Mono.fromCallable {
-                ratings.update(user.id, ownerId, id, request)
-            }
-            .subscribeOn(Schedulers.boundedElastic())
+        outfits.updateRating(user.id, ownerId, id, request)
 
     @DeleteMapping("/{id}/rating")
     @Operation(
@@ -290,11 +273,8 @@ internal class StylistOutfitController(
         @PathVariable id: Long,
         @RequestParam @Positive version: Long,
     ): Mono<ResponseEntity<Void>> =
-        Mono.fromCallable {
-                ratings.withdraw(user.id, ownerId, id, version)
-                ResponseEntity.noContent().build<Void>()
-            }
-            .subscribeOn(Schedulers.boundedElastic())
+        outfits.withdrawRating(user.id, ownerId, id, version)
+            .thenReturn(ResponseEntity.noContent().build<Void>())
 
     @GetMapping("/{id}/ratings/history")
     @Operation(
@@ -334,12 +314,9 @@ internal class StylistOutfitController(
         @RequestParam(defaultValue = "0") @Min(0) page: Int,
         @RequestParam(defaultValue = "50") @Min(1) @Max(50) size: Int,
     ) =
-        Mono.fromCallable {
-                ratings.historyForClient(user.id, ownerId, id, toPageRequest(page, size)).let {
-                    ResponseEntity.ok()
-                        .header("X-Total-Count", it.totalElements.toString())
-                        .body(it.content)
-                }
-            }
-            .subscribeOn(Schedulers.boundedElastic())
+        outfits.ratingHistoryForClient(user.id, ownerId, id, toPageRequest(page, size)).map {
+            ResponseEntity.ok()
+                .header("X-Total-Count", it.totalElements.toString())
+                .body(it.content)
+        }
 }

@@ -14,18 +14,16 @@ import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RestController
-import reactor.core.publisher.Mono
-import reactor.core.scheduler.Schedulers
 import ru.itmo.clothesadvisor.dto.ai.CreateAiOutfitRequest
 import ru.itmo.clothesadvisor.dto.user.CurrentUser
-import ru.itmo.clothesadvisor.service.ai.AiOutfitService
+import ru.itmo.clothesadvisor.service.ai.ReactiveAiOutfitService
 
 @Tag(
     name = "Подбор AI",
     description = "Действующий пользователь; владелец определяется по X-User-Id.",
 )
 @RestController
-internal class AiOutfitController(private val outfits: AiOutfitService) {
+internal class AiOutfitController(private val outfits: ReactiveAiOutfitService) {
     @PostMapping("/api/outfits/ai")
     @Operation(
         summary = "Подобрать образ через AI",
@@ -99,10 +97,7 @@ internal class AiOutfitController(private val outfits: AiOutfitService) {
         @Parameter(hidden = true) user: CurrentUser,
         @Valid @RequestBody request: CreateAiOutfitRequest,
     ) =
-        Mono.fromCallable {
-                outfits.create(user.id, request).let {
-                    ResponseEntity.created(URI("/api/outfits/${it.id}")).body(it)
-                }
-            }
-            .subscribeOn(Schedulers.boundedElastic())
+        outfits.create(user.id, request).map {
+            ResponseEntity.created(URI("/api/outfits/${it.id}")).body(it)
+        }
 }

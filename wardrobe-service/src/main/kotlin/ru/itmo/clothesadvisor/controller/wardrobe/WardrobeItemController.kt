@@ -30,15 +30,13 @@ import org.springframework.web.bind.annotation.RequestPart
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
 import reactor.core.publisher.Mono
-import reactor.core.scheduler.Schedulers
 import ru.itmo.clothesadvisor.controller.toPageRequest
 import ru.itmo.clothesadvisor.dto.ApiErrorResponse
 import ru.itmo.clothesadvisor.dto.user.CurrentUser
 import ru.itmo.clothesadvisor.dto.wardrobe.CreateWardrobeItemRequest
 import ru.itmo.clothesadvisor.dto.wardrobe.UpdateWardrobeItemRequest
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemResponse
-import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemService
-import ru.itmo.clothesadvisor.service.wardrobe.WardrobeManagementService
+import ru.itmo.clothesadvisor.service.wardrobe.ReactiveWardrobeService
 
 @Tag(
     name = "Гардероб владельца",
@@ -47,8 +45,7 @@ import ru.itmo.clothesadvisor.service.wardrobe.WardrobeManagementService
 @RestController
 @RequestMapping("/api/wardrobe/items")
 internal class WardrobeItemController(
-    private val items: WardrobeItemService,
-    private val management: WardrobeManagementService,
+    private val items: ReactiveWardrobeService,
 ) {
     @PostMapping(consumes = [MediaType.APPLICATION_JSON_VALUE])
     @Operation(
@@ -92,11 +89,9 @@ internal class WardrobeItemController(
         @Parameter(hidden = true) user: CurrentUser,
         @Valid @RequestBody request: CreateWardrobeItemRequest,
     ): Mono<ResponseEntity<WardrobeItemResponse>> =
-        Mono.fromCallable {
-                val created = items.create(user.id, request)
-                ResponseEntity.created(URI("/api/wardrobe/items/${created.id}")).body(created)
-            }
-            .subscribeOn(Schedulers.boundedElastic())
+        items.create(user.id, request).map { created ->
+            ResponseEntity.created(URI("/api/wardrobe/items/${created.id}")).body(created)
+        }
 
     @PostMapping(consumes = [MediaType.MULTIPART_FORM_DATA_VALUE])
     @io.swagger.v3.oas.annotations.parameters.RequestBody(
@@ -174,11 +169,9 @@ internal class WardrobeItemController(
         @RequestPart("photos", required = false) files: List<@JvmSuppressWildcards Part>,
     ): Mono<ResponseEntity<WardrobeItemResponse>> =
         readPhotoParts(files).flatMap { bytes ->
-            Mono.fromCallable {
-                    val created = management.createWithPhotos(user.id, request, bytes)
-                    ResponseEntity.created(URI("/api/wardrobe/items/${created.id}")).body(created)
-                }
-                .subscribeOn(Schedulers.boundedElastic())
+            items.createWithPhotos(user.id, request, bytes).map { created ->
+                ResponseEntity.created(URI("/api/wardrobe/items/${created.id}")).body(created)
+            }
         }
 
     @GetMapping
@@ -196,8 +189,7 @@ internal class WardrobeItemController(
         @RequestParam(defaultValue = "0") @Min(0) page: Int,
         @RequestParam(defaultValue = "50") @Min(1) @Max(50) size: Int,
     ): Mono<List<WardrobeItemResponse>> =
-        Mono.fromCallable { items.list(user.id, toPageRequest(page, size)) }
-            .subscribeOn(Schedulers.boundedElastic())
+        items.list(user.id, toPageRequest(page, size))
 
     @GetMapping("/{id}")
     @Operation(summary = "Карточка вещи", description = "Владелец определяется по X-User-Id.")
@@ -214,7 +206,7 @@ internal class WardrobeItemController(
         @Parameter(hidden = true) user: CurrentUser,
         @PathVariable id: Long,
     ): Mono<WardrobeItemResponse> =
-        Mono.fromCallable { items.get(user.id, id) }.subscribeOn(Schedulers.boundedElastic())
+        items.get(user.id, id)
 
     @PutMapping("/{id}")
     @Operation(
@@ -252,8 +244,7 @@ internal class WardrobeItemController(
         @PathVariable id: Long,
         @Valid @RequestBody request: UpdateWardrobeItemRequest,
     ): Mono<WardrobeItemResponse> =
-        Mono.fromCallable { items.update(user.id, id, request) }
-            .subscribeOn(Schedulers.boundedElastic())
+        items.update(user.id, id, request)
 
     @DeleteMapping("/{id}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
@@ -284,6 +275,5 @@ internal class WardrobeItemController(
         @PathVariable id: Long,
         @RequestParam @Positive version: Long,
     ) =
-        Mono.fromRunnable<Void> { items.delete(user.id, id, version) }
-            .subscribeOn(Schedulers.boundedElastic())
+        items.delete(user.id, id, version)
 }
