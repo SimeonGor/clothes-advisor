@@ -5,7 +5,7 @@ COPY gradlew ./
 COPY gradle/ ./gradle/
 COPY api-gateway/build.gradle.kts api-gateway/settings.gradle.kts ./
 COPY api-gateway/src/main/ ./src/main/
-RUN chmod +x ./gradlew && ./gradlew --no-daemon --max-workers=1 \
+RUN chmod +x ./gradlew && ./gradlew --no-daemon \
     -Pkotlin.compiler.execution.strategy=in-process bootJar
 
 FROM eclipse-temurin:25-jre
