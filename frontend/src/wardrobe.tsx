@@ -22,6 +22,8 @@ const pageSize = 12;
 const maxPhotoSize = 10_000_000;
 const allowedPhotoTypes = new Set(["image/jpeg", "image/png"]);
 type ItemFields = Pick<WardrobeItem, "name" | "categoryId" | "color" | "material">;
+const wardrobeRoute = (context: WorkspaceContext) => context.kind === "own" ? "/wardrobe"
+  : context.kind === "client" ? `/clients/${context.ownerId}/wardrobe` : `/accounts/${context.ownerId}/wardrobe`;
 
 function validateFields(fields: ItemFields, categories: Category[]): string {
   if (!fields.name.trim() || fields.name.trim().length > 300) return "Укажите название длиной до 300 символов.";
@@ -97,12 +99,12 @@ export function Wardrobe({ actor, context = { kind: "own" }, pending }: {
 
   return (
     <main className={styles.main}>
-      <header className={styles.top}><span>ПЕРСОНАЛЬНЫЙ СТИЛЬ</span><span>ВАШ ГАРДЕРОБ</span></header>
+      <header className={styles.top}><span>ПЕРСОНАЛЬНЫЙ СТИЛЬ</span><span>ГАРДЕРОБ</span></header>
       <section className={styles.intro}>
         <div>
-          <p className={styles.eyebrow}>ВАШИ ВЕЩИ</p>
+          <p className={styles.eyebrow}>{writable ? "ВАШИ ВЕЩИ" : "ВЕЩИ ВЛАДЕЛЬЦА"}</p>
           <h1>Гардероб</h1>
-          <p className={styles.muted}>Вещи, из которых складываются ваши образы.</p>
+          <p className={styles.muted}>Вещи, из которых складываются образы.</p>
         </div>
         {writable && <Link className={styles.create} to="/wardrobe/new" aria-disabled={pending}>
           Добавить вещь <span>↗</span>
@@ -114,7 +116,7 @@ export function Wardrobe({ actor, context = { kind: "own" }, pending }: {
       {items.data?.length === 0 && page === 0 && (
         <section className={styles.empty}>
           <h2>Здесь пока пусто</h2>
-          <p>Добавьте первую вещь, чтобы начать собирать гардероб.</p>
+          <p>{writable ? "Добавьте первую вещь, чтобы начать собирать гардероб." : "Владелец пока не добавил вещи."}</p>
           {writable && <Link className={styles.create} to="/wardrobe/new">Добавить первую вещь <span>↗</span></Link>}
         </section>
       )}
@@ -122,7 +124,7 @@ export function Wardrobe({ actor, context = { kind: "own" }, pending }: {
       <div className={styles.grid}>
         {items.data?.map((item) => <WardrobeCard
           key={item.id} actor={actor} item={item} category={categoryNames.get(item.categoryId) ?? "Вещь"}
-          base={base} />)}
+          base={base} route={wardrobeRoute(context)} pending={pending} />)}
       </div>
       {(items.data && items.data.length > 0 || page > 0) && <div className={styles.pages}>
         <span>Страница {page + 1}</span><div>
@@ -134,14 +136,14 @@ export function Wardrobe({ actor, context = { kind: "own" }, pending }: {
   );
 }
 
-function WardrobeCard({ actor, item, category, base }: {
-  actor: Actor; item: WardrobeItem; category: string; base: string;
+function WardrobeCard({ actor, item, category, base, route, pending }: {
+  actor: Actor; item: WardrobeItem; category: string; base: string; route: string; pending: boolean;
 }) {
   const photos = useQuery({
-    queryKey: ["photos", actor.id, item.id],
+    queryKey: ["photos", actor.id, item.id, base],
     queryFn: ({ signal }) => request<Photo[]>(`${base}/${item.id}/photos`, actor.id, { signal }),
   });
-  return <Link className={styles.card} to={`/wardrobe/${item.id}`}>
+  return <Link className={styles.card} to={`${route}/${item.id}`} aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>
     <span className={styles.image}>
       {photos.data?.[0] ? <PhotoImage actor={actor} item={item} photo={photos.data[0]} itemsBase={base} />
         : photos.isError ? <span className={styles.photoRetry}>Фото не загрузилось</span>
@@ -155,6 +157,70 @@ function WardrobeCard({ actor, item, category, base }: {
 function ReadError({ error, retry }: { error: unknown; retry: () => void }) {
   return <div className={styles.error} role="alert"><p>{resourceErrorMessage(error)}</p>
     <button type="button" onClick={retry}>Повторить загрузку</button></div>;
+}
+
+export function WardrobeDetail({ actor, context, pending, onPending }: {
+  actor: Actor; context: WorkspaceContext; pending: boolean; onPending: (value: boolean) => void;
+}) {
+  const { itemId } = useParams();
+  const id = Number(itemId);
+  const valid = Number.isSafeInteger(id) && id > 0;
+  const base = wardrobeItemsPath(context);
+  const queryClient = useQueryClient();
+  const item = useQuery({ queryKey: ["wardrobe-item", actor.id, id, base], enabled: valid,
+    queryFn: ({ signal }) => request<WardrobeItem>(`${base}/${id}`, actor.id, { signal }) });
+  const photos = useQuery({ queryKey: ["photos", actor.id, id, base], enabled: valid && item.isSuccess,
+    queryFn: ({ signal }) => request<Photo[]>(`${base}/${id}/photos`, actor.id, { signal }) });
+  const categories = useQuery(categoriesQuery(actor));
+  const [confirmId, setConfirmId] = React.useState<number | null>(null);
+  const [failure, setFailure] = React.useState("");
+  const [success, setSuccess] = React.useState("");
+  const { busy, run } = useWrite(onPending);
+  async function removePhoto(photoId: number) {
+    if (!canDeleteWardrobePhoto(context) || pending) return;
+    await run(async () => {
+      setFailure("");
+      setSuccess("");
+      try {
+        await request(`${base}/${id}/photos/${photoId}`, actor.id, { method: "DELETE" });
+        setConfirmId(null);
+        setSuccess("Фотография удалена.");
+        await Promise.all([
+          photos.refetch(),
+          queryClient.invalidateQueries({ queryKey: ["outfit-photo-list", actor.id] }),
+          queryClient.invalidateQueries({ queryKey: ["photos", actor.id] }),
+        ]);
+      } catch (error) { setFailure(resourceErrorMessage(error, true)); }
+    });
+  }
+  return <main className={styles.main}>
+    <header className={styles.top}><span>ГАРДЕРОБ ВЛАДЕЛЬЦА</span>
+      <Link to={wardrobeRoute(context)} aria-disabled={pending}>← К вещам</Link></header>
+    {!valid ? <p role="alert">Некорректный номер вещи.</p> : item.isLoading ? <p className={styles.state}>Загружаем вещь…</p>
+      : item.isError ? <ReadError error={item.error} retry={() => void item.refetch()} /> : item.data && <>
+        <section className={styles.intro}><div><p className={styles.eyebrow}>ПРОСМОТР ВЕЩИ</p><h1>{item.data.name}</h1>
+          <p className={styles.muted}>{categories.data?.find((category) => category.id === item.data.categoryId)?.name ?? `Категория №${item.data.categoryId}`} · {item.data.color} · {item.data.material}</p>
+        </div></section>
+        {categories.isError && <ReadError error={categories.error} retry={() => void categories.refetch()} />}
+        <section className={styles.photoSection}><h2>Фотографии</h2>
+          {photos.isLoading && <p className={styles.state}>Загружаем фотографии…</p>}
+          {photos.isError && <ReadError error={photos.error} retry={() => void photos.refetch()} />}
+          {photos.data?.length === 0 && <p className={styles.state}>Фотографий пока нет.</p>}
+          <div className={styles.grid}>{photos.data?.map((photo) => <article className={styles.card} key={photo.id}>
+            <span className={styles.image}><PhotoImage actor={actor} item={item.data!} photo={photo} itemsBase={base} /></span>
+            {canDeleteWardrobePhoto(context) && <button type="button" className={styles.deleteButton} disabled={pending || busy}
+              onClick={() => setConfirmId(photo.id)}>Удалить фото №{photo.id}</button>}
+          </article>)}</div>
+          {confirmId !== null && <div className={styles.deleteSection}><div role="group" aria-label="Удаление фотографии">
+            <p>Удалить фотографию №{confirmId}?</p>
+            <button type="button" disabled={pending || busy} onClick={() => void removePhoto(confirmId)}>Подтвердить удаление фото</button>
+            <button type="button" disabled={pending || busy} onClick={() => setConfirmId(null)}>Отмена</button>
+          </div></div>}
+        </section>
+      </>}
+    {failure && <p role="alert" className={styles.error}>{failure}</p>}
+    {success && <p role="status" className={styles.success}>{success}</p>}
+  </main>;
 }
 
 export function WardrobeEditor({ actor, onPending, pending }: {

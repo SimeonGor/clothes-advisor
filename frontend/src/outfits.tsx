@@ -61,7 +61,7 @@ export function Outfits({ actor, context = { kind: "own" }, pending }: { actor: 
       <header className={styles.top}><span>ПЕРСОНАЛЬНЫЙ СТИЛЬ</span><span>СОХРАНЁННЫЕ ОБРАЗЫ</span></header>
       <section className={styles.intro}>
         <div>
-          <p className={styles.eyebrow}>ВАШИ СОЧЕТАНИЯ</p>
+          <p className={styles.eyebrow}>{context.kind === "own" ? "ВАШИ СОЧЕТАНИЯ" : "СОЧЕТАНИЯ ВЛАДЕЛЬЦА"}</p>
           <h1>Образы</h1>
           <p className={styles.muted}>Сохранённые сочетания и заметки стилистов.</p>
         </div>
@@ -73,7 +73,7 @@ export function Outfits({ actor, context = { kind: "own" }, pending }: { actor: 
       {query.data?.length === 0 && page === 0 && (
         <section className={styles.empty}>
           <h2>Пока нет сохранённых образов</h2>
-          <p>Сохранённый результат «Сегодня» появится здесь.</p>
+          <p>{context.kind === "own" ? "Здесь появятся сохранённые образы." : "Владелец пока не сохранил образы."}</p>
           {canAdd && <Link className={styles.create} to={`${routeBase(context)}/new`} aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>Создать первый образ <span>↗</span></Link>}
         </section>
       )}
@@ -153,7 +153,7 @@ export function OutfitEditor({ actor, context = { kind: "own" }, onPending, pend
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (busy.current) return;
+    if (busy.current || pending) return;
     const cleanName = name.trim();
     const temp = Number(temperature);
     const breeze = Number(wind);
@@ -327,7 +327,7 @@ export function OutfitDetail({ actor, context = { kind: "own" }, onPending, pend
   }
 
   async function mutate(action: () => Promise<unknown>, success?: () => void) {
-    if (busy.current) return;
+    if (busy.current || pending) return;
     busy.current = true;
     onPending(true);
     setFailure("");

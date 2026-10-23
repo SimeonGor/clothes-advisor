@@ -3,9 +3,9 @@ import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   allPages,
-  errorMessage,
   mutationErrorMessage,
   request,
+  resourceErrorMessage,
   type Account,
   type Actor,
   type Outfit,
@@ -21,7 +21,7 @@ const pageSize = 12;
 function ReadError({ error, retry }: { error: unknown; retry: () => void }) {
   return (
     <div className={styles.error} role="alert">
-      <p>{errorMessage(error)}</p>
+      <p>{resourceErrorMessage(error)}</p>
       <button type="button" onClick={retry}>Повторить загрузку</button>
     </div>
   );
@@ -94,6 +94,7 @@ export function PhotoImage({ actor, item, photo, itemsBase = "/api/wardrobe/item
 
   React.useEffect(() => {
     const controller = new AbortController();
+    setUrl("");
     setFailed(false);
     fetch(`${itemsBase}/${item.id}/photos/${photo.id}/content`, {
       headers: { "X-User-Id": String(actor.id) },
@@ -233,31 +234,33 @@ export function Today({ account, onSwitch, onPending, pending }: {
   );
 }
 
-export function SiteShell({ account, onSwitch, pending, active, context = { kind: "own" }, children }: {
+export function SiteShell({ account, onSwitch, pending, active, children }: {
   account: Actor;
   onSwitch: () => void;
   pending: boolean;
-  active: "today" | "wardrobe" | "outfits";
+  active: "today" | "wardrobe" | "outfits" | "access" | "clients" | "accounts";
   context?: WorkspaceContext;
   children: React.ReactNode;
 }) {
-  const wardrobePath = context.kind === "own" ? "/wardrobe"
-    : context.kind === "client" ? `/clients/${context.ownerId}/wardrobe`
-      : `/accounts/${context.ownerId}/wardrobe`;
-  const outfitsPath = context.kind === "own" ? "/outfits"
-    : context.kind === "client" ? `/clients/${context.ownerId}/outfits`
-      : `/accounts/${context.ownerId}/outfits`;
+  const wardrobePath = "/wardrobe";
+  const outfitsPath = "/outfits";
   function guard(event: React.MouseEvent<HTMLAnchorElement>) {
     if (pending) event.preventDefault();
   }
 
   return (
-    <div className={styles.shell} id="main">
+    <div className={styles.shell} id="main" onClickCapture={(event) => {
+      if (pending && (event.target as HTMLElement).closest("a")) {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    }}>
       <aside className={styles.sidebar}>
-        <Link className={styles.brand} to={context.kind === "own" && account.role === "USER" ? "/today" : wardrobePath} onClick={guard} aria-disabled={pending}>
+        <Link className={styles.brand} to={account.role === "USER" ? "/today" : account.role === "STYLIST" ? "/clients" : "/accounts"} onClick={guard} aria-disabled={pending}>
           <span className={styles.brandMark}>ca</span><span>clothes advisor</span>
         </Link>
         <p className={styles.navLabel}>ВАШЕ ПРОСТРАНСТВО</p>
+        <nav className={styles.navigation} aria-label="Основная навигация">
         {account.role === "USER" && (
           <Link
             className={active === "today" ? styles.activeNav : styles.navLink}
@@ -275,6 +278,14 @@ export function SiteShell({ account, onSwitch, pending, active, context = { kind
           onClick={guard}
         >Гардероб <span>↗</span></Link>
         <Link className={active === "outfits" ? styles.activeNav : styles.navLink} to={outfitsPath} aria-current={active === "outfits" ? "page" : undefined} aria-disabled={pending} onClick={guard}>Образы <span>↗</span></Link>
+        {([{ role: "USER", path: "access", label: "Доступ стилистам" },
+          { role: "STYLIST", path: "clients", label: "Клиенты" },
+          { role: "ADMIN", path: "accounts", label: "Аккаунты" }]).filter((entry) => entry.role === account.role).map((entry) => (
+          <Link key={entry.path} className={active === entry.path ? styles.activeNav : styles.navLink}
+            to={`/${entry.path}`} aria-current={active === entry.path ? "page" : undefined}
+            aria-disabled={pending} onClick={guard}>{entry.label} <span>↗</span></Link>
+        ))}
+        </nav>
         <div className={styles.sidebarBottom}>
           <p className={styles.navLabel}>АККАУНТ</p>
           <span className={styles.accountName}>{account.login}</span>
