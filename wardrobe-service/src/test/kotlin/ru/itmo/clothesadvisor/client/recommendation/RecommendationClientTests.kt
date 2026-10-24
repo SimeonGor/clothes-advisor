@@ -1,5 +1,7 @@
 package ru.itmo.clothesadvisor.client.recommendation
 
+import ru.itmo.clothesadvisor.config.idempotencyService
+
 import com.sun.net.httpserver.HttpServer
 import feign.Client
 import feign.Request
@@ -303,7 +305,7 @@ class RecommendationClientTests {
         `when`(outfits.createAi(eq(7L), refEq(outfitRequest) ?: outfitRequest))
             .thenReturn(saved)
         val service = AiOutfitService(
-            users, items, photos, precipitation, content, client, outfits, transactions, meters, "user",
+            users, items, photos, precipitation, content, client, outfits, idempotencyService(transactions), transactions, meters, "user",
         )
         val release = CountDownLatch(1)
         val exited = CountDownLatch(1)

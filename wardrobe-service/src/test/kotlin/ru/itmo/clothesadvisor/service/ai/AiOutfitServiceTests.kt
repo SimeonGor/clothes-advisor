@@ -1,5 +1,7 @@
 package ru.itmo.clothesadvisor.service.ai
 
+import ru.itmo.clothesadvisor.config.idempotencyService
+
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import java.math.BigDecimal
 import java.time.Instant
@@ -92,6 +94,7 @@ class AiOutfitServiceTests {
             content,
             provider,
             outfits,
+            idempotencyService(transactions),
             transactions,
             meters,
             "user",
@@ -202,7 +205,7 @@ class AiOutfitServiceTests {
         // given
         val unconfigured =
             AiOutfitService(
-                users, items, photos, precipitation, content, provider, outfits, transactions,
+                users, items, photos, precipitation, content, provider, outfits, idempotencyService(transactions), transactions,
                 SimpleMeterRegistry(), " ",
             )
 

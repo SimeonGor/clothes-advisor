@@ -26,6 +26,9 @@ import ru.itmo.clothesadvisor.repository.outfit.OutfitWeatherRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.repository.weather.PrecipitationTypeRepository
 import ru.itmo.clothesadvisor.service.rating.OutfitRatingService
+import ru.itmo.clothesadvisor.model.idempotency.IdempotencyOperation.CREATE_OUTFIT
+import ru.itmo.clothesadvisor.service.idempotency.IdempotencyService
+import tools.jackson.core.type.TypeReference
 
 internal class InvalidOutfitRequestException : RuntimeException()
 
@@ -39,6 +42,7 @@ internal class OutfitService(
     private val accounts: BlockingAccountClient,
     private val ratings: OutfitRatingService,
     private val validator: Validator,
+    private val idempotency: IdempotencyService,
     transactionManager: PlatformTransactionManager,
 ) {
     private val writeTransaction = TransactionTemplate(transactionManager)
@@ -48,8 +52,15 @@ internal class OutfitService(
             isolationLevel = TransactionDefinition.ISOLATION_REPEATABLE_READ
         }
 
-    fun create(ownerId: Long, request: CreateOutfitRequest): OutfitResponse =
-        writeTransaction.execute { create(ownerId, ownerId, OutfitSource.USER, request) }
+    fun create(ownerId: Long, request: CreateOutfitRequest, key: String? = null): OutfitResponse =
+        idempotency.execute(
+            ownerId, CREATE_OUTFIT, key, listOf(ownerId, request),
+            object : TypeReference<OutfitResponse>() {},
+        ) { completion ->
+            completion.commit {
+                writeTransaction.execute { create(ownerId, ownerId, OutfitSource.USER, request) }
+            }
+        }
 
     fun createAi(ownerId: Long, request: CreateOutfitRequest): OutfitResponse =
         writeTransaction.execute { create(ownerId, ownerId, OutfitSource.AI, request) }
@@ -58,14 +69,18 @@ internal class OutfitService(
         stylistId: Long,
         ownerId: Long,
         request: CreateOutfitRequest,
+        key: String? = null,
     ): StylistOutfitResponse {
         accounts.requireStylistAccess(stylistId, ownerId)
-        return writeTransaction.execute {
-            StylistOutfitResponse(
-                create(ownerId, stylistId, OutfitSource.STYLIST, request),
-                null,
-            )
+        val created = idempotency.execute(
+            stylistId, CREATE_OUTFIT, key, listOf(ownerId, request),
+            object : TypeReference<OutfitResponse>() {},
+        ) { completion ->
+            completion.commit {
+                writeTransaction.execute { create(ownerId, stylistId, OutfitSource.STYLIST, request) }
+            }
         }
+        return StylistOutfitResponse(created, null)
     }
 
     fun list(ownerId: Long, pageable: Pageable): Page<OutfitResponse> = readTransaction.execute {

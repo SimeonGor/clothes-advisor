@@ -8,6 +8,6 @@ import ru.itmo.clothesadvisor.service.blockingCall
 
 @Service
 internal class ReactiveAiOutfitService(private val outfits: AiOutfitService) {
-    fun create(ownerId: Long, request: CreateAiOutfitRequest): Mono<OutfitResponse> =
-        blockingCall { outfits.create(ownerId, request) }
+    fun create(ownerId: Long, request: CreateAiOutfitRequest, key: String? = null): Mono<OutfitResponse> =
+        blockingCall { outfits.create(ownerId, request, key) }
 }

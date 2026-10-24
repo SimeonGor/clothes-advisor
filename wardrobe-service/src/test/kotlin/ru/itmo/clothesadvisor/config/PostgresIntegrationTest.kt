@@ -22,7 +22,7 @@ abstract class PostgresIntegrationTest {
         }
         cleanupJdbc.execute(
             """
-            TRUNCATE TABLE outfit_rating_history, outfit_rating, outfit_item, outfit_weather, outfit, access_grant,
+            TRUNCATE TABLE idempotency_command, outfit_rating_history, outfit_rating, outfit_item, outfit_weather, outfit, access_grant,
                 wardrobe_item_photo, wardrobe_item_history, wardrobe_item, app_user_history, app_user RESTART IDENTITY
         """,
         )

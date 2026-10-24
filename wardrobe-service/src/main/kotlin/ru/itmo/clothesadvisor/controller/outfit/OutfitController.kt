@@ -19,6 +19,7 @@ import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
+import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.ResponseStatus
@@ -78,15 +79,17 @@ internal class OutfitController(
         ),
         ApiResponse(
             responseCode = "409",
-            description = "Конфликт версии, состояния или ограничений данных; пустое тело",
-            content = [Content()],
+            description = "Конфликт данных: пустое тело. Конфликт Idempotency-Key: ApiErrorResponse с idempotency_key_reused, idempotency_in_progress или idempotency_failed.",
+            content = [Content(mediaType = "application/json", schema = Schema(implementation = ru.itmo.clothesadvisor.dto.ApiErrorResponse::class))],
         ),
     )
     fun create(
         @Parameter(hidden = true) user: CurrentUser,
         @Valid @RequestBody request: CreateOutfitRequest,
+        @Parameter(description = "Ключ повтора: 1..255 печатных ASCII-символов. Другие данные, незавершённый или неуспешный запрос: 409; успех повторяется без выполнения.")
+        @RequestHeader("Idempotency-Key", required = false) key: String?,
     ) =
-        outfits.create(user.id, request).map {
+        outfits.create(user.id, request, key).map {
             ResponseEntity.created(URI("/api/outfits/${it.id}")).body(it)
         }
 
