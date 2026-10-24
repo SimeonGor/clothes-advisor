@@ -1,6 +1,7 @@
 package ru.itmo.clothesadvisor.dto.outfit
 
 import com.fasterxml.jackson.annotation.JsonUnwrapped
+import com.fasterxml.jackson.annotation.JsonInclude
 import io.swagger.v3.oas.annotations.media.ArraySchema
 import io.swagger.v3.oas.annotations.media.Schema
 import jakarta.validation.Valid
@@ -52,6 +53,8 @@ internal data class OutfitResponse(
     val createdAt: Instant,
     val likes: Long = 0,
     val dislikes: Long = 0,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL) val occasion: String? = null,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL) val preferredStyle: String? = null,
 )
 
 internal data class StylistOutfitResponse(

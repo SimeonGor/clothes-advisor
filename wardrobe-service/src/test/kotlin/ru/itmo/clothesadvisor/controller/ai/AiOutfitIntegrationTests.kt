@@ -305,6 +305,42 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
     }
 
     @Test
+    fun `selection context is preserved by provider database create list and detail`() {
+        // given
+        val owner = connectedUser()
+        val actor = actorId(owner)
+        item(owner)
+        val occasion = "  Work  "
+        val style = "s".repeat(300)
+        select = { selection ->
+            assertThat(selection.occasion).isEqualTo(occasion)
+            assertThat(selection.preferredStyle).isEqualTo(style)
+            OutfitSelectionResponse(selection.candidates.map { it.itemId })
+        }
+        val input = body().dropLast(1) + """, "occasion":"$occasion", "preferredStyle":"$style"}"""
+
+        // when
+        val created = request("POST", actorId = actor, body = input)
+
+        // then
+        assertThat(created.statusCode()).isEqualTo(201)
+        val row = dto(created)
+        val id = number(row, "id")
+        assertThat(row["occasion"]).isEqualTo(occasion)
+        assertThat(row["preferredStyle"]).isEqualTo(style)
+        assertThat(jdbc.queryForMap("SELECT occasion, preferred_style FROM outfit WHERE id = ?", id))
+            .containsEntry("occasion", occasion).containsEntry("preferred_style", style)
+
+        // when
+        val detail = request("GET", "/api/outfits/$id", actor)
+        val listed = request("GET", "/api/outfits", actor)
+
+        // then
+        assertThat(dto(detail)).isEqualTo(row)
+        assertThat(JsonPath.read<List<Map<String, Any>>>(listed.body(), "$")).containsExactly(row)
+    }
+
+    @Test
     fun `known bad inputs do not touch storage or provider and foreign IDs remain 404 without photos`() {
 
         // given
@@ -338,6 +374,8 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
                 body().replace("Daily", "x".repeat(301)),
                 body().replace("\"precipitationTypeId\":1", "\"precipitationTypeId\":999999"),
                 body().replace(WIND, "-1"),
+                body().dropLast(1) + """, "occasion":"${"o".repeat(301)}"}""",
+                body().dropLast(1) + """, "preferredStyle":"${"s".repeat(301)}"}""",
                 "{}",
             )) {
 

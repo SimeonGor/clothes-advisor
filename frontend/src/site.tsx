@@ -308,6 +308,8 @@ function TodayForUser({ account, onSwitch, onPending, pending }: {
 }) {
   const queryClient = useQueryClient();
   const [name, setName] = React.useState("");
+  const [occasion, setOccasion] = React.useState("");
+  const [preferredStyle, setPreferredStyle] = React.useState("");
   const [temperature, setTemperature] = React.useState("15");
   const [wind, setWind] = React.useState("0");
   const [precipitationId, setPrecipitationId] = React.useState("");
@@ -385,6 +387,8 @@ function TodayForUser({ account, onSwitch, onPending, pending }: {
     setResultError("");
     setFailure(null);
     setName("");
+    setOccasion("");
+    setPreferredStyle("");
     setTemperature("15");
     setWind("0");
     setPrecipitationId("");
@@ -397,6 +401,12 @@ function TodayForUser({ account, onSwitch, onPending, pending }: {
     if (sending.current) return;
 
     const cleanName = name.trim();
+    const cleanOccasion = occasion.trim();
+    const cleanStyle = preferredStyle.trim();
+    if (cleanOccasion.length > 300 || cleanStyle.length > 300) {
+      setFailure("Повод и стиль должны содержать не более 300 символов каждый.");
+      return;
+    }
     const temp = Number(temperature);
     const breeze = Number(wind);
     const hasPrecipitation = weatherTypes.data?.some((type) => type.id === Number(precipitationId));
@@ -415,6 +425,8 @@ function TodayForUser({ account, onSwitch, onPending, pending }: {
       name: string;
       weather: { temperatureC: number; windSpeedMps: number; precipitationTypeId: number };
       candidateItemIds?: number[];
+      occasion?: string;
+      preferredStyle?: string;
     } = {
       name: cleanName,
       weather: {
@@ -424,6 +436,8 @@ function TodayForUser({ account, onSwitch, onPending, pending }: {
       },
     };
     if (selected.size) body.candidateItemIds = [...selected.keys()];
+    if (cleanOccasion) body.occasion = cleanOccasion;
+    if (cleanStyle) body.preferredStyle = cleanStyle;
 
     try {
       const outfit = await createRequest<Outfit>("/api/outfits/ai", account.id, JSON.stringify(body));
@@ -469,7 +483,7 @@ function TodayForUser({ account, onSwitch, onPending, pending }: {
               <span>01</span>
               <div>
                 <h2>Задайте контекст</h2>
-                <p>Назовите образ и укажите погоду.</p>
+                <p>Назовите образ, укажите погоду и при желании добавьте повод и стиль.</p>
               </div>
             </div>
             <label className={styles.nameField}>
@@ -480,6 +494,26 @@ function TodayForUser({ account, onSwitch, onPending, pending }: {
                 value={name}
                 onChange={(event) => setName(event.target.value)}
                 placeholder="Неспешное утро в городе"
+                disabled={pending || savedOutfit}
+              />
+            </label>
+            <label className={styles.nameField}>
+              ПОВОД (НЕОБЯЗАТЕЛЬНО)
+              <input
+                maxLength={300}
+                value={occasion}
+                onChange={(event) => setOccasion(event.target.value)}
+                placeholder="Прогулка, работа или встреча с друзьями"
+                disabled={pending || savedOutfit}
+              />
+            </label>
+            <label className={styles.nameField}>
+              ЖЕЛАЕМЫЙ СТИЛЬ (НЕОБЯЗАТЕЛЬНО)
+              <input
+                maxLength={300}
+                value={preferredStyle}
+                onChange={(event) => setPreferredStyle(event.target.value)}
+                placeholder="Например, спокойный повседневный"
                 disabled={pending || savedOutfit}
               />
             </label>
@@ -608,6 +642,8 @@ function TodayForUser({ account, onSwitch, onPending, pending }: {
           <section className={styles.result} aria-live="polite">
             <p className={styles.eyebrow}>ОБРАЗ СОХРАНЁН · №{result.outfit.id}</p>
             <h2>{result.outfit.name}</h2>
+            {result.outfit.occasion && <p>Повод: {result.outfit.occasion}</p>}
+            {result.outfit.preferredStyle && <p>Стиль: {result.outfit.preferredStyle}</p>}
             <p>
               {result.outfit.weather.temperatureC} °C · ветер {result.outfit.weather.windSpeedMps} м/с ·{" "}
               {weatherTypes.data?.find(

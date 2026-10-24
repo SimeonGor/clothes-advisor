@@ -5,6 +5,8 @@ import java.math.BigDecimal
 data class OutfitSelectionRequest(
     val weather: OutfitSelectionWeather,
     val candidates: List<OutfitSelectionCandidate>,
+    val occasion: String? = null,
+    val preferredStyle: String? = null,
 )
 
 data class OutfitSelectionWeather(

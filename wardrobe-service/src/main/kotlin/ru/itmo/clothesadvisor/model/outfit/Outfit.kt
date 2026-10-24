@@ -17,6 +17,8 @@ internal class Outfit(
     val source: OutfitSource,
     val name: String,
     val createdAt: Instant,
+    val occasion: String? = null,
+    val preferredStyle: String? = null,
 ) {
     @Id
     var id: Long? = null

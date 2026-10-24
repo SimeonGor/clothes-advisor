@@ -2,6 +2,9 @@ package ru.itmo.clothesadvisor.controller
 
 import java.awt.image.BufferedImage
 import java.io.ByteArrayOutputStream
+import java.nio.ByteBuffer
+import java.security.MessageDigest
+import java.math.BigDecimal
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -35,17 +38,21 @@ import ru.itmo.clothesadvisor.config.insertAccessGrant
 import ru.itmo.clothesadvisor.config.insertItem
 import ru.itmo.clothesadvisor.config.insertUser
 import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionRequest
+import ru.itmo.clothesadvisor.dto.ai.CreateAiOutfitRequest
+import ru.itmo.clothesadvisor.dto.outfit.OutfitWeatherDto
 import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionResponse
 import ru.itmo.clothesadvisor.dto.wardrobe.CreateWardrobeItemRequest
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.repository.idempotency.IdempotencyCommandRepository
 import ru.itmo.clothesadvisor.storage.wardrobe.PhotoStorageUnavailableException
 import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
+import tools.jackson.databind.json.JsonMapper
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class IdempotencyIntegrationTests : AccountBackedIntegrationTest() {
     @LocalServerPort private var port: Int = 0
     @Autowired private lateinit var jdbc: JdbcTemplate
+    @Autowired private lateinit var mapper: JsonMapper
     @MockitoBean private lateinit var storage: S3PhotoStorage
     @MockitoBean private lateinit var provider: RecommendationClient
     @MockitoSpyBean private lateinit var commands: IdempotencyCommandRepository
@@ -130,6 +137,56 @@ class IdempotencyIntegrationTests : AccountBackedIntegrationTest() {
     }
 
     @Test
+    fun `legacy AI fingerprints and stored responses replay without context fields or external calls`() {
+        // given
+        val owner = jdbc.insertUser("user", "hash", UserRole.USER).id
+        val saved = """{"id":80,"ownerId":$owner,"authorId":$owner,"source":"AI","name":"Daily","itemIds":[17],"weather":{"temperatureC":15,"precipitationTypeId":1,"windSpeedMps":0},"createdAt":"2026-01-01T00:00:00Z","likes":0,"dislikes":0}"""
+        for (candidateJson in listOf("null", "[17]")) {
+            val legacy = """[$owner,{"name":"Daily","weather":{"temperatureC":15,"precipitationTypeId":1,"windSpeedMps":0},"candidateItemIds":$candidateJson}]"""
+            val payload = listOf(owner, CreateAiOutfitRequest(
+                "Daily", OutfitWeatherDto(BigDecimal("15"), 1, BigDecimal.ZERO),
+                if (candidateJson == "null") null else listOf(17),
+            ))
+            assertThat(mapper.writeValueAsString(payload)).isEqualTo(legacy)
+            val bytes = legacy.toByteArray()
+            val digest = MessageDigest.getInstance("SHA-256")
+            digest.update(ByteBuffer.allocate(Long.SIZE_BYTES).putLong(bytes.size.toLong()).array())
+            val fingerprint = digest.digest(bytes).joinToString("") { "%02x".format(it) }
+            jdbc.update(
+                """INSERT INTO idempotency_command
+                    (actor_id, operation, command_key, fingerprint, state, response_json, response_status)
+                    VALUES (?, 'CREATE_AI_OUTFIT', ?, ?, 'SUCCEEDED', ?, 201)""",
+                owner, candidateJson, fingerprint, saved,
+            )
+            val candidates = if (candidateJson == "null") "" else ",\"candidateItemIds\":$candidateJson"
+            val body = """{"name":"Daily","weather":$weather$candidates}"""
+
+            // when
+            val replay = post(owner, "/api/outfits/ai", candidateJson, body)
+            val explicitNulls = post(owner, "/api/outfits/ai", candidateJson,
+                body.dropLast(1) + """, "occasion":null, "preferredStyle":null}""")
+
+            // then
+            assertThat(replay.statusCode()).isEqualTo(201)
+            assertThat(replay.body()).isEqualTo(saved)
+            assertThat(explicitNulls.statusCode()).isEqualTo(201)
+            assertThat(explicitNulls.body()).isEqualTo(saved)
+            for (field in listOf("occasion", "preferredStyle")) {
+                // when
+                val conflict = post(owner, "/api/outfits/ai", candidateJson,
+                    body.dropLast(1) + """, "$field":"Work"}""")
+
+                // then
+                assertThat(conflict.statusCode()).isEqualTo(409)
+                assertThat(conflict.body()).contains("idempotency_key_reused")
+            }
+        }
+        assertThat(selections).hasValue(0)
+        assertThat(uploads).hasValue(0)
+        assertThat(count("outfit")).isZero()
+    }
+
+    @Test
     fun `AI replay keeps stored result after upstream selection behavior changes`() {
         // given
         val owner = jdbc.insertUser("user", "hash", UserRole.USER).id
@@ -138,7 +195,7 @@ class IdempotencyIntegrationTests : AccountBackedIntegrationTest() {
                 jdbc.update("INSERT INTO wardrobe_item_photo (wardrobe_item_id, s3_key, content_type, size_bytes) VALUES (?, ?, 'image/png', ?)", item, "fixture-$item", png.size)
             }
         }
-        val body = """{"name":"Daily","weather":$weather,"candidateItemIds":[${items.joinToString(",")}]}"""
+        val body = """{"name":"Daily","weather":$weather,"candidateItemIds":[${items.joinToString(",")}],"occasion":"Work","preferredStyle":"Casual"}"""
         var selected = items.first()
         doAnswer {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
@@ -160,6 +217,14 @@ class IdempotencyIntegrationTests : AccountBackedIntegrationTest() {
         assertThat(selections.get()).isEqualTo(1)
         assertThat(count("outfit")).isEqualTo(1)
         assertThat(jdbc.queryForObject("SELECT fingerprint FROM idempotency_command", String::class.java)).isEqualTo(fingerprint)
+        for (changed in listOf(body.replace("Work", "Dinner"), body.replace("Casual", "Formal"))) {
+            // when
+            val conflict = post(owner, "/api/outfits/ai", "same", changed)
+
+            // then
+            assertThat(conflict.statusCode()).isEqualTo(409)
+            assertThat(selections).hasValue(1)
+        }
 
         // when
         val fresh = post(owner, "/api/outfits/ai", "new", body)

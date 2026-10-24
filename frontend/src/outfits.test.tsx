@@ -26,6 +26,23 @@ beforeEach(() => { vi.stubGlobal("fetch", vi.fn()); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("Сохранённые образы", () => {
+  it("показывает сохранённый контекст в карточке образа", async () => {
+    // given
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/outfits/5") return ok(outfit({ occasion: "Работа", preferredStyle: "Свободный" }));
+      if (url.startsWith("/api/weather/precipitation-types")) return ok([]);
+      return fail(404);
+    }));
+
+    // when
+    mount(<OutfitDetail actor={user} onPending={vi.fn()} pending={false} />, "/outfits/5");
+
+    // then
+    expect(await screen.findByText("Повод: Работа")).toBeTruthy();
+    expect(screen.getByText("Стиль: Свободный")).toBeTruthy();
+  });
+
   it("сериализует ручной образ и сохраняет значения после ошибки", async () => {
     // given: вещи и погода доступны, сохранение ожидает ответ.
     const calls: Array<{ url: string; init?: RequestInit }> = [];

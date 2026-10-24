@@ -1,5 +1,6 @@
 package ru.itmo.clothesadvisor.dto.ai
 
+import com.fasterxml.jackson.annotation.JsonInclude
 import io.swagger.v3.oas.annotations.media.ArraySchema
 import io.swagger.v3.oas.annotations.media.Schema
 import jakarta.validation.Valid
@@ -23,4 +24,8 @@ internal class CreateAiOutfitRequest(
             ),
     )
     val candidateItemIds: List<Long?>? = null,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL)
+    @field:Size(max = 300) val occasion: String? = null,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL)
+    @field:Size(max = 300) val preferredStyle: String? = null,
 )

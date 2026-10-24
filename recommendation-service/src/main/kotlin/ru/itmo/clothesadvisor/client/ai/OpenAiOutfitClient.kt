@@ -136,7 +136,16 @@ class OpenAiOutfitClient internal constructor(
 
     private fun inputContent(selection: OutfitSelectionRequest): List<Map<String, Any>> {
         val content = mutableListOf<Map<String, Any>>(
-            mapOf("type" to "input_text", "text" to mapper.writeValueAsString(selection.weather)),
+            mapOf(
+                "type" to "input_text",
+                "text" to mapper.writeValueAsString(
+                    mapOf(
+                        "weather" to selection.weather,
+                        "occasion" to selection.occasion,
+                        "preferredStyle" to selection.preferredStyle,
+                    ),
+                ),
+            ),
         )
         selection.candidates.forEach { candidate ->
             val description = mapOf(
