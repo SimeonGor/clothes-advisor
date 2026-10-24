@@ -374,6 +374,8 @@ export function OutfitDetail({ actor, context = { kind: "own" }, onPending, pend
         <div>
           <p className={styles.eyebrow}>{sourceName(row.source)} · {new Date(row.createdAt).toLocaleDateString("ru-RU")}</p>
           <h1>{row.name}</h1>
+          {row.occasion && <p>Повод: {row.occasion}</p>}
+          {row.preferredStyle && <p>Стиль: {row.preferredStyle}</p>}
           <p className={styles.muted}>
             {row.weather.temperatureC} °C · ветер {row.weather.windSpeedMps} м/с · {precipitationName ?? "Осадки"}
             {` · нравится ${row.likes} · не нравится ${row.dislikes}`}

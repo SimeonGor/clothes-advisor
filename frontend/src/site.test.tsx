@@ -125,6 +125,8 @@ describe("Экран «Сегодня»", () => {
     fireEvent.change(screen.getByLabelText("НАЗВАНИЕ ОБРАЗА"), { target: { value: "  Ясное утро  " } });
     fireEvent.change(screen.getByLabelText(/ТЕМПЕРАТУРА/), { target: { value: "-2.5" } });
     fireEvent.change(screen.getByLabelText(/ВЕТЕР/), { target: { value: "1.75" } });
+    fireEvent.change(screen.getByLabelText("ПОВОД (НЕОБЯЗАТЕЛЬНО)"), { target: { value: "  " } });
+    fireEvent.change(screen.getByLabelText("ЖЕЛАЕМЫЙ СТИЛЬ (НЕОБЯЗАТЕЛЬНО)"), { target: { value: "  " } });
     const precipitation = await readyPrecipitationSelect();
     fireEvent.change(precipitation, { target: { value: "7" } });
     expect(precipitation.value).toBe("7");
@@ -187,6 +189,48 @@ describe("Экран «Сегодня»", () => {
     expect(await screen.findByText("Сохранено вещей: 2.")).toBeTruthy();
   });
 
+  it("передаёт очищенный контекст, показывает сохранённые значения и сбрасывает поля", async () => {
+    // given
+    const saved: Outfit = {
+      id: 42, ownerId: 1, authorId: 1, source: "AI", likes: 0, dislikes: 0,
+      createdAt: "2026-01-01T00:00:00Z", name: "Вечер", itemIds: [],
+      weather: { temperatureC: 15, windSpeedMps: 0, precipitationTypeId: 7 },
+      occasion: "Сохранённый повод", preferredStyle: "Сохранённый стиль",
+    };
+    const fetchMock = apiFetch([], async () => json(saved));
+    vi.stubGlobal("fetch", fetchMock);
+    mountToday();
+    fireEvent.change(screen.getByLabelText("НАЗВАНИЕ ОБРАЗА"), { target: { value: "Вечер" } });
+    const occasion = screen.getByLabelText("ПОВОД (НЕОБЯЗАТЕЛЬНО)") as HTMLInputElement;
+    const style = screen.getByLabelText("ЖЕЛАЕМЫЙ СТИЛЬ (НЕОБЯЗАТЕЛЬНО)") as HTMLInputElement;
+    fireEvent.change(occasion, { target: { value: "  Встреча  " } });
+    fireEvent.change(style, { target: { value: "  Спокойный  " } });
+    fireEvent.change(await readyPrecipitationSelect(), { target: { value: "7" } });
+
+    // when
+    fireEvent.click(await readyToSubmit());
+
+    // then
+    expect(await screen.findByText("Повод: Сохранённый повод")).toBeTruthy();
+    expect(screen.getByText("Стиль: Сохранённый стиль")).toBeTruthy();
+    const sent = fetchMock.mock.calls.find(([url]) => url === "/api/outfits/ai");
+    expect(JSON.parse(String(sent?.[1]?.body))).toMatchObject({ occasion: "Встреча", preferredStyle: "Спокойный" });
+    expect(occasion.disabled).toBe(true);
+    expect(style.disabled).toBe(true);
+    expect(occasion.maxLength).toBe(300);
+    expect(style.maxLength).toBe(300);
+
+    // when
+    const reset = screen.getByRole("button", { name: "Составить ещё один образ" });
+    await waitFor(() => expect((reset as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(reset);
+
+    // then
+    expect(occasion.value).toBe("");
+    expect(style.value).toBe("");
+    expect(occasion.disabled).toBe(false);
+  });
+
   it("не дублирует ожидающий POST и сохраняет форму после ошибки", async () => {
     let finish!: (response: Response) => void;
     const create = vi.fn(() => new Promise<Response>((resolve) => { finish = resolve; }));
@@ -196,6 +240,10 @@ describe("Экран «Сегодня»", () => {
 
     const name = screen.getByLabelText("НАЗВАНИЕ ОБРАЗА");
     fireEvent.change(name, { target: { value: "Оставить это" } });
+    const occasion = screen.getByLabelText("ПОВОД (НЕОБЯЗАТЕЛЬНО)") as HTMLInputElement;
+    const style = screen.getByLabelText("ЖЕЛАЕМЫЙ СТИЛЬ (НЕОБЯЗАТЕЛЬНО)") as HTMLInputElement;
+    fireEvent.change(occasion, { target: { value: "  Работа  " } });
+    fireEvent.change(style, { target: { value: "Минимализм" } });
     fireEvent.change(await readyPrecipitationSelect(), { target: { value: "7" } });
     await readyToSubmit();
 
@@ -215,6 +263,8 @@ describe("Экран «Сегодня»", () => {
 
     expect((await screen.findByRole("alert")).textContent).toContain("Сервис AI сейчас недоступен");
     expect((name as HTMLInputElement).value).toBe("Оставить это");
+    expect(occasion.value).toBe("  Работа  ");
+    expect(style.value).toBe("Минимализм");
     expect(create).toHaveBeenCalledTimes(1);
   });
 
