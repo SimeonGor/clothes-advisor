@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   allPages,
   ApiError,
+  idempotencyErrorMessage,
   canDeleteWardrobePhoto,
   canEditWardrobe,
   resourceErrorMessage,
@@ -16,6 +17,7 @@ import {
   type WorkspaceContext,
 } from "./api";
 import { PhotoImage } from "./site";
+import { createRequest, NewAttempt } from "./idempotency";
 import styles from "./site.module.css";
 
 const pageSize = 12;
@@ -44,6 +46,8 @@ function validatePhotos(files: FileList | File[], existingCount = 0): string {
 }
 
 function writeError(error: unknown, action: string): string {
+  const idempotency = idempotencyErrorMessage(error);
+  if (idempotency) return idempotency;
   if (error instanceof ApiError && error.status === 409) {
     return "Данные вещи изменились. Обновите страницу и повторите действие.";
   }
@@ -252,6 +256,7 @@ export function WardrobeEditor({ actor, onPending, pending }: {
   const [failure, setFailure] = React.useState("");
   const [success, setSuccess] = React.useState("");
   const [versionConflict, setVersionConflict] = React.useState(false);
+  const [attemptPath, setAttemptPath] = React.useState<string | null>(null);
   const [reloadingItem, setReloadingItem] = React.useState(false);
   const [confirmDelete, setConfirmDelete] = React.useState(false);
   const [confirmPhotoId, setConfirmPhotoId] = React.useState<number | null>(null);
@@ -339,12 +344,13 @@ export function WardrobeEditor({ actor, onPending, pending }: {
             files.forEach((file) => form.append("photos", file));
             return form;
           })() : JSON.stringify(fields);
-          const created = await request<WardrobeItem>(base, actor.id, { method: "POST", body });
+          const created = await createRequest<WardrobeItem>(base, actor.id, body);
           refresh();
           navigate(`/wardrobe/${created.id}`);
         }
       } catch (error) {
         setFailure(writeError(error, "Не удалось сохранить вещь"));
+        setAttemptPath(editing ? null : base);
         setVersionConflict(editing && error instanceof ApiError && error.status === 409);
       }
     });
@@ -360,9 +366,12 @@ export function WardrobeEditor({ actor, onPending, pending }: {
       try {
         const form = new FormData();
         selected.forEach((file) => form.append("photos", file));
-        await request<Photo[]>(`${base}/${id}/photos`, actor.id, { method: "POST", body: form });
+        await createRequest<Photo[]>(`${base}/${id}/photos`, actor.id, form);
         await Promise.all([photos.refetch(), queryClient.invalidateQueries({ queryKey: ["photos", actor.id] })]);
-      } catch (error) { setFailure(writeError(error, "Не удалось загрузить фото")); }
+      } catch (error) {
+        setAttemptPath(`${base}/${id}/photos`);
+        setFailure(writeError(error, "Не удалось загрузить фото"));
+      }
     });
   }
 
@@ -411,6 +420,8 @@ export function WardrobeEditor({ actor, onPending, pending }: {
     </div>}
     {success && <p role="status" className={styles.success}>{success}</p>}
     {categories.isError && <ReadError error={categories.error} retry={() => void categories.refetch()} />}
+    {failure && attemptPath && <NewAttempt actorId={actor.id} path={attemptPath}
+      disabled={pending} onReset={() => setFailure("")} />}
     <form className={styles.itemForm} onSubmit={(event) => void submit(event)}>
       <label className={styles.nameField}>НАЗВАНИЕ
         <input required maxLength={300} value={fieldValues.name} onChange={(event) => { setName(event.target.value); setSuccess(""); }} disabled={pending} />

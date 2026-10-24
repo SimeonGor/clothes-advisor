@@ -51,7 +51,7 @@ export function outfitsPath(context: WorkspaceContext): string {
 }
 
 export class ApiError extends Error {
-  constructor(readonly status: number) { super(`HTTP ${status}`); }
+  constructor(readonly status: number, readonly code?: string) { super(`HTTP ${status}`); }
 }
 
 export async function request<T>(
@@ -70,7 +70,12 @@ export async function request<T>(
     credentials: "same-origin",
     cache: "no-store",
   });
-  if (!response.ok) throw new ApiError(response.status);
+  if (!response.ok) {
+    const body: unknown = await response.json().catch(() => null);
+    const code = body && typeof body === "object" && "error" in body
+      && typeof body.error === "string" && /^[a-z_]{1,80}$/.test(body.error) ? body.error : undefined;
+    throw new ApiError(response.status, code);
+  }
   return response.status === 204 ? null as T : response.json() as Promise<T>;
 }
 
@@ -99,6 +104,8 @@ export async function allPages<T>(
 }
 
 export function resourceErrorMessage(error: unknown, writing = false): string {
+  const idempotency = idempotencyErrorMessage(error);
+  if (idempotency) return idempotency;
   if (writing && (!(error instanceof ApiError) || error.status >= 500)) {
     return "Не удалось получить подтверждение. Проверьте данные перед повтором: действие могло выполниться.";
   }
@@ -111,6 +118,8 @@ export function resourceErrorMessage(error: unknown, writing = false): string {
 }
 
 export function errorMessage(error: unknown): string {
+  const idempotency = idempotencyErrorMessage(error);
+  if (idempotency) return idempotency;
   if (!(error instanceof ApiError)) {
     return "Нет связи. Проверьте подключение и повторите загрузку.";
   }
@@ -137,6 +146,13 @@ export function errorMessage(error: unknown): string {
   }
   return `Не удалось выполнить запрос (${error.status}). `
     + "Данные формы сохранены.";
+}
+
+export function idempotencyErrorMessage(error: unknown): string | undefined {
+  if (!(error instanceof ApiError)) return;
+  if (error.code === "idempotency_in_progress") return "Запрос уже принят, но результат пока неизвестен. Проверьте сохранённые данные. Повтор с тем же ключом не запускает действие заново.";
+  if (error.code === "idempotency_failed") return "Предыдущая попытка завершилась ошибкой. Она не будет выполнена повторно. Для нового запуска выберите «Новая попытка».";
+  if (error.code === "idempotency_key_reused") return "Ключ уже связан с другими данными. Проверьте сохранённый результат перед новой попыткой.";
 }
 
 export function mutationErrorMessage(error: unknown): string {

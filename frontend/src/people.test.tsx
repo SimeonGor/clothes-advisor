@@ -14,7 +14,7 @@ const details = (actor: Actor, version = 1, status = "ACTIVE") => ({ ...actor, v
 const item: WardrobeItem = { id: 1, name: "Рубашка", categoryId: 1, color: "белый", material: "хлопок", version: 1, createdAt: "", modifiedAt: "" };
 const photo: Photo = { id: 9, itemId: 1, contentType: "image/png", sizeBytes: 10, createdAt: "" };
 const ok = (data: unknown, status = 200) => ({ ok: true, status, headers: new Headers(), json: async () => data, blob: async () => new Blob(["image"]) } as Response);
-const fail = (status: number) => ({ ok: false, status, headers: new Headers() } as Response);
+const fail = (status: number) => new Response(null, { status });
 type Call = { url: string; init?: RequestInit };
 
 function mount(actor: Actor, path: string) {

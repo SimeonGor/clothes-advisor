@@ -207,7 +207,7 @@ describe("Экран «Сегодня»", () => {
 
     fireEvent.submit(form);
     fireEvent.submit(form);
-    expect(create).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1));
 
     await act(async () => finish(failed(503)));
 

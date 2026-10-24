@@ -1,4 +1,5 @@
 import React from "react";
+import { createRequest, NewAttempt } from "./idempotency";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -170,18 +171,15 @@ export function OutfitEditor({ actor, context = { kind: "own" }, onPending, pend
     onPending(true);
     setFailure("");
     try {
-      const saved = await request<Outfit>(base, actor.id, {
-        method: "POST",
-        body: JSON.stringify({
+      const saved = await createRequest<Outfit>(base, actor.id, JSON.stringify({
           name: cleanName,
           itemIds: selected,
           weather: { temperatureC: temp, windSpeedMps: breeze, precipitationTypeId },
-        }),
-      });
+        }));
       await queryClient.invalidateQueries({ queryKey: ["outfits", actor.id, contextKey(context)] });
       navigate(`${routeBase(context)}/${saved.id}`);
     } catch (error) {
-      const message = error instanceof ApiError && error.status === 409
+      const message = error instanceof ApiError && error.status === 409 && !error.code?.startsWith("idempotency_")
         ? "Список вещей изменился. Обновите его и проверьте выбор."
         : `Не удалось сохранить образ. ${resourceErrorMessage(error, true)} Данные формы сохранены.`;
       setFailure(message);
@@ -258,6 +256,7 @@ export function OutfitEditor({ actor, context = { kind: "own" }, onPending, pend
           </div>}
         </section>
         {failure && <div role="alert" className={styles.error}>{failure}</div>}
+        {failure && <NewAttempt actorId={actor.id} path={base} disabled={pending} onReset={() => setFailure("")} />}
         <div className={styles.submitRow}>
           <p>Образ будет сохранён сразу. Запрос не повторяется автоматически.</p>
           <button className={styles.create} type="submit" disabled={pending || !items.data || !types.data}>Сохранить образ <span>↗</span></button>
