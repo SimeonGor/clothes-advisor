@@ -80,7 +80,9 @@ class RecommendationPayloadTests {
         // given
         val storedAt = Instant.parse("2024-02-03T04:05:06Z")
         val weather = OutfitWeatherDto(BigDecimal("-12.3456789"), 1, BigDecimal.ZERO)
-        val request = CreateAiOutfitRequest("Maximum images", weather, null)
+        val request = CreateAiOutfitRequest(
+            "Maximum images", weather, null, occasion = "Work", preferredStyle = "Casual",
+        )
         val candidateIds = (1L..20).toList()
         val selectedIds = listOf(20L, 1L)
         val users = mock(CurrentUserService::class.java)
@@ -118,6 +120,8 @@ class RecommendationPayloadTests {
         doAnswer { call ->
                 val actual = call.getArgument<ServerSelectionRequest>(0)
                 assertThat(actual.weather).isEqualTo(serverRequest.weather)
+                assertThat(actual.occasion).isEqualTo("Work")
+                assertThat(actual.preferredStyle).isEqualTo("Casual")
                 assertThat(actual.candidates.map { it.itemId }).containsExactlyElementsOf(candidateIds)
                 actual.candidates.forEach { candidate ->
                     assertThat(candidate.name).isEqualTo("Item ${candidate.itemId}")
@@ -138,7 +142,9 @@ class RecommendationPayloadTests {
         val saved = OutfitResponse(
             80, 7, 7, OutfitSource.AI, request.name, selectedIds, weather, storedAt,
         )
-        `when`(outfits.createAi(eq(7L), refEq(expectedSave) ?: expectedSave)).thenReturn(saved)
+        `when`(outfits.createAi(
+            eq(7L), refEq(expectedSave) ?: expectedSave, eq("Work"), eq("Casual"),
+        )).thenReturn(saved)
         SpringApplicationBuilder(ClientApplication::class.java).run(
             "--spring.config.name=application-transport",
             "--spring.profiles.active=transport-client",
@@ -164,7 +170,9 @@ class RecommendationPayloadTests {
             assertThat(response.itemIds).containsExactlyElementsOf(selectedIds)
             candidateIds.forEach { id -> verify(content).getContent(7, id, id + 100) }
             verify(provider).select(any(ServerSelectionRequest::class.java) ?: serverRequest)
-            verify(outfits).createAi(eq(7L), refEq(expectedSave) ?: expectedSave)
+            verify(outfits).createAi(
+                eq(7L), refEq(expectedSave) ?: expectedSave, eq("Work"), eq("Casual"),
+            )
             println(
                 "Maximum-image preparation and transport memory pool peaks: " +
                     pools.joinToString { "${it.name}=${it.peakUsage.used}" },

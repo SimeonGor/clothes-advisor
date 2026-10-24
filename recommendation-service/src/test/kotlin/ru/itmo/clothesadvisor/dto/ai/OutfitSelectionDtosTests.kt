@@ -6,7 +6,7 @@ import org.junit.jupiter.api.Test
 import tools.jackson.databind.json.JsonMapper
 
 class OutfitSelectionDtosTests {
-    private val mapper = JsonMapper.builder().build()
+    private val mapper = JsonMapper.builder().findAndAddModules().build()
 
     @Test
     fun `request and ordered response round trip with only recommendation fields`() {
@@ -32,6 +32,8 @@ class OutfitSelectionDtosTests {
                         "AQID",
                     ),
                 ),
+                occasion = "Work",
+                preferredStyle = "Casual",
             )
         val response = OutfitSelectionResponse(listOf(12, 7))
 
@@ -46,7 +48,9 @@ class OutfitSelectionDtosTests {
         assertThat(decodedResponse).isEqualTo(response)
         val requestNode = mapper.readTree(requestJson)
         assertThat(requestNode.propertyNames().toList())
-            .containsExactlyInAnyOrder("weather", "candidates")
+            .containsExactlyInAnyOrder("weather", "candidates", "occasion", "preferredStyle")
+        assertThat(requestNode.path("occasion").asString()).isEqualTo("Work")
+        assertThat(requestNode.path("preferredStyle").asString()).isEqualTo("Casual")
         assertThat(requestNode.path("weather").propertyNames().toList())
             .containsExactlyInAnyOrder(
                 "temperatureC",

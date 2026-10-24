@@ -12,6 +12,9 @@ import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionResponse
 @Service
 class OutfitSelectionService(private val provider: OpenAiOutfitClient) {
     fun select(request: OutfitSelectionRequest): OutfitSelectionResponse {
+        if ((request.occasion?.length ?: 0) > 300 || (request.preferredStyle?.length ?: 0) > 300) {
+            invalidRequest()
+        }
         val candidates: List<OutfitSelectionCandidate?> = request.candidates
         if (candidates.size !in 1..20 || request.weather.windSpeedMps.signum() < 0) {
             invalidRequest()

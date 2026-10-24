@@ -16,6 +16,7 @@ import org.mockito.Mockito.doAnswer
 import org.mockito.Mockito.doReturn
 import org.mockito.Mockito.doThrow
 import org.mockito.Mockito.eq
+import org.mockito.Mockito.isNull
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.never
 import org.mockito.Mockito.refEq
@@ -72,6 +73,8 @@ class AiOutfitServiceTests {
             } else RETURNS_DEFAULTS.answer(call)
         }
     private var savedRequest: CreateOutfitRequest? = null
+    private var savedOccasion: String? = null
+    private var savedStyle: String? = null
     private val storedAt = Instant.parse("2024-02-03T04:05:06Z")
     private val weather = OutfitWeatherDto(BigDecimal.ONE, 1, BigDecimal.ZERO)
     private val saved =
@@ -80,6 +83,8 @@ class AiOutfitServiceTests {
         mock(OutfitService::class.java) { call ->
             if (call.method.name == "createAi") {
                 savedRequest = call.getArgument(1)
+                savedOccasion = call.getArgument(2)
+                savedStyle = call.getArgument(3)
                 saved
             } else RETURNS_DEFAULTS.answer(call)
         }
@@ -154,6 +159,21 @@ class AiOutfitServiceTests {
             .isEqualTo(1)
         assertThat(meters.get("wardrobe.ai.duration").tag("outcome", "failure").timer().count())
             .isZero()
+    }
+
+    @Test
+    fun `context reaches recommendation and persistence without trimming`() {
+        // given
+        val request = CreateAiOutfitRequest("Daily", weather, occasion = "  Work  ", preferredStyle = "")
+
+        // when
+        service.create(7, request)
+
+        // then
+        assertThat(receivedSelection!!.occasion).isEqualTo("  Work  ")
+        assertThat(receivedSelection!!.preferredStyle).isEmpty()
+        assertThat(savedOccasion).isEqualTo("  Work  ")
+        assertThat(savedStyle).isEmpty()
     }
 
     @Test
@@ -393,7 +413,7 @@ class AiOutfitServiceTests {
         // given
         val unavailable = IllegalStateException("save unavailable")
         val expected = CreateOutfitRequest("Daily", listOf(11), weather)
-        doThrow(unavailable).`when`(outfits).createAi(eq(7L), refEq(expected) ?: expected)
+        doThrow(unavailable).`when`(outfits).createAi(eq(7L), refEq(expected) ?: expected, isNull(), isNull())
 
         // when
         val failure = catchThrowable { service.create(7, request()) }
@@ -402,7 +422,7 @@ class AiOutfitServiceTests {
         assertThat(failure).isSameAs(unavailable)
 
         // when
-        doReturn(saved).`when`(outfits).createAi(eq(7L), refEq(expected) ?: expected)
+        doReturn(saved).`when`(outfits).createAi(eq(7L), refEq(expected) ?: expected, isNull(), isNull())
         val recovered = service.create(7, request())
 
         // then

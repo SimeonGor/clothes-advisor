@@ -19,8 +19,6 @@ class SelectionJsonConfiguration : WebFluxConfigurer {
             .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
             .enable(
                 DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES,
-                DeserializationFeature.FAIL_ON_NULL_CREATOR_PROPERTIES,
-                DeserializationFeature.FAIL_ON_MISSING_CREATOR_PROPERTIES,
                 DeserializationFeature.FAIL_ON_TRAILING_TOKENS,
             )
             .disable(MapperFeature.ALLOW_COERCION_OF_SCALARS)

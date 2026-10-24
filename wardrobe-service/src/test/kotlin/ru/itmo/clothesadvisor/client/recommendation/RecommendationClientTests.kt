@@ -302,7 +302,7 @@ class RecommendationClientTests {
         `when`(content.getContent(7, 7, 21))
             .thenReturn(WardrobeItemPhotoContent("image/png", byteArrayOf(1, 2, 3)))
         val outfitRequest = CreateOutfitRequest("Daily", listOf(7), weather)
-        `when`(outfits.createAi(eq(7L), refEq(outfitRequest) ?: outfitRequest))
+        `when`(outfits.createAi(eq(7L), refEq(outfitRequest) ?: outfitRequest, org.mockito.Mockito.isNull(), org.mockito.Mockito.isNull()))
             .thenReturn(saved)
         val service = AiOutfitService(
             users, items, photos, precipitation, content, client, outfits, idempotencyService(transactions), transactions, meters, "user",

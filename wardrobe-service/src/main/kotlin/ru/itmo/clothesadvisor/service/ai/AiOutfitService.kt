@@ -85,7 +85,12 @@ internal class AiOutfitService(
         try {
             val prepared = prepareCandidates(ownerId, request)
             val selection =
-                OutfitSelectionRequest(prepared.weather, loadImages(ownerId, prepared.candidates))
+                OutfitSelectionRequest(
+                    prepared.weather,
+                    loadImages(ownerId, prepared.candidates),
+                    request.occasion,
+                    request.preferredStyle,
+                )
             requireAiAccess(ownerId)
             val response = recommendation.select(selection)
             validateSelection(response, prepared.candidates.map { requireNotNull(it.item.id) }.toSet())
@@ -209,6 +214,8 @@ internal class AiOutfitService(
             outfits.createAi(
                 ownerId,
                 CreateOutfitRequest(request.name, selectedItemIds, request.weather),
+                request.occasion,
+                request.preferredStyle,
             )
         }
     }

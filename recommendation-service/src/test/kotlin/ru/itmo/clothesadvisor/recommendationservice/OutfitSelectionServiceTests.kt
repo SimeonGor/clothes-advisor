@@ -43,6 +43,38 @@ class OutfitSelectionServiceTests {
     }
 
     @Test
+    fun `optional context accepts null empty and maximum values unchanged`() {
+        // given
+        val requests = listOf(request, request.copy(occasion = "", preferredStyle = ""),
+            request.copy(occasion = "o".repeat(300), preferredStyle = "s".repeat(300)))
+        requests.forEach { input ->
+            `when`(provider.select(input)).thenReturn(OutfitSelectionResponse(listOf(7)))
+
+            // when
+            val response = service.select(input)
+
+            // then
+            assertThat(response.itemIds).containsExactly(7)
+            verify(provider).select(input)
+        }
+    }
+
+    @Test
+    fun `oversized context is rejected before provider`() {
+        // given
+        val requests = listOf(request.copy(occasion = "o".repeat(301)),
+            request.copy(preferredStyle = "s".repeat(301)))
+        requests.forEach { input ->
+            // when
+            val failure = catchThrowable { service.select(input) }
+
+            // then
+            assertFailure(AiOutfitFailure.INVALID_REQUEST, failure)
+        }
+        verifyNoInteractions(provider)
+    }
+
+    @Test
     fun `invalid candidates weather and images fail before provider`() {
         // given
         val invalid = listOf(
