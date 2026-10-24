@@ -17,6 +17,7 @@ import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestMapping
+import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestPart
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
@@ -54,8 +55,8 @@ internal class WardrobeItemPhotoController(private val wardrobe: ReactiveWardrob
         ),
         ApiResponse(
             responseCode = "409",
-            description = "Превышен лимит 5 фотографий на вещь; пустое тело",
-            content = [Content()],
+            description = "Конфликт данных: пустое тело. Конфликт Idempotency-Key: ApiErrorResponse с idempotency_key_reused, idempotency_in_progress или idempotency_failed.",
+            content = [Content(mediaType = "application/json", schema = Schema(implementation = ru.itmo.clothesadvisor.dto.ApiErrorResponse::class))],
         ),
         ApiResponse(
             responseCode = "413",
@@ -78,9 +79,11 @@ internal class WardrobeItemPhotoController(private val wardrobe: ReactiveWardrob
         @PathVariable itemId: Long,
         @Parameter(array = ArraySchema(schema = Schema(type = "string", format = "binary")))
         @RequestPart("photos", required = false) files: List<@JvmSuppressWildcards Part>,
+        @Parameter(description = "Ключ повтора: 1..255 печатных ASCII-символов. Другие данные, незавершённый или неуспешный запрос: 409; успех повторяется без выполнения.")
+        @RequestHeader("Idempotency-Key", required = false) key: String?,
     ): Mono<List<WardrobeItemPhotoResponse>> =
         readPhotoParts(files).flatMap { bytes ->
-            wardrobe.addPhotos(user.id, itemId, bytes)
+            wardrobe.addPhotos(user.id, itemId, bytes, key)
         }
 
     @GetMapping

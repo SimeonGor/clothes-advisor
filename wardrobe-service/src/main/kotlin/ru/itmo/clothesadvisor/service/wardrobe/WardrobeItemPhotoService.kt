@@ -13,6 +13,9 @@ import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemPhotoRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.service.user.CurrentUserService
 import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
+import ru.itmo.clothesadvisor.model.idempotency.IdempotencyOperation.ADD_WARDROBE_PHOTOS
+import ru.itmo.clothesadvisor.service.idempotency.IdempotencyService
+import tools.jackson.core.type.TypeReference
 
 @Service
 internal class WardrobeItemPhotoService(
@@ -20,6 +23,7 @@ internal class WardrobeItemPhotoService(
     private val photos: WardrobeItemPhotoRepository,
     private val storage: S3PhotoStorage,
     private val users: CurrentUserService,
+    private val idempotency: IdempotencyService,
     transactionManager: PlatformTransactionManager,
 ) {
     private val transaction = TransactionTemplate(transactionManager)
@@ -28,20 +32,27 @@ internal class WardrobeItemPhotoService(
         ownerId: Long,
         itemId: Long,
         files: List<ByteArray>,
+        key: String? = null,
     ): List<WardrobeItemPhotoResponse> {
         users.requireActive(ownerId)
-        val existingCount = transaction.execute {
-            findOwnedItem(ownerId, itemId)
-            photos.countByItemId(itemId)
+        if (key != null) findOwnedItem(ownerId, itemId)
+        return idempotency.execute(
+            ownerId, ADD_WARDROBE_PHOTOS, key, listOf(ownerId, itemId),
+            object : TypeReference<List<WardrobeItemPhotoResponse>>() {}, files,
+        ) { completion ->
+            val existingCount = transaction.execute {
+                findOwnedItem(ownerId, itemId)
+                photos.countByItemId(itemId)
+            }
+
+            val validatedPhotos = validatePhotos(files, allowEmpty = false)
+            checkPhotoCapacity(existingCount, validatedPhotos.size)
+
+            upload(validatedPhotos)
+
+            users.requireActive(ownerId)
+            completion.commit { saveMetadata(ownerId, itemId, validatedPhotos) }
         }
-
-        val validatedPhotos = validatePhotos(files, allowEmpty = false)
-        checkPhotoCapacity(existingCount, validatedPhotos.size)
-
-        upload(validatedPhotos)
-
-        users.requireActive(ownerId)
-        return saveMetadata(ownerId, itemId, validatedPhotos)
     }
 
     fun list(ownerId: Long, itemId: Long): List<WardrobeItemPhotoResponse> = transaction.execute {

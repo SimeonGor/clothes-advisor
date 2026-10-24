@@ -13,6 +13,7 @@ import java.net.URI
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.RequestBody
+import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RestController
 import ru.itmo.clothesadvisor.dto.ai.CreateAiOutfitRequest
 import ru.itmo.clothesadvisor.dto.user.CurrentUser
@@ -67,9 +68,8 @@ internal class AiOutfitController(private val outfits: ReactiveAiOutfitService) 
         ),
         ApiResponse(
             responseCode = "409",
-            description =
-                "Вещь или использованная фотография удалены во время подбора; пустое тело",
-            content = [Content()],
+            description = "Конфликт данных: пустое тело. Конфликт Idempotency-Key: ApiErrorResponse с idempotency_key_reused, idempotency_in_progress или idempotency_failed.",
+            content = [Content(mediaType = "application/json", schema = Schema(implementation = ru.itmo.clothesadvisor.dto.ApiErrorResponse::class))],
         ),
         ApiResponse(
             responseCode = "422",
@@ -96,8 +96,10 @@ internal class AiOutfitController(private val outfits: ReactiveAiOutfitService) 
     fun create(
         @Parameter(hidden = true) user: CurrentUser,
         @Valid @RequestBody request: CreateAiOutfitRequest,
+        @Parameter(description = "Ключ повтора: 1..255 печатных ASCII-символов. Другие данные, незавершённый или неуспешный запрос: 409; успех повторяется без выполнения.")
+        @RequestHeader("Idempotency-Key", required = false) key: String?,
     ) =
-        outfits.create(user.id, request).map {
+        outfits.create(user.id, request, key).map {
             ResponseEntity.created(URI("/api/outfits/${it.id}")).body(it)
         }
 }

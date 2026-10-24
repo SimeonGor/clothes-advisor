@@ -146,7 +146,11 @@ class RecommendationPayloadTests {
         ).use { context ->
             val service = AiOutfitService(
                 users, items, photos, precipitation, content,
-                context.getBean(RecommendationClient::class.java), outfits, transactions,
+                context.getBean(RecommendationClient::class.java), outfits,
+                ru.itmo.clothesadvisor.service.idempotency.IdempotencyService(
+                    mock(ru.itmo.clothesadvisor.repository.idempotency.IdempotencyCommandRepository::class.java),
+                    tools.jackson.databind.json.JsonMapper.builder().findAndAddModules().build(), transactions,
+                ), transactions,
                 SimpleMeterRegistry(), "user",
             )
             val pools = ManagementFactory.getMemoryPoolMXBeans()

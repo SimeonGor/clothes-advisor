@@ -1,4 +1,5 @@
 import React from "react";
+import { createRequest, NewAttempt } from "./idempotency";
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -425,10 +426,7 @@ function TodayForUser({ account, onSwitch, onPending, pending }: {
     if (selected.size) body.candidateItemIds = [...selected.keys()];
 
     try {
-      const outfit = await request<Outfit>("/api/outfits/ai", account.id, {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
+      const outfit = await createRequest<Outfit>("/api/outfits/ai", account.id, JSON.stringify(body));
       setSavedOutfit(true);
       setResult({ outfit, items: [] });
       try {
@@ -585,6 +583,7 @@ function TodayForUser({ account, onSwitch, onPending, pending }: {
           </section>
 
           {failure && <div role="alert" className={styles.error}><p>{failure}</p></div>}
+          {failure && <NewAttempt actorId={account.id} path="/api/outfits/ai" disabled={pending} onReset={() => setFailure(null)} />}
           <div className={styles.submitRow}>
             <p>
               Образ сохранится сразу. Запросы не повторяются автоматически.

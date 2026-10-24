@@ -29,6 +29,9 @@ import ru.itmo.clothesadvisor.repository.weather.PrecipitationTypeRepository
 import ru.itmo.clothesadvisor.service.outfit.OutfitService
 import ru.itmo.clothesadvisor.service.user.CurrentUserService
 import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemPhotoService
+import ru.itmo.clothesadvisor.model.idempotency.IdempotencyOperation.CREATE_AI_OUTFIT
+import ru.itmo.clothesadvisor.service.idempotency.IdempotencyService
+import tools.jackson.core.type.TypeReference
 
 @Service
 internal class AiOutfitService(
@@ -39,6 +42,7 @@ internal class AiOutfitService(
     private val photoContent: WardrobeItemPhotoService,
     private val recommendation: RecommendationClient,
     private val outfits: OutfitService,
+    private val idempotency: IdempotencyService,
     transactionManager: PlatformTransactionManager,
     meters: MeterRegistry,
     @Value("\${app.openai.owner-login:user}") private val ownerLogin: String,
@@ -56,8 +60,21 @@ internal class AiOutfitService(
         meters.gauge("wardrobe.ai.active", active) { if (it.get()) 1.0 else 0.0 }
     }
 
-    fun create(ownerId: Long, request: CreateAiOutfitRequest): OutfitResponse {
+    fun create(ownerId: Long, request: CreateAiOutfitRequest, key: String? = null): OutfitResponse {
         requireAiAccess(ownerId)
+        return idempotency.execute(
+            ownerId, CREATE_AI_OUTFIT, key, listOf(ownerId, request),
+            object : TypeReference<OutfitResponse>() {},
+        ) { completion ->
+            create(ownerId, request, completion)
+        }
+    }
+
+    private fun create(
+        ownerId: Long,
+        request: CreateAiOutfitRequest,
+        completion: IdempotencyService.Completion,
+    ): OutfitResponse {
         if (!active.compareAndSet(false, true)) {
             rejected.increment()
             throw AiOutfitException(AiOutfitFailure.UNAVAILABLE)
@@ -74,7 +91,9 @@ internal class AiOutfitService(
             validateSelection(response, prepared.candidates.map { requireNotNull(it.item.id) }.toSet())
             requireAiAccess(ownerId)
 
-            val saved = saveOutfit(ownerId, request, prepared.candidates, response.itemIds)
+            val saved = completion.commit {
+                saveOutfit(ownerId, request, prepared.candidates, response.itemIds)
+            }
             succeeded = true
             return saved
         } finally {

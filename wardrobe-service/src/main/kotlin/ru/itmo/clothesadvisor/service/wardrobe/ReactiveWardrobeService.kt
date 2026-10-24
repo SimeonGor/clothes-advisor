@@ -17,15 +17,16 @@ internal class ReactiveWardrobeService(
     private val management: WardrobeManagementService,
     private val photos: WardrobeItemPhotoService,
 ) {
-    fun create(ownerId: Long, request: CreateWardrobeItemRequest): Mono<WardrobeItemResponse> =
-        blockingCall { items.create(ownerId, request) }
+    fun create(ownerId: Long, request: CreateWardrobeItemRequest, key: String? = null): Mono<WardrobeItemResponse> =
+        blockingCall { management.create(ownerId, request, key) }
 
     fun createWithPhotos(
         ownerId: Long,
         request: CreateWardrobeItemRequest,
         files: List<ByteArray>,
+        key: String? = null,
     ): Mono<WardrobeItemResponse> =
-        blockingCall { management.createWithPhotos(ownerId, request, files) }
+        blockingCall { management.createWithPhotos(ownerId, request, files, key) }
 
     fun list(ownerId: Long, pageable: Pageable): Mono<List<WardrobeItemResponse>> =
         blockingCall { items.list(ownerId, pageable) }
@@ -46,7 +47,8 @@ internal class ReactiveWardrobeService(
         ownerId: Long,
         itemId: Long,
         files: List<ByteArray>,
-    ): Mono<List<WardrobeItemPhotoResponse>> = blockingCall { photos.add(ownerId, itemId, files) }
+        key: String? = null,
+    ): Mono<List<WardrobeItemPhotoResponse>> = blockingCall { photos.add(ownerId, itemId, files, key) }
 
     fun listPhotos(ownerId: Long, itemId: Long): Mono<List<WardrobeItemPhotoResponse>> =
         blockingCall { photos.list(ownerId, itemId) }

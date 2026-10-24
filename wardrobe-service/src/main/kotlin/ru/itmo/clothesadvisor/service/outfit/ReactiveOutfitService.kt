@@ -20,15 +20,16 @@ internal class ReactiveOutfitService(
     private val outfits: OutfitService,
     private val ratings: OutfitRatingService,
 ) {
-    fun create(ownerId: Long, request: CreateOutfitRequest): Mono<OutfitResponse> =
-        blockingCall { outfits.create(ownerId, request) }
+    fun create(ownerId: Long, request: CreateOutfitRequest, key: String? = null): Mono<OutfitResponse> =
+        blockingCall { outfits.create(ownerId, request, key) }
 
     fun createForClient(
         stylistId: Long,
         ownerId: Long,
         request: CreateOutfitRequest,
+        key: String? = null,
     ): Mono<StylistOutfitResponse> =
-        blockingCall { outfits.createForClient(stylistId, ownerId, request) }
+        blockingCall { outfits.createForClient(stylistId, ownerId, request, key) }
 
     fun list(ownerId: Long, pageable: Pageable): Mono<Page<OutfitResponse>> =
         blockingCall { outfits.list(ownerId, pageable) }

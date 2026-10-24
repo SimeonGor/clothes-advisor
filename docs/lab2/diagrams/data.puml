@@ -44,6 +44,21 @@ package "account_db · account-service" as account #FFF8E9 {
 }
 
 package "wardrobe_db · wardrobe-service" as wardrobe #F2F8F5 {
+  entity "idempotency_command" as command #FFF5DF {
+    * id: bigint <<PK>>
+    --
+    * actor_id: bigint <<account ID>>
+    * operation: varchar(40)
+    * command_key: varchar(255)
+    * fingerprint: char(64)
+    * state: RUNNING | SUCCEEDED | FAILED
+    response_json: text
+    response_status: integer
+    * created_at: timestamptz
+    * modified_at: timestamptz
+    --
+    UNIQUE (actor_id, operation, command_key)
+  }
   entity "wardrobe_category" as category #E8F5EF {
     * id: bigint <<PK>>
     --

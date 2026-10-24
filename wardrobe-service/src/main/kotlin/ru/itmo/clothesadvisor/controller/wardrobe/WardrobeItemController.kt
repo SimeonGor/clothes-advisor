@@ -24,6 +24,7 @@ import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PostMapping
 import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RequestBody
+import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RequestPart
@@ -81,15 +82,17 @@ internal class WardrobeItemController(
         ),
         ApiResponse(
             responseCode = "409",
-            description = "Конфликт ограничений данных; пустое тело",
-            content = [Content()],
+            description = "Конфликт данных: пустое тело. Конфликт Idempotency-Key: ApiErrorResponse с idempotency_key_reused, idempotency_in_progress или idempotency_failed.",
+            content = [Content(mediaType = "application/json", schema = Schema(implementation = ru.itmo.clothesadvisor.dto.ApiErrorResponse::class))],
         ),
     )
     fun create(
         @Parameter(hidden = true) user: CurrentUser,
         @Valid @RequestBody request: CreateWardrobeItemRequest,
+        @Parameter(description = "Ключ повтора: 1..255 печатных ASCII-символов. Другие данные, незавершённый или неуспешный запрос: 409; успех повторяется без выполнения.")
+        @RequestHeader("Idempotency-Key", required = false) key: String?,
     ): Mono<ResponseEntity<WardrobeItemResponse>> =
-        items.create(user.id, request).map { created ->
+        items.create(user.id, request, key).map { created ->
             ResponseEntity.created(URI("/api/wardrobe/items/${created.id}")).body(created)
         }
 
@@ -143,8 +146,8 @@ internal class WardrobeItemController(
         ),
         ApiResponse(
             responseCode = "409",
-            description = "Конфликт ограничений данных; пустое тело",
-            content = [Content()],
+            description = "Конфликт данных: пустое тело. Конфликт Idempotency-Key: ApiErrorResponse с idempotency_key_reused, idempotency_in_progress или idempotency_failed.",
+            content = [Content(mediaType = "application/json", schema = Schema(implementation = ru.itmo.clothesadvisor.dto.ApiErrorResponse::class))],
         ),
         ApiResponse(
             responseCode = "413",
@@ -167,9 +170,11 @@ internal class WardrobeItemController(
         @Valid @RequestPart("item") request: CreateWardrobeItemRequest,
         @Parameter(array = ArraySchema(schema = Schema(type = "string", format = "binary")))
         @RequestPart("photos", required = false) files: List<@JvmSuppressWildcards Part>,
+        @Parameter(description = "Ключ повтора: 1..255 печатных ASCII-символов. Другие данные, незавершённый или неуспешный запрос: 409; успех повторяется без выполнения.")
+        @RequestHeader("Idempotency-Key", required = false) key: String?,
     ): Mono<ResponseEntity<WardrobeItemResponse>> =
         readPhotoParts(files).flatMap { bytes ->
-            items.createWithPhotos(user.id, request, bytes).map { created ->
+            items.createWithPhotos(user.id, request, bytes, key).map { created ->
                 ResponseEntity.created(URI("/api/wardrobe/items/${created.id}")).body(created)
             }
         }

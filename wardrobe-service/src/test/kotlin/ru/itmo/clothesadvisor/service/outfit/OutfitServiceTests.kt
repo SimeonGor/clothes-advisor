@@ -2,6 +2,7 @@ package ru.itmo.clothesadvisor.service.outfit
 
 import jakarta.validation.ConstraintViolationException
 import jakarta.validation.Validation
+import ru.itmo.clothesadvisor.config.idempotencyService
 import java.math.BigDecimal
 import java.time.Instant
 import org.assertj.core.api.Assertions.assertThat
@@ -57,6 +58,7 @@ class OutfitServiceTests {
             access,
             ratings,
             validation.validator,
+            idempotencyService(transactions),
             transactions,
         )
     private val storedAt = Instant.parse("2026-01-01T00:00:00Z")

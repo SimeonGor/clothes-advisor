@@ -15,12 +15,21 @@ participant "Yandex S3" as s3
 participant "recommendation-service" as recommendation
 participant "OpenAI" as ai
 
-client -> wardrobe : POST /api/outfits/ai
+client -> wardrobe : POST /api/outfits/ai\nIdempotency-Key — необязательный
 wardrobe -> account : Текущий пользователь · проверка ACTIVE
 account --> wardrobe : id, login, role, status
 wardrobe -> account : Свежие сведения для допуска к AI
 account --> wardrobe : id, login, role, status
-wardrobe -> wardrobe : Проверить ACTIVE USER и личный допуск\nПопытаться занять единственный слот
+wardrobe -> wardrobe : Проверить ACTIVE USER и личный допуск
+
+opt Передан Idempotency-Key
+  wardrobe -> db : Захватить ключ + отпечаток · RUNNING\nОтдельная короткая транзакция
+  db --> wardrobe : Новая команда или существующая запись
+  break Повтор или конфликт ключа
+    wardrobe --> client : SUCCEEDED: исходный 201 + JSON + Location\nИначе: 409 · без S3 и AI
+  end
+end
+wardrobe -> wardrobe : Попытаться занять единственный слот
 
 alt Слот уже занят
   wardrobe --> client : 503 · без S3 и AI
@@ -66,7 +75,7 @@ else Слот занят этим запросом
   group Одна локальная JDBC-транзакция
     wardrobe -> db : Заблокировать все исходные вещи\nПроверить все использованные photoId
     db --> wardrobe : Данные существуют
-    wardrobe -> db : Образ + состав + погода
+    wardrobe -> db : Образ + состав + погода\nПри наличии ключа: SUCCEEDED + ответ
     db --> wardrobe : Commit · сохранённые ID и даты
   end
   wardrobe -> wardrobe : Освободить слот
@@ -76,7 +85,8 @@ end
 note over wardrobe, recommendation
   Ошибка до сохранения: прервать сценарий, образа нет.
   Ошибка записи: rollback. Слот освобождается при завершении.
-  Отмена HTTP не отменяет уже выполненный commit;
-  слепого повтора POST нет.
+  При ошибке команда становится FAILED; падение может оставить RUNNING.
+  Повтор с таким ключом не запускает сценарий снова.
+  Отмена HTTP не отменяет уже выполненный commit.
 end note
 @enduml

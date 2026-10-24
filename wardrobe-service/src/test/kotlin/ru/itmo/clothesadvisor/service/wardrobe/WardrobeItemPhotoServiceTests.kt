@@ -4,6 +4,7 @@ import java.awt.image.BufferedImage
 import java.io.ByteArrayOutputStream
 import java.time.Instant
 import javax.imageio.ImageIO
+import ru.itmo.clothesadvisor.config.idempotencyService
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.catchThrowable
 import org.junit.jupiter.api.Test
@@ -43,7 +44,7 @@ class WardrobeItemPhotoServiceTests {
         mock(PlatformTransactionManager::class.java).also {
             `when`(it.getTransaction(any())).thenAnswer { SimpleTransactionStatus() }
         }
-    private val service = WardrobeItemPhotoService(items, photos, storage, users, transactions)
+    private val service = WardrobeItemPhotoService(items, photos, storage, users, idempotencyService(transactions), transactions)
     private val png =
         ByteArrayOutputStream()
             .also { ImageIO.write(BufferedImage(1, 1, BufferedImage.TYPE_INT_RGB), "png", it) }
@@ -57,7 +58,7 @@ class WardrobeItemPhotoServiceTests {
         val itemService = mock(WardrobeItemService::class.java)
         val categories = mock(WardrobeCategoryService::class.java)
         val management =
-            WardrobeManagementService(itemService, service, categories, users, transactions)
+            WardrobeManagementService(itemService, service, categories, users, idempotencyService(transactions), transactions)
         `when`(users.requireActive(7)).thenThrow(AccessDeniedException())
 
         // when
@@ -152,7 +153,7 @@ class WardrobeItemPhotoServiceTests {
         val categories = mock(WardrobeCategoryService::class.java)
         `when`(categories.getById(99)).thenThrow(EntityNotFoundException())
         val management =
-            WardrobeManagementService(itemService, service, categories, users, transactions)
+            WardrobeManagementService(itemService, service, categories, users, idempotencyService(transactions), transactions)
 
         // when
         val failure = catchThrowable {
