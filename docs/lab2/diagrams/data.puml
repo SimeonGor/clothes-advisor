@@ -104,6 +104,8 @@ package "wardrobe_db · wardrobe-service" as wardrobe #F2F8F5 {
     * author_id: bigint <<account ID>>
     * source: USER | STYLIST | AI
     * name: text
+    occasion: varchar(300)
+    preferred_style: varchar(300)
     * created_at: timestamptz
   }
   entity "outfit_item" as composition #F0F6FC {
