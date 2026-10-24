@@ -130,6 +130,48 @@ class IdempotencyIntegrationTests : AccountBackedIntegrationTest() {
     }
 
     @Test
+    fun `AI replay keeps stored result after upstream selection behavior changes`() {
+        // given
+        val owner = jdbc.insertUser("user", "hash", UserRole.USER).id
+        val items = listOf("Shirt", "Coat").map { name ->
+            jdbc.insertItem(owner, CreateWardrobeItemRequest(name, 1, "White", "Cotton")).id.also { item ->
+                jdbc.update("INSERT INTO wardrobe_item_photo (wardrobe_item_id, s3_key, content_type, size_bytes) VALUES (?, ?, 'image/png', ?)", item, "fixture-$item", png.size)
+            }
+        }
+        val body = """{"name":"Daily","weather":$weather,"candidateItemIds":[${items.joinToString(",")}]}"""
+        var selected = items.first()
+        doAnswer {
+            assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
+            selections.incrementAndGet()
+            OutfitSelectionResponse(listOf(selected))
+        }.`when`(provider).select(any(OutfitSelectionRequest::class.java) ?: errorPlaceholder())
+        val first = post(owner, "/api/outfits/ai", "same", body)
+        val fingerprint = jdbc.queryForObject("SELECT fingerprint FROM idempotency_command", String::class.java)
+
+        // when: the upstream now selects a different item after its prompt changes
+        selected = items.last()
+        val replay = post(owner, "/api/outfits/ai", "same", body)
+
+        // then
+        assertThat(first.statusCode()).isEqualTo(201)
+        assertThat(replay.statusCode()).isEqualTo(201)
+        assertThat(replay.body()).isEqualTo(first.body())
+        assertThat(replay.headers().firstValue("Location")).isEqualTo(first.headers().firstValue("Location"))
+        assertThat(selections.get()).isEqualTo(1)
+        assertThat(count("outfit")).isEqualTo(1)
+        assertThat(jdbc.queryForObject("SELECT fingerprint FROM idempotency_command", String::class.java)).isEqualTo(fingerprint)
+
+        // when
+        val fresh = post(owner, "/api/outfits/ai", "new", body)
+
+        // then
+        assertThat(fresh.statusCode()).isEqualTo(201)
+        assertThat(selections.get()).isEqualTo(2)
+        assertThat(jdbc.queryForList("SELECT wardrobe_item_id FROM outfit_item ORDER BY outfit_id", Long::class.java))
+            .containsExactly(items.first(), items.last())
+    }
+
+    @Test
     fun `concurrent multipart duplicate returns conflict before first upload completes`() {
         // given
         val owner = jdbc.insertUser("user", "hash", UserRole.USER).id

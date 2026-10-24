@@ -13,8 +13,11 @@ import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.catchThrowable
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import org.springframework.boot.convert.ApplicationConversionService
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
+import org.springframework.core.env.MapPropertySource
 import ru.itmo.clothesadvisor.client.ai.AiOutfitException
 import ru.itmo.clothesadvisor.client.ai.ChatGptCredentialFixture
 import ru.itmo.clothesadvisor.client.ai.OpenAiOutfitClient
@@ -24,6 +27,38 @@ import tools.jackson.databind.json.JsonMapper
 
 class OpenAiConfigurationTests {
     @TempDir lateinit var temporary: Path
+
+    @ParameterizedTest
+    @ValueSource(strings = ["Keep \${known.prompt.value} literally", "Keep \${undefined.prompt.value} literally"])
+    fun `startup preserves literal prompt placeholders and property source precedence`(text: String) {
+        // given
+        val runner = ApplicationContextRunner()
+            .withUserConfiguration(OpenAiConfiguration::class.java)
+            .withInitializer {
+                it.beanFactory.conversionService = ApplicationConversionService.getSharedInstance()
+                it.environment.propertySources.addLast(MapPropertySource("fallback", mapOf(
+                    "app.openai.prompt.version" to 1,
+                    "app.openai.prompt.text" to "Lower priority instructions",
+                )))
+            }
+            .withBean(JsonMapper::class.java, { JsonMapper() })
+            .withBean(Clock::class.java, { Clock.systemUTC() })
+            .withPropertyValues(
+                "spring.cloud.config.enabled=false",
+                "known.prompt.value=expanded value",
+                "app.openai.prompt.version=2",
+                "app.openai.prompt.text=$text",
+            )
+
+        // when
+        runner.run { context ->
+            // then
+            assertThat(context).hasNotFailed()
+            assertThat(context).hasSingleBean(OpenAiOutfitClient::class.java)
+            assertThat(context.getBean(OutfitPromptSettings::class.java).snapshot())
+                .isEqualTo(OutfitPrompt(2, text))
+        }
+    }
 
     @Test
     fun `PKCS12 trust is isolated to the OpenAI client and never follows redirects`() {
@@ -85,8 +120,11 @@ class OpenAiConfigurationTests {
                 .withBean(JsonMapper::class.java, { credentials.mapper })
                 .withBean(Clock::class.java, { credentials.clock })
                 .withPropertyValues(
+                    "spring.cloud.config.enabled=false",
                     "app.openai.credentials-directory=${credentials.directory}",
                     "app.openai.model=test-model",
+                    "app.openai.prompt.version=1",
+                    "app.openai.prompt.text=Select an outfit",
                 )
 
         // when

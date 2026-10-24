@@ -3,6 +3,12 @@ app:
     credentials-directory: ${CHATGPT_CREDENTIALS_DIR:}
     model: ${OPENAI_MODEL:}
     trust-store: ${CHATGPT_TRUST_STORE:}
+    prompt:
+      poll-interval: 30s
+
+logging:
+  level:
+    org.springframework.cloud.config.client.ConfigServicePropertySourceLocator: "OFF"
 
 spring:
   application:
