@@ -12,16 +12,26 @@ import javax.net.ssl.TrustManagerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.context.annotation.Import
+import org.springframework.core.env.ConfigurableEnvironment
 import ru.itmo.clothesadvisor.client.ai.ChatGptCredentials
 import ru.itmo.clothesadvisor.client.ai.OpenAiOutfitClient
 import tools.jackson.databind.json.JsonMapper
 
 @Configuration
+@Import(OutfitPromptPollingConfiguration::class)
 internal class OpenAiConfiguration {
+    @Bean
+    fun outfitPromptSettings(environment: ConfigurableEnvironment) = OutfitPromptSettings(
+        environment.propertySources.firstNotNullOfOrNull { it.getProperty("app.openai.prompt.version") }?.toString(),
+        environment.propertySources.firstNotNullOfOrNull { it.getProperty("app.openai.prompt.text") }?.toString(),
+    )
+
     @Bean(destroyMethod = "close")
     fun openAiOutfitClient(
         mapper: JsonMapper,
         clock: Clock,
+        promptSettings: OutfitPromptSettings,
         @Value("\${app.openai.credentials-directory:}") directory: String,
         @Value("\${app.openai.model:}") model: String,
         @Value("\${app.openai.endpoint:https://api.openai.com/v1/responses}") endpoint: URI,
@@ -35,6 +45,7 @@ internal class OpenAiConfiguration {
             model,
             endpoint,
             timeout,
+            promptSettings,
         )
 
     internal fun httpClient(trustStore: String): HttpClient? =

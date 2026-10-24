@@ -17,6 +17,9 @@ import org.assertj.core.api.Assertions.catchThrowable
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import org.springframework.boot.env.YamlPropertySourceLoader
+import org.springframework.core.io.FileSystemResource
+import ru.itmo.clothesadvisor.config.OutfitPromptSettings
 import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionCandidate
 import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionRequest
 import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionWeather
@@ -484,6 +487,11 @@ class OpenAiOutfitClientTests {
             model,
             URI("http://127.0.0.1:${server.address.port}/v1/responses"),
             timeout,
+            OutfitPromptSettings(null, null).apply {
+                apply(YamlPropertySourceLoader().load(
+                    "prompt", FileSystemResource("../config-repository/recommendation-service/recommendation-service.yml"),
+                ).single())
+            },
         )
 
     private fun assertFailure(status: Int, failure: Throwable?) {
