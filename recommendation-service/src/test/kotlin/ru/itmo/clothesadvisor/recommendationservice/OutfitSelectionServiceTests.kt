@@ -32,7 +32,7 @@ class OutfitSelectionServiceTests {
     @Test
     fun `valid selection keeps provider order and unchanged decimal weather`() {
         // given
-        `when`(provider.select(request)).thenReturn(OutfitSelectionResponse(listOf(9, 7)))
+        `when`(provider.select(request)).thenReturn(OutfitSelectionResponse(listOf(9, 7), "Подходит для погоды."))
 
         // when
         val response = service.select(request)
@@ -48,7 +48,7 @@ class OutfitSelectionServiceTests {
         val requests = listOf(request, request.copy(occasion = "", preferredStyle = ""),
             request.copy(occasion = "o".repeat(300), preferredStyle = "s".repeat(300)))
         requests.forEach { input ->
-            `when`(provider.select(input)).thenReturn(OutfitSelectionResponse(listOf(7)))
+            `when`(provider.select(input)).thenReturn(OutfitSelectionResponse(listOf(7), "Подходит для погоды."))
 
             // when
             val response = service.select(input)
@@ -108,7 +108,7 @@ class OutfitSelectionServiceTests {
         val maximum = request.copy(
             candidates = (1L..20).map { candidate.copy(itemId = it, imageBase64 = image) },
         )
-        `when`(provider.select(maximum)).thenReturn(OutfitSelectionResponse(listOf(20)))
+        `when`(provider.select(maximum)).thenReturn(OutfitSelectionResponse(listOf(20), "Подходит для погоды."))
 
         // when
         val result = service.select(maximum)

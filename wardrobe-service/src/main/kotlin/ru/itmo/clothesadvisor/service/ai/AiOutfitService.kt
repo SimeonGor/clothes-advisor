@@ -97,7 +97,7 @@ internal class AiOutfitService(
             requireAiAccess(ownerId)
 
             val saved = completion.commit {
-                saveOutfit(ownerId, request, prepared.candidates, response.itemIds)
+                saveOutfit(ownerId, request, prepared.candidates, response.itemIds, response.explanation)
             }
             succeeded = true
             return saved
@@ -193,6 +193,7 @@ internal class AiOutfitService(
         request: CreateAiOutfitRequest,
         candidates: List<PreparedCandidate>,
         selectedItemIds: List<Long>,
+        explanation: String?,
     ): OutfitResponse {
         val candidateIds = candidates.map { requireNotNull(it.item.id) }
         return transaction.execute {
@@ -216,6 +217,7 @@ internal class AiOutfitService(
                 CreateOutfitRequest(request.name, selectedItemIds, request.weather),
                 request.occasion,
                 request.preferredStyle,
+                explanation,
             )
         }
     }

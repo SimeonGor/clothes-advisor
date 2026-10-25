@@ -34,15 +34,19 @@ class RecommendationClientConfiguration {
         try {
             val body = response.body()?.asInputStream()?.use { mapper.readTree(it) }
             val ids = body?.path("itemIds")
-            if (response.status() != 200 || body == null || !body.isObject || body.size() != 1 ||
+            val explanation = body?.get("explanation")
+            val expectedFields = if (explanation == null) 1 else 2
+            if (response.status() != 200 || body == null || !body.isObject || body.size() != expectedFields ||
                 ids == null || !ids.isArray || ids.isEmpty || ids.size() > 20 ||
-                ids.any { !it.isIntegralNumber || !it.canConvertToLong() || it.longValue() <= 0 }
+                ids.any { !it.isIntegralNumber || !it.canConvertToLong() || it.longValue() <= 0 } ||
+                (explanation != null && (!explanation.isString || explanation.asString().isBlank() ||
+                    explanation.asString().length > 2000))
             ) throw AiOutfitException(AiOutfitFailure.INVALID_RESPONSE)
             val selected = ids.toList().map { it.longValue() }
             if (selected.toSet().size != selected.size) {
                 throw AiOutfitException(AiOutfitFailure.INVALID_RESPONSE)
             }
-            OutfitSelectionResponse(selected)
+            OutfitSelectionResponse(selected, explanation?.asString())
         } catch (error: JacksonIOException) {
             throw error
         } catch (_: JacksonException) {

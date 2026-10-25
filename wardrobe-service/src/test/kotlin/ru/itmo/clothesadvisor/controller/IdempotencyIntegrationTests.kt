@@ -197,22 +197,27 @@ class IdempotencyIntegrationTests : AccountBackedIntegrationTest() {
         }
         val body = """{"name":"Daily","weather":$weather,"candidateItemIds":[${items.joinToString(",")}],"occasion":"Work","preferredStyle":"Casual"}"""
         var selected = items.first()
+        var explanation = "  Рубашка подходит для работы.\nНа улице тепло.  "
+        val originalExplanation = explanation
         doAnswer {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
             selections.incrementAndGet()
-            OutfitSelectionResponse(listOf(selected))
+            OutfitSelectionResponse(listOf(selected), explanation)
         }.`when`(provider).select(any(OutfitSelectionRequest::class.java) ?: errorPlaceholder())
         val first = post(owner, "/api/outfits/ai", "same", body)
         val fingerprint = jdbc.queryForObject("SELECT fingerprint FROM idempotency_command", String::class.java)
 
         // when: the upstream now selects a different item after its prompt changes
         selected = items.last()
+        explanation = "Пальто подходит для холода."
         val replay = post(owner, "/api/outfits/ai", "same", body)
 
         // then
         assertThat(first.statusCode()).isEqualTo(201)
         assertThat(replay.statusCode()).isEqualTo(201)
         assertThat(replay.body()).isEqualTo(first.body())
+        assertThat(mapper.readTree(replay.body()).path("explanation").asString()).isEqualTo(originalExplanation)
+        assertThat(jdbc.queryForObject("SELECT explanation FROM outfit", String::class.java)).isEqualTo(originalExplanation)
         assertThat(replay.headers().firstValue("Location")).isEqualTo(first.headers().firstValue("Location"))
         assertThat(selections.get()).isEqualTo(1)
         assertThat(count("outfit")).isEqualTo(1)
@@ -231,6 +236,7 @@ class IdempotencyIntegrationTests : AccountBackedIntegrationTest() {
 
         // then
         assertThat(fresh.statusCode()).isEqualTo(201)
+        assertThat(mapper.readTree(fresh.body()).path("explanation").asString()).isEqualTo(explanation)
         assertThat(selections.get()).isEqualTo(2)
         assertThat(jdbc.queryForList("SELECT wardrobe_item_id FROM outfit_item ORDER BY outfit_id", Long::class.java))
             .containsExactly(items.first(), items.last())

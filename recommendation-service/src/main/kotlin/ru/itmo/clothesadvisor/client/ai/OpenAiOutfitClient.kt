@@ -173,8 +173,8 @@ class OpenAiOutfitClient internal constructor(
         val schema = mapOf(
             "type" to "object",
             "additionalProperties" to false,
-            "required" to listOf("itemIds"),
-            "properties" to mapOf("itemIds" to itemIds),
+            "required" to listOf("itemIds", "explanation"),
+            "properties" to mapOf("itemIds" to itemIds, "explanation" to mapOf("type" to "string")),
         )
         return mapOf(
             "type" to "json_schema",
@@ -197,8 +197,11 @@ class OpenAiOutfitClient internal constructor(
             val result =
                 reader.readTree(body) ?: throw AiOutfitException(AiOutfitFailure.INVALID_RESPONSE)
             val ids = result.path("itemIds")
+            val explanation = result.path("explanation")
 
-            if (!result.isObject || result.size() != 1 || !ids.isArray) {
+            if (!result.isObject || result.size() != 2 || !ids.isArray || !explanation.isString ||
+                explanation.asString().isBlank() || explanation.asString().length > 2000
+            ) {
                 throw AiOutfitException(AiOutfitFailure.INVALID_RESPONSE)
             }
 
@@ -218,7 +221,7 @@ class OpenAiOutfitClient internal constructor(
                 throw AiOutfitException(AiOutfitFailure.NO_OUTFIT)
             }
 
-            return OutfitSelectionResponse(selected)
+            return OutfitSelectionResponse(selected, explanation.asString())
         } catch (_: JacksonException) {
             throw AiOutfitException(AiOutfitFailure.INVALID_RESPONSE)
         }

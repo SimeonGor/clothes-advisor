@@ -112,6 +112,7 @@ class RecommendationClientTests {
 
         // then
         assertThat(result.itemIds).containsExactly(7)
+        assertThat(result.explanation).isNull()
         assertThat(calls).hasValue(1)
         assertThat(transport).isInstanceOf(FeignBlockingLoadBalancerClient::class.java)
         assertThat((transport as FeignBlockingLoadBalancerClient).delegate)
@@ -189,6 +190,41 @@ class RecommendationClientTests {
         status = 302
         assertFailure(AiOutfitFailure.INVALID_RESPONSE, catchThrowable { client.select(selection) })
         assertThat(calls).hasValue(10)
+    }
+
+    @Test
+    fun `new response preserves explanation and rejects invalid or additional fields`() {
+        for (explanation in listOf("  Подходит для дождя.\nТёплый слой.  ", "я".repeat(2000))) {
+            // given
+            body = tools.jackson.databind.json.JsonMapper().writeValueAsString(
+                mapOf("itemIds" to listOf(7), "explanation" to explanation),
+            )
+
+            // when
+            val result = client.select(selection)
+
+            // then
+            assertThat(result.itemIds).containsExactly(7)
+            assertThat(result.explanation).isEqualTo(explanation)
+        }
+        val invalid = listOf("null", "42", "true", "[]", "{}", "\"\"", "\" \\n\\t\"", "\"${"я".repeat(2001)}\"")
+            .map { """{"itemIds":[7],"explanation":$it}""" } + listOf(
+                """{"itemIds":[7],"explanation":"Тепло","extra":true}""",
+                """{"itemIds":[7],"extra":true}""",
+                """{"itemIds":[7],"explanation":"Тепло","explanation":"Удобно"}""",
+                """{"itemIds":[7],"itemIds":[7],"explanation":"Тепло"}""",
+            )
+        invalid.forEach { json ->
+            // given
+            breakers.circuitBreaker(BREAKER_NAME).reset()
+            body = json
+
+            // when
+            val failure = catchThrowable { client.select(selection) }
+
+            // then
+            assertFailure(AiOutfitFailure.INVALID_RESPONSE, failure)
+        }
     }
 
     @Test
@@ -302,7 +338,7 @@ class RecommendationClientTests {
         `when`(content.getContent(7, 7, 21))
             .thenReturn(WardrobeItemPhotoContent("image/png", byteArrayOf(1, 2, 3)))
         val outfitRequest = CreateOutfitRequest("Daily", listOf(7), weather)
-        `when`(outfits.createAi(eq(7L), refEq(outfitRequest) ?: outfitRequest, org.mockito.Mockito.isNull(), org.mockito.Mockito.isNull()))
+        `when`(outfits.createAi(eq(7L), refEq(outfitRequest) ?: outfitRequest, org.mockito.Mockito.isNull(), org.mockito.Mockito.isNull(), org.mockito.Mockito.isNull()))
             .thenReturn(saved)
         val service = AiOutfitService(
             users, items, photos, precipitation, content, client, outfits, idempotencyService(transactions), transactions, meters, "user",

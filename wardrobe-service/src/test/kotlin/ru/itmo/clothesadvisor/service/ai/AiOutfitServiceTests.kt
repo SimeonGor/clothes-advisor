@@ -60,6 +60,7 @@ class AiOutfitServiceTests {
     private val precipitation = mock(PrecipitationTypeRepository::class.java)
     private val content = mock(WardrobeItemPhotoService::class.java)
     private var selected = listOf(11L)
+    private var explanation: String? = null
     private var providerFailure: AiOutfitFailure? = null
     private var onSelection: () -> Unit = {}
     private var receivedSelection: OutfitSelectionRequest? = null
@@ -69,12 +70,13 @@ class AiOutfitServiceTests {
                 receivedSelection = call.getArgument(0)
                 providerFailure?.let { throw AiOutfitException(it) }
                 onSelection()
-                OutfitSelectionResponse(selected)
+                OutfitSelectionResponse(selected, explanation)
             } else RETURNS_DEFAULTS.answer(call)
         }
     private var savedRequest: CreateOutfitRequest? = null
     private var savedOccasion: String? = null
     private var savedStyle: String? = null
+    private var savedExplanation: String? = null
     private val storedAt = Instant.parse("2024-02-03T04:05:06Z")
     private val weather = OutfitWeatherDto(BigDecimal.ONE, 1, BigDecimal.ZERO)
     private val saved =
@@ -85,6 +87,7 @@ class AiOutfitServiceTests {
                 savedRequest = call.getArgument(1)
                 savedOccasion = call.getArgument(2)
                 savedStyle = call.getArgument(3)
+                savedExplanation = call.getArgument(4)
                 saved
             } else RETURNS_DEFAULTS.answer(call)
         }
@@ -137,6 +140,7 @@ class AiOutfitServiceTests {
         assertThat(response).isSameAs(saved)
         assertThat(savedRequest!!.itemIds).containsExactly(11)
         assertThat(savedRequest!!.weather).isSameAs(weather)
+        assertThat(savedExplanation).isNull()
         assertThat(receivedSelection!!.candidates.single())
             .isEqualTo(
                 OutfitSelectionCandidate(
@@ -165,6 +169,7 @@ class AiOutfitServiceTests {
     fun `context reaches recommendation and persistence without trimming`() {
         // given
         val request = CreateAiOutfitRequest("Daily", weather, occasion = "  Work  ", preferredStyle = "")
+        explanation = "  Тёплая рубашка для прохладного дня.  "
 
         // when
         service.create(7, request)
@@ -174,6 +179,7 @@ class AiOutfitServiceTests {
         assertThat(receivedSelection!!.preferredStyle).isEmpty()
         assertThat(savedOccasion).isEqualTo("  Work  ")
         assertThat(savedStyle).isEmpty()
+        assertThat(savedExplanation).isEqualTo(explanation)
     }
 
     @Test
@@ -413,7 +419,7 @@ class AiOutfitServiceTests {
         // given
         val unavailable = IllegalStateException("save unavailable")
         val expected = CreateOutfitRequest("Daily", listOf(11), weather)
-        doThrow(unavailable).`when`(outfits).createAi(eq(7L), refEq(expected) ?: expected, isNull(), isNull())
+        doThrow(unavailable).`when`(outfits).createAi(eq(7L), refEq(expected) ?: expected, isNull(), isNull(), isNull())
 
         // when
         val failure = catchThrowable { service.create(7, request()) }
@@ -422,7 +428,7 @@ class AiOutfitServiceTests {
         assertThat(failure).isSameAs(unavailable)
 
         // when
-        doReturn(saved).`when`(outfits).createAi(eq(7L), refEq(expected) ?: expected, isNull(), isNull())
+        doReturn(saved).`when`(outfits).createAi(eq(7L), refEq(expected) ?: expected, isNull(), isNull(), isNull())
         val recovered = service.create(7, request())
 
         // then

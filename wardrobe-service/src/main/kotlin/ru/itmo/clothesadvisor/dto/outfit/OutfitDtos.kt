@@ -55,6 +55,7 @@ internal data class OutfitResponse(
     val dislikes: Long = 0,
     @get:JsonInclude(JsonInclude.Include.NON_NULL) val occasion: String? = null,
     @get:JsonInclude(JsonInclude.Include.NON_NULL) val preferredStyle: String? = null,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL) val explanation: String? = null,
 )
 
 internal data class StylistOutfitResponse(

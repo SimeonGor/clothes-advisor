@@ -85,7 +85,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
     private val downloaded = mutableListOf<String>()
     private var onDownload: () -> Unit = {}
     private var select: (OutfitSelectionRequest) -> OutfitSelectionResponse = { selection ->
-        OutfitSelectionResponse(selection.candidates.map { it.itemId }.reversed())
+        OutfitSelectionResponse(selection.candidates.map { it.itemId }.reversed(), "Подходит для погоды.")
     }
 
     @BeforeEach
@@ -305,17 +305,19 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
     }
 
     @Test
-    fun `selection context is preserved by provider database create list and detail`() {
+    fun `selection context and maximum explanation are preserved by database create list and detail`() {
         // given
         val owner = connectedUser()
         val actor = actorId(owner)
         item(owner)
         val occasion = "  Work  "
         val style = "s".repeat(300)
+        val explanation = "  Тёплый слой.\n".padEnd(1998, 'я') + "  "
+        assertThat(explanation).hasSize(2000)
         select = { selection ->
             assertThat(selection.occasion).isEqualTo(occasion)
             assertThat(selection.preferredStyle).isEqualTo(style)
-            OutfitSelectionResponse(selection.candidates.map { it.itemId })
+            OutfitSelectionResponse(selection.candidates.map { it.itemId }, explanation)
         }
         val input = body().dropLast(1) + """, "occasion":"$occasion", "preferredStyle":"$style"}"""
 
@@ -328,8 +330,10 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         val id = number(row, "id")
         assertThat(row["occasion"]).isEqualTo(occasion)
         assertThat(row["preferredStyle"]).isEqualTo(style)
-        assertThat(jdbc.queryForMap("SELECT occasion, preferred_style FROM outfit WHERE id = ?", id))
+        assertThat(row["explanation"]).isEqualTo(explanation)
+        assertThat(jdbc.queryForMap("SELECT occasion, preferred_style, explanation FROM outfit WHERE id = ?", id))
             .containsEntry("occasion", occasion).containsEntry("preferred_style", style)
+            .containsEntry("explanation", explanation)
 
         // when
         val detail = request("GET", "/api/outfits/$id", actor)
@@ -338,6 +342,26 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         // then
         assertThat(dto(detail)).isEqualTo(row)
         assertThat(JsonPath.read<List<Map<String, Any>>>(listed.body(), "$")).containsExactly(row)
+
+        // given
+        val stylist = user(UserRole.STYLIST)
+        val admin = user(UserRole.ADMIN)
+        jdbc.update("INSERT INTO access_grant (owner_id, stylist_id) VALUES (?, ?)", owner.id, stylist.id)
+        for ((reader, path) in listOf(
+            stylist to "/api/stylist/clients/${owner.id}/outfits",
+            admin to "/api/admin/users/${owner.id}/outfits",
+        )) {
+            // when
+            val readerDetail = request("GET", "$path/$id", actorId(reader))
+            val readerList = request("GET", path, actorId(reader))
+
+            // then
+            assertThat(readerDetail.statusCode()).isEqualTo(200)
+            assertThat(dto(readerDetail)["explanation"]).isEqualTo(explanation)
+            assertThat(readerList.statusCode()).isEqualTo(200)
+            assertThat(JsonPath.read<List<Map<String, Any>>>(readerList.body(), "$").single()["explanation"])
+                .isEqualTo(explanation)
+        }
     }
 
     @Test
@@ -863,6 +887,8 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
                     )!!
                 assertThat(count("outfit_weather", "outfit_id", writtenId)).isEqualTo(1)
                 assertThat(count("outfit_item", "outfit_id", writtenId)).isEqualTo(1)
+                assertThat(jdbc.queryForObject("SELECT explanation FROM outfit WHERE id = ?", String::class.java, writtenId))
+                    .isEqualTo("Подходит для погоды.")
                 throw DataIntegrityViolationException("synthetic failure after composition write")
             }
             .`when`(composition)

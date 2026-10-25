@@ -44,6 +44,7 @@ export type Outfit = {
   myRating?: { vote: "LIKE" | "DISLIKE"; version: number } | null;
   occasion?: string | null;
   preferredStyle?: string | null;
+  explanation?: string | null;
 };
 
 export function outfitsPath(context: WorkspaceContext): string {

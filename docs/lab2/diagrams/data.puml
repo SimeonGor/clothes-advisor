@@ -106,6 +106,7 @@ package "wardrobe_db · wardrobe-service" as wardrobe #F2F8F5 {
     * name: text
     occasion: varchar(300)
     preferred_style: varchar(300)
+    explanation: varchar(2000)
     * created_at: timestamptz
   }
   entity "outfit_item" as composition #F0F6FC {

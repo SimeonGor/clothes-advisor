@@ -27,4 +27,4 @@ data class OutfitSelectionCandidate(
     val imageBase64: String,
 )
 
-data class OutfitSelectionResponse(val itemIds: List<Long>)
+data class OutfitSelectionResponse(val itemIds: List<Long>, val explanation: String? = null)

@@ -67,9 +67,10 @@ internal class OutfitService(
         request: CreateOutfitRequest,
         occasion: String? = null,
         preferredStyle: String? = null,
+        explanation: String? = null,
     ): OutfitResponse =
         writeTransaction.execute {
-            create(ownerId, ownerId, OutfitSource.AI, request, occasion, preferredStyle)
+            create(ownerId, ownerId, OutfitSource.AI, request, occasion, preferredStyle, explanation)
         }
 
     fun createForClient(
@@ -137,6 +138,7 @@ internal class OutfitService(
         request: CreateOutfitRequest,
         occasion: String? = null,
         preferredStyle: String? = null,
+        explanation: String? = null,
     ): OutfitResponse {
         val violations = validator.validate(request)
         if (violations.isNotEmpty()) {
@@ -158,7 +160,7 @@ internal class OutfitService(
             throw EntityNotFoundException()
         }
 
-        val outfit = outfits.create(ownerId, authorId, source, request.name, occasion, preferredStyle)
+        val outfit = outfits.create(ownerId, authorId, source, request.name, occasion, preferredStyle, explanation)
         val id = requireNotNull(outfit.id)
         weather.insert(
             OutfitWeather(
@@ -183,6 +185,7 @@ internal class OutfitService(
             outfit.createdAt,
             occasion = outfit.occasion,
             preferredStyle = outfit.preferredStyle,
+            explanation = outfit.explanation,
         )
     }
 
@@ -221,6 +224,7 @@ internal class OutfitService(
                 counts[id]?.dislikes ?: 0,
                 it.occasion,
                 it.preferredStyle,
+                it.explanation,
             )
         }
     }
