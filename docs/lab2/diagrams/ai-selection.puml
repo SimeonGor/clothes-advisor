@@ -61,8 +61,8 @@ else Слот занят этим запросом
     wardrobe -> recommendation : POST /api/outfit-selections\nПогода + пожелания + кандидаты + фото
     recommendation -> ai : Подбор · таймаут 60 с · без повторов
     ai --> recommendation : Успешно завершённый ответ
-    recommendation --> wardrobe : 200 · itemIds
-    wardrobe -> wardrobe : Проверить ID, уникальность и непустой выбор
+    recommendation --> wardrobe : 200 · itemIds + explanation
+    wardrobe -> wardrobe : Проверить ID, выбор и объяснение
     wardrobe -> account : Финальная проверка активности
     account --> wardrobe : Разрешено
   end
@@ -75,7 +75,7 @@ else Слот занят этим запросом
   group Одна локальная JDBC-транзакция
     wardrobe -> db : Заблокировать все исходные вещи\nПроверить все использованные photoId
     db --> wardrobe : Данные существуют
-    wardrobe -> db : Образ + пожелания + состав + погода\nПри наличии ключа: SUCCEEDED + ответ
+    wardrobe -> db : Образ + пожелания + объяснение\nСостав + погода; при ключе: SUCCEEDED + ответ
     db --> wardrobe : Commit · сохранённые ID и даты
   end
   wardrobe -> wardrobe : Освободить слот
