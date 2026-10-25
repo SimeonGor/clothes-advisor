@@ -644,6 +644,12 @@ function TodayForUser({ account, onSwitch, onPending, pending }: {
             <h2>{result.outfit.name}</h2>
             {result.outfit.occasion && <p>Повод: {result.outfit.occasion}</p>}
             {result.outfit.preferredStyle && <p>Стиль: {result.outfit.preferredStyle}</p>}
+            {result.outfit.explanation && (
+              <section aria-label="Почему этот образ">
+                <h3>Почему этот образ</h3>
+                <p>{result.outfit.explanation}</p>
+              </section>
+            )}
             <p>
               {result.outfit.weather.temperatureC} °C · ветер {result.outfit.weather.windSpeedMps} м/с ·{" "}
               {weatherTypes.data?.find(

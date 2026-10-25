@@ -146,6 +146,7 @@ describe("Экран «Сегодня»", () => {
       weather: { temperatureC: -2.5, windSpeedMps: 1.75, precipitationTypeId: 7 },
     });
     expect(screen.getByText("Новое утро")).toBeTruthy();
+    expect(screen.queryByRole("region", { name: "Почему этот образ" })).toBeNull();
   });
 
   it("сохраняет выбор между страницами и передаёт более 20 кандидатов без обрезки", async () => {
@@ -196,6 +197,7 @@ describe("Экран «Сегодня»", () => {
       createdAt: "2026-01-01T00:00:00Z", name: "Вечер", itemIds: [],
       weather: { temperatureC: 15, windSpeedMps: 0, precipitationTypeId: 7 },
       occasion: "Сохранённый повод", preferredStyle: "Сохранённый стиль",
+      explanation: "Тёплый слой: <strong>пальто</strong> и **шарф**.",
     };
     const fetchMock = apiFetch([], async () => json(saved));
     vi.stubGlobal("fetch", fetchMock);
@@ -213,6 +215,9 @@ describe("Экран «Сегодня»", () => {
     // then
     expect(await screen.findByText("Повод: Сохранённый повод")).toBeTruthy();
     expect(screen.getByText("Стиль: Сохранённый стиль")).toBeTruthy();
+    const explanation = screen.getByRole("region", { name: "Почему этот образ" });
+    expect(explanation.textContent).toContain(saved.explanation);
+    expect(explanation.querySelector("strong")).toBeNull();
     const sent = fetchMock.mock.calls.find(([url]) => url === "/api/outfits/ai");
     expect(JSON.parse(String(sent?.[1]?.body))).toMatchObject({ occasion: "Встреча", preferredStyle: "Спокойный" });
     expect(occasion.disabled).toBe(true);

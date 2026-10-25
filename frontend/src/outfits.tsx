@@ -376,6 +376,12 @@ export function OutfitDetail({ actor, context = { kind: "own" }, onPending, pend
           <h1>{row.name}</h1>
           {row.occasion && <p>Повод: {row.occasion}</p>}
           {row.preferredStyle && <p>Стиль: {row.preferredStyle}</p>}
+          {row.explanation && (
+            <section aria-label="Почему этот образ">
+              <h2>Почему этот образ</h2>
+              <p>{row.explanation}</p>
+            </section>
+          )}
           <p className={styles.muted}>
             {row.weather.temperatureC} °C · ветер {row.weather.windSpeedMps} м/с · {precipitationName ?? "Осадки"}
             {` · нравится ${row.likes} · не нравится ${row.dislikes}`}

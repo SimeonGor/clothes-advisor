@@ -28,9 +28,10 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 describe("Сохранённые образы", () => {
   it("показывает сохранённый контекст в карточке образа", async () => {
     // given
+    const explanation = "Тёплый слой: <strong>пальто</strong> и **шарф**.";
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url === "/api/outfits/5") return ok(outfit({ occasion: "Работа", preferredStyle: "Свободный" }));
+      if (url === "/api/outfits/5") return ok(outfit({ occasion: "Работа", preferredStyle: "Свободный", explanation }));
       if (url.startsWith("/api/weather/precipitation-types")) return ok([]);
       return fail(404);
     }));
@@ -41,6 +42,24 @@ describe("Сохранённые образы", () => {
     // then
     expect(await screen.findByText("Повод: Работа")).toBeTruthy();
     expect(screen.getByText("Стиль: Свободный")).toBeTruthy();
+    const section = screen.getByRole("region", { name: "Почему этот образ" });
+    expect(section.textContent).toContain(explanation);
+    expect(section.querySelector("strong")).toBeNull();
+  });
+
+  it("не показывает пустую секцию объяснения у прежнего образа", async () => {
+    // given
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input) === "/api/outfits/5") return ok(outfit());
+      return ok([]);
+    }));
+
+    // when
+    mount(<OutfitDetail actor={user} onPending={vi.fn()} pending={false} />, "/outfits/5");
+
+    // then
+    await screen.findByRole("heading", { name: "Образ" });
+    expect(screen.queryByRole("region", { name: "Почему этот образ" })).toBeNull();
   });
 
   it("сериализует ручной образ и сохраняет значения после ошибки", async () => {
