@@ -1,0 +1,1 @@
+ALTER TABLE outfit ADD COLUMN explanation VARCHAR(2000);

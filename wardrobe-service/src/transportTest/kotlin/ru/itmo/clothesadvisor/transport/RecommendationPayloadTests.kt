@@ -135,7 +135,7 @@ class RecommendationPayloadTests {
                     assertThat(decoded).hasSize(10_000_000)
                     assertThat(decoded.all { it == candidate.itemId.toByte() }).isTrue()
                 }
-                ServerSelectionResponse(selectedIds)
+                ServerSelectionResponse(selectedIds, "Подходит для погоды.")
             }
             .`when`(provider).select(any(ServerSelectionRequest::class.java) ?: serverRequest)
         val expectedSave = CreateOutfitRequest(request.name, selectedIds, weather)
@@ -143,7 +143,7 @@ class RecommendationPayloadTests {
             80, 7, 7, OutfitSource.AI, request.name, selectedIds, weather, storedAt,
         )
         `when`(outfits.createAi(
-            eq(7L), refEq(expectedSave) ?: expectedSave, eq("Work"), eq("Casual"),
+            eq(7L), refEq(expectedSave) ?: expectedSave, eq("Work"), eq("Casual"), eq("Подходит для погоды."),
         )).thenReturn(saved)
         SpringApplicationBuilder(ClientApplication::class.java).run(
             "--spring.config.name=application-transport",
@@ -171,7 +171,7 @@ class RecommendationPayloadTests {
             candidateIds.forEach { id -> verify(content).getContent(7, id, id + 100) }
             verify(provider).select(any(ServerSelectionRequest::class.java) ?: serverRequest)
             verify(outfits).createAi(
-                eq(7L), refEq(expectedSave) ?: expectedSave, eq("Work"), eq("Casual"),
+                eq(7L), refEq(expectedSave) ?: expectedSave, eq("Work"), eq("Casual"), eq("Подходит для погоды."),
             )
             println(
                 "Maximum-image preparation and transport memory pool peaks: " +

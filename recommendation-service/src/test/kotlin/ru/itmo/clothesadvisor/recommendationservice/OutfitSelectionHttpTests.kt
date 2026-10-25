@@ -76,7 +76,7 @@ class OutfitSelectionHttpTests {
         calls.set(0)
         providerRequests.clear()
         status = 200
-        providerBody = completed("{\"itemIds\":[7]}")
+        providerBody = completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[7]}")
         blocked = null
         entered = CountDownLatch(1)
     }
@@ -97,7 +97,7 @@ class OutfitSelectionHttpTests {
 
         // then
         assertThat(response.statusCode()).isEqualTo(200)
-        assertThat(response.body()).isEqualTo("""{"itemIds":[7]}""")
+        assertThat(response.body()).isEqualTo("""{"itemIds":[7],"explanation":"Подходит для погоды."}""")
         assertThat(calls).hasValue(1)
         val payload = credentials.mapper.readTree(providerRequests.single())
         val selection = credentials.mapper.readTree(
@@ -117,7 +117,7 @@ class OutfitSelectionHttpTests {
 
         // then
         assertThat(response.statusCode()).isEqualTo(200)
-        assertThat(response.body()).isEqualTo("""{"itemIds":[7]}""")
+        assertThat(response.body()).isEqualTo("""{"itemIds":[7],"explanation":"Подходит для погоды."}""")
         assertThat(calls).hasValue(1)
         val payload = credentials.mapper.readTree(providerRequests.single())
         val selection = credentials.mapper.readTree(
@@ -140,7 +140,7 @@ class OutfitSelectionHttpTests {
 
         // then
         assertThat(response.statusCode()).isEqualTo(200)
-        assertThat(response.body()).isEqualTo("""{"itemIds":[7]}""")
+        assertThat(response.body()).isEqualTo("""{"itemIds":[7],"explanation":"Подходит для погоды."}""")
         assertThat(calls).hasValue(1)
         val payload = credentials.mapper.readTree(providerRequests.single())
         val selection = credentials.mapper.readTree(
@@ -273,9 +273,11 @@ class OutfitSelectionHttpTests {
     fun `refusal invalid completed response unfinished stream and unavailability map to codes`() {
         // given
         val cases = listOf(
-            Triple(200, completed("{\"itemIds\":[]}"), 422 to "no_outfit"),
+            Triple(200, completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[]}"), 422 to "no_outfit"),
             Triple(200, "data: {\"type\":\"response.refusal.delta\",\"delta\":\"private\"}\n\n", 422 to "no_outfit"),
-            Triple(200, completed("{\"itemIds\":[9]}"), 502 to "invalid_response"),
+            Triple(200, completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[9]}"), 502 to "invalid_response"),
+            Triple(200, completed("""{"itemIds":[7]}"""), 502 to "invalid_response"),
+            Triple(200, completed("""{"itemIds":[7],"explanation":null}"""), 502 to "invalid_response"),
             Triple(200, "data: private malformed provider data\n\n", 502 to "invalid_response"),
             Triple(200, "data: [DONE]\n\n", 502 to "invalid_response"),
             Triple(503, "secret provider body", 503 to "unavailable"),

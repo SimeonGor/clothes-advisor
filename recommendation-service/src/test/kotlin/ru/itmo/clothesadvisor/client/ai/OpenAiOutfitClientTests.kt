@@ -74,7 +74,7 @@ class OpenAiOutfitClientTests {
             requestBody = exchange.requestBody.bufferedReader().readText()
             authorization = exchange.requestHeaders.getFirst("Authorization")
             assertThat(exchange.requestMethod).isEqualTo("POST")
-            val bytes = completed("{\"itemIds\":[11,7]}").toByteArray()
+            val bytes = completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[11,7]}").toByteArray()
             exchange.sendResponseHeaders(200, bytes.size.toLong())
             exchange.responseBody.use { it.write(bytes) }
         }
@@ -84,6 +84,7 @@ class OpenAiOutfitClientTests {
 
         // then
         assertThat(selectedIds.itemIds).containsExactly(11, 7)
+        assertThat(selectedIds.explanation).isEqualTo("Подходит для погоды.")
         assertThat(calls).hasValue(1)
         assertThat(authorization).isEqualTo("Bearer synthetic-test-token")
         val body = mapper.readTree(requestBody)
@@ -100,7 +101,9 @@ class OpenAiOutfitClientTests {
         val schema = format.path("schema")
         assertThat(schema.path("additionalProperties").asBoolean()).isFalse()
         assertThat(schema.path("required").toList().map { it.asString() })
-            .containsExactly("itemIds")
+            .containsExactly("itemIds", "explanation")
+        assertThat(schema.path("properties").path("explanation").path("type").asString())
+            .isEqualTo("string")
         assertThat(
                 schema.path("properties").path("itemIds").path("items").path("enum").toList().map {
                     it.longValue()
@@ -131,7 +134,7 @@ class OpenAiOutfitClientTests {
         // given
         val replies =
             listOf(
-                completed("{\"itemIds\":[]}") to 422,
+                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[]}") to 422,
                 event(
                     "response.completed",
                     """{"status":"completed","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"refusal","refusal":"private reason"}]}]}""",
@@ -143,16 +146,16 @@ class OpenAiOutfitClientTests {
                 completed("{}") to 502,
                 completed("") to 502,
                 completed("null") to 502,
-                completed("{\"itemIds\":[7.0]}") to 502,
-                completed("{\"itemIds\":[null]}") to 502,
-                completed("{\"itemIds\":[\"7\"]}") to 502,
-                completed("{\"itemIds\":[999]}") to 502,
-                completed("{\"itemIds\":[7,7]}") to 502,
-                completed("{\"itemIds\":[9223372036854775808]}") to 502,
-                completed("{\"itemIds\":[7],\"extra\":true}") to 502,
-                completed("{\"itemIds\":[7],\"itemIds\":[9]}") to 502,
-                completed("{\"itemIds\":[7]} {}") to 502,
-                completed("{\"itemIds\":[7]}").trimEnd() + " {}\n\n" to 502,
+                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[7.0]}") to 502,
+                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[null]}") to 502,
+                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[\"7\"]}") to 502,
+                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[999]}") to 502,
+                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[7,7]}") to 502,
+                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[9223372036854775808]}") to 502,
+                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[7],\"extra\":true}") to 502,
+                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[7],\"itemIds\":[9]}") to 502,
+                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[7]} {}") to 502,
+                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[7]}").trimEnd() + " {}\n\n" to 502,
             )
         var reply = ""
         respond { 200 to reply }
@@ -168,6 +171,44 @@ class OpenAiOutfitClientTests {
             assertFailure(status, failure)
         }
         assertThat(calls).hasValue(replies.size)
+    }
+
+    @Test
+    fun `explanation must be a nonblank string of at most 2000 characters and is preserved exactly`() {
+        // given
+        var reply = ""
+        respond { 200 to completed(reply) }
+        val invalid = listOf(
+            """{"itemIds":[7]}""",
+            """{"itemIds":[7],"explanation":null}""",
+            """{"itemIds":[7],"explanation":42}""",
+            """{"itemIds":[7],"explanation":true}""",
+            """{"itemIds":[7],"explanation":[]}""",
+            """{"itemIds":[7],"explanation":{}}""",
+            """{"itemIds":[7],"explanation":""}""",
+            mapper.writeValueAsString(mapOf("itemIds" to listOf(7), "explanation" to " \n\t")),
+            mapper.writeValueAsString(mapOf("itemIds" to listOf(7), "explanation" to "я".repeat(2001))),
+            """{"itemIds":[7],"explanation":"Один","explanation":"Два"}""",
+        )
+        invalid.forEach { json ->
+            reply = json
+
+            // when
+            val failure = catchThrowable { client().select(selection) }
+
+            // then
+            assertFailure(502, failure)
+        }
+        for (explanation in listOf("  Тёплый слой.\nУдобно в дождь.  ", "я".repeat(2000))) {
+            // given
+            reply = mapper.writeValueAsString(mapOf("itemIds" to listOf(7), "explanation" to explanation))
+
+            // when
+            val result = client().select(selection)
+
+            // then
+            assertThat(result.explanation).isEqualTo(explanation)
+        }
     }
 
     @Test
@@ -197,7 +238,7 @@ class OpenAiOutfitClientTests {
         val release = CountDownLatch(1)
         respond {
             release.await(5, TimeUnit.SECONDS)
-            200 to completed("{\"itemIds\":[7]}")
+            200 to completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[7]}")
         }
         try {
 
@@ -250,7 +291,7 @@ class OpenAiOutfitClientTests {
     fun `missing credentials or model fails without network and connection failure becomes unavailable`() {
 
         // given
-        respond { 200 to completed("{\"itemIds\":[7]}") }
+        respond { 200 to completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[7]}") }
 
         // when
         val missingCredentials = catchThrowable {
@@ -320,7 +361,7 @@ class OpenAiOutfitClientTests {
 
         // given
         var reply =
-            delta("{\"itemIds\":[") +
+            delta("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[") +
                 delta("9,7]}") +
                 event("response.completed", """{"status":"completed","output":[]}""")
         respond { 200 to reply }
@@ -332,7 +373,7 @@ class OpenAiOutfitClientTests {
         assertThat(deltaSelection.itemIds).containsExactly(9, 7)
 
         // given: the next terminal and delta combination
-        reply = delta("malformed unused partial") + completed("{\"itemIds\":[11]}")
+        reply = delta("malformed unused partial") + completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[11]}")
 
         // when
         val terminalSelection = client().select(selection)
@@ -341,7 +382,7 @@ class OpenAiOutfitClientTests {
         assertThat(terminalSelection.itemIds).containsExactly(11)
 
         // given: the next terminal and delta combination
-        reply = delta("{\"itemIds\":[9]}") + completed(" \t")
+        reply = delta("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[9]}") + completed(" \t")
 
         // when
         val fallbackSelection = client().select(selection)
@@ -358,7 +399,7 @@ class OpenAiOutfitClientTests {
             "event: ignored\ndata:\n\n: keepalive\nretry: 1000\nunknown\n\n" +
                 "event: response.created\ndata: {\"type\":\"response.created\"}\n\n"
         val terminal =
-            completed("{\"itemIds\":[7]}")
+            completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[7]}")
                 .replace("event: ", "event:")
                 .replace("data: ", "data:")
                 .replace(",\"response\":", ",\ndata: \"response\":")
@@ -388,8 +429,8 @@ class OpenAiOutfitClientTests {
     fun `partial streams failures mixed outputs bounds and missing delimiter never succeed`() {
 
         // given
-        val successful = completed("{\"itemIds\":[7]}")
-        val prefix = delta("{\"itemIds\":[7]}")
+        val successful = completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[7]}")
+        val prefix = delta("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[7]}")
         val replies =
             listOf(
                 prefix to 502,
@@ -445,7 +486,7 @@ class OpenAiOutfitClientTests {
         server.createContext("/v1/responses") { exchange ->
             exchange.requestBody.use { it.readAllBytes() }
             exchange.responseHeaders.set("Content-Type", contentType)
-            val bytes = completed("{\"itemIds\":[7]}").toByteArray()
+            val bytes = completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[7]}").toByteArray()
             exchange.sendResponseHeaders(200, bytes.size.toLong())
             exchange.responseBody.use { it.write(bytes) }
         }

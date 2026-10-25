@@ -35,7 +35,7 @@ class OutfitSelectionDtosTests {
                 occasion = "Work",
                 preferredStyle = "Casual",
             )
-        val response = OutfitSelectionResponse(listOf(12, 7))
+        val response = OutfitSelectionResponse(listOf(12, 7), "Подходит для погоды.")
 
         // when
         val requestJson = mapper.writeValueAsString(request)

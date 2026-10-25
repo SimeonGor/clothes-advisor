@@ -181,18 +181,20 @@ class OutfitServiceTests {
     @Test
     fun `AI creation persists context and returns stored values`() {
         // given
-        val stored = Outfit(7, 7, OutfitSource.AI, "Daily", storedAt, "  Work  ", "").apply { id = 11 }
+        val explanation = "  Рубашка подходит для работы.  "
+        val stored = Outfit(7, 7, OutfitSource.AI, "Daily", storedAt, "  Work  ", "", explanation).apply { id = 11 }
         `when`(precipitation.existsById(1)).thenReturn(true)
         `when`(wardrobe.countByOwnerIdAndIdIn(7, listOf(2, 1))).thenReturn(2)
-        `when`(outfits.create(7, 7, OutfitSource.AI, "Daily", "  Work  ", "")).thenReturn(stored)
+        `when`(outfits.create(7, 7, OutfitSource.AI, "Daily", "  Work  ", "", explanation)).thenReturn(stored)
 
         // when
-        val response = service.createAi(7, request(), "  Work  ", "")
+        val response = service.createAi(7, request(), "  Work  ", "", explanation)
 
         // then
         assertThat(response.occasion).isEqualTo(stored.occasion)
         assertThat(response.preferredStyle).isEqualTo(stored.preferredStyle)
-        verify(outfits).create(7, 7, OutfitSource.AI, "Daily", "  Work  ", "")
+        assertThat(response.explanation).isEqualTo(explanation)
+        verify(outfits).create(7, 7, OutfitSource.AI, "Daily", "  Work  ", "", explanation)
         verify(composition).insertAll(anyList())
     }
 

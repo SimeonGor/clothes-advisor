@@ -12,8 +12,8 @@ import ru.itmo.clothesadvisor.model.outfit.OutfitSource
 internal interface OutfitRepository : Repository<Outfit, Long> {
     @Query(
         """
-        INSERT INTO outfit (owner_id, author_id, source, name, occasion, preferred_style)
-        VALUES (:ownerId, :authorId, :source::outfit_source, :name, :occasion, :preferredStyle) RETURNING *
+        INSERT INTO outfit (owner_id, author_id, source, name, occasion, preferred_style, explanation)
+        VALUES (:ownerId, :authorId, :source::outfit_source, :name, :occasion, :preferredStyle, :explanation) RETURNING *
     """,
     )
     fun create(
@@ -23,6 +23,7 @@ internal interface OutfitRepository : Repository<Outfit, Long> {
         name: String,
         occasion: String? = null,
         preferredStyle: String? = null,
+        explanation: String? = null,
     ): Outfit
 
     fun findByIdAndOwnerId(id: Long, ownerId: Long): Outfit?
