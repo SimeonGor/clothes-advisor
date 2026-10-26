@@ -15,7 +15,7 @@ participant "Yandex S3" as s3
 participant "recommendation-service" as recommendation
 participant "OpenAI" as ai
 
-client -> wardrobe : POST /api/outfits/ai\nIdempotency-Key — необязательный
+client -> wardrobe : POST /api/outfits/ai или\n/api/outfits/{id}/ai-replacements\nIdempotency-Key — необязательный
 wardrobe -> account : Текущий пользователь · проверка ACTIVE
 account --> wardrobe : id, login, role, status
 wardrobe -> account : Свежие сведения для допуска к AI
@@ -35,7 +35,7 @@ alt Слот уже занят
   wardrobe --> client : 503 · без S3 и AI
 else Слот занят этим запросом
   group Короткая транзакция чтения
-    wardrobe -> db : Кандидаты, первое фото, погода
+    wardrobe -> db : Кандидаты, первое фото, погода\nПри замене: исходный образ и обязательные ID
     db --> wardrobe : 1–20 кандидатов + исходные photoId
   end
 
@@ -58,11 +58,11 @@ else Слот занят этим запросом
     end
     wardrobe -> account : Проверить активность перед AI
     account --> wardrobe : Разрешено
-    wardrobe -> recommendation : POST /api/outfit-selections\nПогода + пожелания + кандидаты + фото
+    wardrobe -> recommendation : POST /api/outfit-selections\nПогода + пожелания + кандидаты + фото\nПри замене: requiredItemIds
     recommendation -> ai : Подбор · таймаут 60 с · без повторов
     ai --> recommendation : Успешно завершённый ответ
     recommendation --> wardrobe : 200 · itemIds + explanation
-    wardrobe -> wardrobe : Проверить ID, выбор и объяснение
+    wardrobe -> wardrobe : Проверить ID, выбор и объяснение\nПри замене: сохранены обязательные, есть новые
     wardrobe -> account : Финальная проверка активности
     account --> wardrobe : Разрешено
   end
@@ -74,6 +74,9 @@ else Слот занят этим запросом
 
   group Одна локальная JDBC-транзакция
     wardrobe -> db : Заблокировать все исходные вещи\nПроверить все использованные photoId
+    opt Замена части образа
+      wardrobe -> db : Заблокировать исходный образ\nОтсутствует —409
+    end
     db --> wardrobe : Данные существуют
     wardrobe -> db : Образ + пожелания + объяснение\nСостав + погода; при ключе: SUCCEEDED + ответ
     db --> wardrobe : Commit · сохранённые ID и даты
