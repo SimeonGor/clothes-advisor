@@ -35,10 +35,10 @@ internal class OpenAiResponseStream(mapper: JsonMapper) {
             val type = event.path("type").asString()
             when {
                 type == "error" || type == "response.failed" ->
-                    throw AiOutfitException(AiOutfitFailure.UNAVAILABLE)
+                    throw AiSelectionException(AiSelectionFailure.UNAVAILABLE)
                 type == "response.incomplete" -> invalid()
                 type.startsWith("response.refusal.") ->
-                    throw AiOutfitException(AiOutfitFailure.NO_OUTFIT)
+                    throw AiSelectionException(AiSelectionFailure.NO_SELECTION)
                 type == "response.output_text.delta" ->
                     textPart = appendDelta(event, textPart, deltas)
                 type == "response.completed" -> return completedText(event.path("response"), deltas)
@@ -132,7 +132,7 @@ internal class OpenAiResponseStream(mapper: JsonMapper) {
         val error = response.path("error")
         val status = response.path("status").asString()
         if ((!error.isNull && !error.isMissingNode) || status == "failed") {
-            throw AiOutfitException(AiOutfitFailure.UNAVAILABLE)
+            throw AiSelectionException(AiSelectionFailure.UNAVAILABLE)
         }
         if (status != "completed") {
             invalid()
@@ -146,7 +146,7 @@ internal class OpenAiResponseStream(mapper: JsonMapper) {
             invalid()
         }
         if (output.any { it.path("type").asString() == "refusal" }) {
-            throw AiOutfitException(AiOutfitFailure.NO_OUTFIT)
+            throw AiSelectionException(AiSelectionFailure.NO_SELECTION)
         }
         val messages = output.filter { it.path("type").asString() == "message" }
         if (messages.isEmpty() && output.isEmpty) {
@@ -167,7 +167,7 @@ internal class OpenAiResponseStream(mapper: JsonMapper) {
             invalid()
         }
         if (content.any { it.path("type").asString() == "refusal" }) {
-            throw AiOutfitException(AiOutfitFailure.NO_OUTFIT)
+            throw AiSelectionException(AiSelectionFailure.NO_SELECTION)
         }
         if (
             content.size() != 1 ||
@@ -186,7 +186,7 @@ internal class OpenAiResponseStream(mapper: JsonMapper) {
             invalid()
         }
 
-    private fun invalid(): Nothing = throw AiOutfitException(AiOutfitFailure.INVALID_RESPONSE)
+    private fun invalid(): Nothing = throw AiSelectionException(AiSelectionFailure.INVALID_RESPONSE)
 
     private data class TextPart(val itemId: String, val outputIndex: Long, val contentIndex: Long)
 

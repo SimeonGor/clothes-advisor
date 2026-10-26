@@ -3,31 +3,31 @@ package ru.itmo.clothesadvisor.dto.ai
 import com.fasterxml.jackson.annotation.JsonInclude
 import java.math.BigDecimal
 
-data class OutfitSelectionRequest(
-    val weather: OutfitSelectionWeather,
-    val candidates: List<OutfitSelectionCandidate>,
+data class ItemSelectionRequest(
+    val weather: ItemSelectionWeather,
+    val candidates: List<ItemSelectionCandidate>,
     val occasion: String? = null,
     val preferredStyle: String? = null,
     @get:JsonInclude(JsonInclude.Include.NON_NULL)
     val requiredItemIds: List<Long?>? = null,
     @get:JsonInclude(JsonInclude.Include.NON_NULL)
-    val stylePreferences: OutfitSelectionStylePreferences? = null,
+    val stylePreferences: ItemSelectionStylePreferences? = null,
 )
 
-data class OutfitSelectionStylePreferences(
+data class ItemSelectionStylePreferences(
     val preferredColorsAndMaterials: String,
     val avoidances: String,
     val additionalWishes: String,
 )
 
-data class OutfitSelectionWeather(
+data class ItemSelectionWeather(
     val temperatureC: BigDecimal,
     val windSpeedMps: BigDecimal,
     val precipitationCode: String,
     val precipitationName: String,
 )
 
-data class OutfitSelectionCandidate(
+data class ItemSelectionCandidate(
     val itemId: Long,
     val name: String,
     val categoryCode: String,
@@ -38,4 +38,4 @@ data class OutfitSelectionCandidate(
     val imageBase64: String,
 )
 
-data class OutfitSelectionResponse(val itemIds: List<Long>, val explanation: String)
+data class ItemSelectionResponse(val itemIds: List<Long>, val explanation: String)

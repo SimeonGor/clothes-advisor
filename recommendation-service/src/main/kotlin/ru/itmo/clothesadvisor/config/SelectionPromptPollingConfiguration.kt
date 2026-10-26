@@ -15,19 +15,21 @@ import org.springframework.scheduling.annotation.Scheduled
 @Configuration(proxyBeanMethods = false)
 @ConditionalOnProperty(prefix = "spring.cloud.config", name = ["enabled"], matchIfMissing = true)
 @EnableScheduling
-internal class OutfitPromptPollingConfiguration {
+internal class SelectionPromptPollingConfiguration {
     @Bean
-    fun outfitPromptPoller(
+    fun selectionPromptPoller(
         @Qualifier("configDataConfigClientProperties") properties: ConfigClientProperties,
         environment: Environment,
-        settings: OutfitPromptSettings,
-    ) = OutfitPromptPoller(properties, environment, settings)
+        @Qualifier("outfitPromptSettings") outfitSettings: SelectionPromptSettings,
+        @Qualifier("capsulePromptSettings") capsuleSettings: SelectionPromptSettings,
+    ) = SelectionPromptPoller(properties, environment, outfitSettings, capsuleSettings)
 }
 
-internal class OutfitPromptPoller(
+internal class SelectionPromptPoller(
     properties: ConfigClientProperties,
     private val environment: Environment,
-    private val settings: OutfitPromptSettings,
+    private val outfitSettings: SelectionPromptSettings,
+    private val capsuleSettings: SelectionPromptSettings,
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
     private val locator = ConfigServicePropertySourceLocator(ConfigClientProperties(environment).also {
@@ -43,13 +45,20 @@ internal class OutfitPromptPoller(
         initialDelayString = "\${app.openai.prompt.poll-interval:30s}",
     )
     fun poll() {
-        try {
-            val source = requireNotNull(locator.locate(environment))
-            if (settings.apply(source)) {
-                logger.info("Outfit prompt updated to version {}", settings.snapshot()?.version)
-            }
+        val source = try {
+            requireNotNull(locator.locate(environment))
         } catch (_: Exception) {
-            logger.warn("Outfit prompt update rejected; keeping last working prompt")
+            logger.warn("Selection prompts fetch failed; keeping last working prompts")
+            return
+        }
+        for ((name, settings) in listOf("Outfit" to outfitSettings, "Capsule" to capsuleSettings)) {
+            try {
+                if (settings.apply(source)) {
+                    logger.info("{} prompt updated to version {}", name, settings.snapshot()?.version)
+                }
+            } catch (_: Exception) {
+                logger.warn("{} prompt update rejected; keeping last working prompt", name)
+            }
         }
     }
 }

@@ -2,16 +2,24 @@ package ru.itmo.clothesadvisor.recommendationservice.service
 
 import java.util.Base64
 import org.springframework.stereotype.Service
-import ru.itmo.clothesadvisor.client.ai.AiOutfitException
-import ru.itmo.clothesadvisor.client.ai.AiOutfitFailure
-import ru.itmo.clothesadvisor.client.ai.OpenAiOutfitClient
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionCandidate
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionRequest
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionResponse
+import ru.itmo.clothesadvisor.client.ai.AiSelectionException
+import ru.itmo.clothesadvisor.client.ai.AiSelectionFailure
+import ru.itmo.clothesadvisor.client.ai.OpenAiSelectionClient
+import ru.itmo.clothesadvisor.client.ai.SelectionGoal
+import ru.itmo.clothesadvisor.dto.ai.ItemSelectionCandidate
+import ru.itmo.clothesadvisor.dto.ai.ItemSelectionRequest
+import ru.itmo.clothesadvisor.dto.ai.ItemSelectionResponse
 
 @Service
-class OutfitSelectionService(private val provider: OpenAiOutfitClient) {
-    fun select(request: OutfitSelectionRequest): OutfitSelectionResponse {
+class ItemSelectionService(private val provider: OpenAiSelectionClient) {
+    fun selectOutfit(request: ItemSelectionRequest): ItemSelectionResponse = select(request, SelectionGoal.OUTFIT)
+
+    fun selectCapsule(request: ItemSelectionRequest): ItemSelectionResponse {
+        if (request.requiredItemIds != null) invalidRequest()
+        return select(request, SelectionGoal.CAPSULE)
+    }
+
+    private fun select(request: ItemSelectionRequest, goal: SelectionGoal): ItemSelectionResponse {
         if ((request.occasion?.length ?: 0) > 300 || (request.preferredStyle?.length ?: 0) > 300) {
             invalidRequest()
         }
@@ -20,7 +28,7 @@ class OutfitSelectionService(private val provider: OpenAiOutfitClient) {
                 preferences.avoidances.length > 2000 || preferences.additionalWishes.length > 2000
             ) invalidRequest()
         }
-        val candidates: List<OutfitSelectionCandidate?> = request.candidates
+        val candidates: List<ItemSelectionCandidate?> = request.candidates
         if (candidates.size !in 1..20 || request.weather.windSpeedMps.signum() < 0) {
             invalidRequest()
         }
@@ -48,8 +56,16 @@ class OutfitSelectionService(private val provider: OpenAiOutfitClient) {
                 invalidRequest()
             }
         }
-        return provider.select(request)
+        return try {
+            provider.select(goal, request)
+        } catch (error: AiSelectionException) {
+            if (error.failure != AiSelectionFailure.NO_SELECTION) throw error
+            throw AiSelectionException(when (goal) {
+                SelectionGoal.OUTFIT -> AiSelectionFailure.NO_OUTFIT
+                SelectionGoal.CAPSULE -> AiSelectionFailure.NO_CAPSULE
+            })
+        }
     }
 
-    private fun invalidRequest(): Nothing = throw AiOutfitException(AiOutfitFailure.INVALID_REQUEST)
+    private fun invalidRequest(): Nothing = throw AiSelectionException(AiSelectionFailure.INVALID_REQUEST)
 }

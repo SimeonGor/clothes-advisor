@@ -10,42 +10,53 @@ import java.time.Duration
 import javax.net.ssl.SSLContext
 import javax.net.ssl.TrustManagerFactory
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Import
 import org.springframework.core.env.ConfigurableEnvironment
 import ru.itmo.clothesadvisor.client.ai.ChatGptCredentials
-import ru.itmo.clothesadvisor.client.ai.OpenAiOutfitClient
+import ru.itmo.clothesadvisor.client.ai.OpenAiSelectionClient
 import tools.jackson.databind.json.JsonMapper
 
 @Configuration
-@Import(OutfitPromptPollingConfiguration::class)
+@Import(SelectionPromptPollingConfiguration::class)
 internal class OpenAiConfiguration {
     @Bean
-    fun outfitPromptSettings(environment: ConfigurableEnvironment) = OutfitPromptSettings(
+    fun outfitPromptSettings(environment: ConfigurableEnvironment) = SelectionPromptSettings(
+        "app.openai.prompt",
         environment.propertySources.firstNotNullOfOrNull { it.getProperty("app.openai.prompt.version") }?.toString(),
         environment.propertySources.firstNotNullOfOrNull { it.getProperty("app.openai.prompt.text") }?.toString(),
     )
 
+    @Bean
+    fun capsulePromptSettings(environment: ConfigurableEnvironment) = SelectionPromptSettings(
+        "app.openai.capsule-prompt",
+        environment.propertySources.firstNotNullOfOrNull { it.getProperty("app.openai.capsule-prompt.version") }?.toString(),
+        environment.propertySources.firstNotNullOfOrNull { it.getProperty("app.openai.capsule-prompt.text") }?.toString(),
+    )
+
     @Bean(destroyMethod = "close")
-    fun openAiOutfitClient(
+    fun openAiSelectionClient(
         mapper: JsonMapper,
         clock: Clock,
-        promptSettings: OutfitPromptSettings,
+        @Qualifier("outfitPromptSettings") outfitPromptSettings: SelectionPromptSettings,
+        @Qualifier("capsulePromptSettings") capsulePromptSettings: SelectionPromptSettings,
         @Value("\${app.openai.credentials-directory:}") directory: String,
         @Value("\${app.openai.model:}") model: String,
         @Value("\${app.openai.endpoint:https://api.openai.com/v1/responses}") endpoint: URI,
         @Value("\${app.openai.timeout:60s}") timeout: Duration,
         @Value("\${app.openai.trust-store:}") trustStore: String,
     ) =
-        OpenAiOutfitClient(
+        OpenAiSelectionClient(
             httpClient(trustStore),
             mapper,
             ChatGptCredentials(mapper, clock, directory),
             model,
             endpoint,
             timeout,
-            promptSettings,
+            outfitPromptSettings,
+            capsulePromptSettings,
         )
 
     internal fun httpClient(trustStore: String): HttpClient? =
