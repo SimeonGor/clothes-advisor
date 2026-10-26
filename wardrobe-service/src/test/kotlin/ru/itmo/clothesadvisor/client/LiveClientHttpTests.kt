@@ -27,12 +27,12 @@ import ru.itmo.clothesadvisor.client.account.AccountClientTests
 import ru.itmo.clothesadvisor.client.recommendation.RecommendationClient
 import ru.itmo.clothesadvisor.config.LiveClientSettings
 import ru.itmo.clothesadvisor.config.LiveClientSettingsTests
-import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionCandidate
-import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionRequest
-import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionWeather
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionCandidate
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionRequest
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionWeather
 import ru.itmo.clothesadvisor.model.access.AccountUnavailableException
-import ru.itmo.clothesadvisor.model.ai.AiOutfitException
-import ru.itmo.clothesadvisor.model.ai.AiOutfitFailure
+import ru.itmo.clothesadvisor.model.ai.AiSelectionException
+import ru.itmo.clothesadvisor.model.ai.AiSelectionFailure
 
 @SpringBootTest(
     classes = [AccountClientTests.ClientApplication::class],
@@ -45,9 +45,9 @@ class LiveClientHttpTests {
     @Autowired private lateinit var settings: LiveClientSettings
     @Autowired private lateinit var breakers: CircuitBreakerRegistry
     @Autowired private lateinit var context: ApplicationContext
-    private val selection = OutfitSelectionRequest(
-        OutfitSelectionWeather(BigDecimal.ZERO, BigDecimal.ZERO, "NONE", "None"),
-        listOf(OutfitSelectionCandidate(7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", "AQID")),
+    private val selection = ItemSelectionRequest(
+        ItemSelectionWeather(BigDecimal.ZERO, BigDecimal.ZERO, "NONE", "None"),
+        listOf(ItemSelectionCandidate(7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", "AQID")),
     )
 
     @BeforeEach
@@ -60,7 +60,7 @@ class LiveClientHttpTests {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = ["account", "recommendation"])
+    @ValueSource(strings = ["account", "recommendation", "capsule"])
     fun `existing bean uses new timeout while in-flight request completes with captured timeout`(kind: String) {
         // given
         release = CountDownLatch(1)
@@ -69,7 +69,8 @@ class LiveClientHttpTests {
 
         try {
             // when
-            settings.apply(LiveClientSettingsTests.source(mapOf("app.$kind-client.read-timeout" to "120ms")))
+            val clientName = if (kind == "capsule") "recommendation" else kind
+            settings.apply(LiveClientSettingsTests.source(mapOf("app.$clientName-client.read-timeout" to "120ms")))
             val failure = executor.submit<Throwable?> { catchThrowable { invoke(kind) } }.get(5, TimeUnit.SECONDS)
 
             // then
@@ -105,6 +106,7 @@ class LiveClientHttpTests {
 
     private fun invoke(kind: String): Any = when (kind) {
         "account" -> account.getUser(7).block(Duration.ofSeconds(5))!!
+        "capsule" -> recommendation.selectCapsule(selection)
         else -> recommendation.select(selection)
     }
 
@@ -112,8 +114,8 @@ class LiveClientHttpTests {
         if (kind == "account") {
             assertThat(failure).isExactlyInstanceOf(AccountUnavailableException::class.java)
         } else {
-            assertThat(failure).isInstanceOfSatisfying(AiOutfitException::class.java) {
-                assertThat(it.failure).isEqualTo(AiOutfitFailure.TIMEOUT)
+            assertThat(failure).isInstanceOfSatisfying(AiSelectionException::class.java) {
+                assertThat(it.failure).isEqualTo(AiSelectionFailure.TIMEOUT)
             }
         }
         assertThat(failure!!.message).isNull()

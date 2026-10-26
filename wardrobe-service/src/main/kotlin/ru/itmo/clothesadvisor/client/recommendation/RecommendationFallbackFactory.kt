@@ -8,34 +8,38 @@ import java.net.http.HttpTimeoutException
 import java.util.concurrent.TimeoutException
 import java.util.function.Predicate
 import org.springframework.cloud.openfeign.FallbackFactory
-import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionRequest
-import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionResponse
-import ru.itmo.clothesadvisor.model.ai.AiOutfitException
-import ru.itmo.clothesadvisor.model.ai.AiOutfitFailure
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionRequest
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionResponse
+import ru.itmo.clothesadvisor.model.ai.AiSelectionException
+import ru.itmo.clothesadvisor.model.ai.AiSelectionFailure
 
 class RecommendationFallbackFactory : FallbackFactory<RecommendationClient> {
     override fun create(cause: Throwable): RecommendationClient {
         val causes = generateSequence(cause) { it.cause }.toList()
-        val failure = causes.filterIsInstance<AiOutfitException>().firstOrNull()?.failure
+        val failure = causes.filterIsInstance<AiSelectionException>().firstOrNull()?.failure
             ?: when {
                 causes.any {
                     it is SocketTimeoutException || it is HttpTimeoutException || it is TimeoutException
-                } -> AiOutfitFailure.TIMEOUT
+                } -> AiSelectionFailure.TIMEOUT
                 causes.any { it is RetryableException || it is IOException } ->
-                    AiOutfitFailure.UNAVAILABLE
-                causes.any { it is FeignException } -> AiOutfitFailure.INVALID_RESPONSE
-                else -> AiOutfitFailure.UNAVAILABLE
+                    AiSelectionFailure.UNAVAILABLE
+                causes.any { it is FeignException } -> AiSelectionFailure.INVALID_RESPONSE
+                else -> AiSelectionFailure.UNAVAILABLE
             }
         return object : RecommendationClient {
-            override fun select(request: OutfitSelectionRequest): OutfitSelectionResponse =
-                throw AiOutfitException(failure)
+            override fun select(request: ItemSelectionRequest): ItemSelectionResponse =
+                throw AiSelectionException(failure)
+
+            override fun selectCapsule(request: ItemSelectionRequest): ItemSelectionResponse =
+                throw AiSelectionException(failure)
         }
     }
 }
 
-class NoOutfitFailurePredicate : Predicate<Throwable> {
+class NoSelectionFailurePredicate : Predicate<Throwable> {
     override fun test(error: Throwable): Boolean =
         generateSequence(error) { it.cause }.any {
-            it is AiOutfitException && it.failure == AiOutfitFailure.NO_OUTFIT
+            it is AiSelectionException &&
+                (it.failure == AiSelectionFailure.NO_OUTFIT || it.failure == AiSelectionFailure.NO_CAPSULE)
         }
 }

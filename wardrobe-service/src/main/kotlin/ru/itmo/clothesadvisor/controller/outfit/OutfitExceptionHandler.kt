@@ -6,7 +6,7 @@ import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
 import ru.itmo.clothesadvisor.controller.ai.AiOutfitController
-import ru.itmo.clothesadvisor.model.ai.AiOutfitException
+import ru.itmo.clothesadvisor.model.ai.AiSelectionException
 import ru.itmo.clothesadvisor.service.outfit.InvalidOutfitRequestException
 import ru.itmo.clothesadvisor.service.rating.RatingConflictException
 import ru.itmo.clothesadvisor.storage.wardrobe.PhotoStorageUnavailableException
@@ -21,8 +21,8 @@ import ru.itmo.clothesadvisor.storage.wardrobe.PhotoStorageUnavailableException
         ],
 )
 internal class OutfitExceptionHandler {
-    @ExceptionHandler(AiOutfitException::class)
-    fun aiFailure(error: AiOutfitException): ResponseEntity<Void> =
+    @ExceptionHandler(AiSelectionException::class)
+    fun aiFailure(error: AiSelectionException): ResponseEntity<Void> =
         ResponseEntity.status(error.status).build()
 
     @ExceptionHandler(PhotoStorageUnavailableException::class)

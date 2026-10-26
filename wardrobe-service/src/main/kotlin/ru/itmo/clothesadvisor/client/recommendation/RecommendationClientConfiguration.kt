@@ -7,10 +7,10 @@ import feign.codec.Encoder
 import feign.codec.ErrorDecoder
 import java.util.concurrent.TimeUnit
 import org.springframework.context.annotation.Bean
-import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionResponse
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionResponse
 import ru.itmo.clothesadvisor.config.LiveClientSettings
-import ru.itmo.clothesadvisor.model.ai.AiOutfitException
-import ru.itmo.clothesadvisor.model.ai.AiOutfitFailure
+import ru.itmo.clothesadvisor.model.ai.AiSelectionException
+import ru.itmo.clothesadvisor.model.ai.AiSelectionFailure
 import tools.jackson.core.JacksonException
 import tools.jackson.core.StreamReadFeature
 import tools.jackson.core.exc.JacksonIOException
@@ -41,42 +41,46 @@ class RecommendationClientConfiguration {
                 ids.any { !it.isIntegralNumber || !it.canConvertToLong() || it.longValue() <= 0 } ||
                 (explanation != null && (!explanation.isString || explanation.asString().isBlank() ||
                     explanation.asString().length > 2000))
-            ) throw AiOutfitException(AiOutfitFailure.INVALID_RESPONSE)
+            ) throw AiSelectionException(AiSelectionFailure.INVALID_RESPONSE)
             val selected = ids.toList().map { it.longValue() }
             if (selected.toSet().size != selected.size) {
-                throw AiOutfitException(AiOutfitFailure.INVALID_RESPONSE)
+                throw AiSelectionException(AiSelectionFailure.INVALID_RESPONSE)
             }
-            OutfitSelectionResponse(selected, explanation?.asString())
+            ItemSelectionResponse(selected, explanation?.asString())
         } catch (error: JacksonIOException) {
             throw error
         } catch (_: JacksonException) {
-            throw AiOutfitException(AiOutfitFailure.INVALID_RESPONSE)
+            throw AiSelectionException(AiSelectionFailure.INVALID_RESPONSE)
         }
     }
 
     @Bean
-    fun recommendationErrorDecoder() = ErrorDecoder { _, response ->
+    fun recommendationErrorDecoder() = ErrorDecoder { methodKey, response ->
         val failure = try {
             val body = response.body()?.asInputStream()?.use { mapper.readTree(it) }
             val expected = when (response.status()) {
-                400 -> AiOutfitFailure.INVALID_REQUEST
-                422 -> AiOutfitFailure.NO_OUTFIT
-                502 -> AiOutfitFailure.INVALID_RESPONSE
-                503 -> AiOutfitFailure.UNAVAILABLE
-                504 -> AiOutfitFailure.TIMEOUT
+                400 -> AiSelectionFailure.INVALID_REQUEST
+                422 -> when (methodKey) {
+                    "RecommendationClient#select(ItemSelectionRequest)" -> AiSelectionFailure.NO_OUTFIT
+                    "RecommendationClient#selectCapsule(ItemSelectionRequest)" -> AiSelectionFailure.NO_CAPSULE
+                    else -> null
+                }
+                502 -> AiSelectionFailure.INVALID_RESPONSE
+                503 -> AiSelectionFailure.UNAVAILABLE
+                504 -> AiSelectionFailure.TIMEOUT
                 else -> null
             }
             if (expected != null && body != null && body.isObject && body.size() == 1 &&
                 body.path("code").isString &&
                 body.path("code").asString() == expected.name.lowercase() &&
-                expected != AiOutfitFailure.INVALID_REQUEST
-            ) expected else AiOutfitFailure.INVALID_RESPONSE
+                expected != AiSelectionFailure.INVALID_REQUEST
+            ) expected else AiSelectionFailure.INVALID_RESPONSE
         } catch (error: JacksonIOException) {
             throw error
         } catch (_: JacksonException) {
-            AiOutfitFailure.INVALID_RESPONSE
+            AiSelectionFailure.INVALID_RESPONSE
         }
-        AiOutfitException(failure)
+        AiSelectionException(failure)
     }
 
     @Bean

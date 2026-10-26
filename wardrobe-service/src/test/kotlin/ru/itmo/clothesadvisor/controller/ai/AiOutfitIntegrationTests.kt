@@ -50,14 +50,14 @@ import ru.itmo.clothesadvisor.config.insertItem
 import ru.itmo.clothesadvisor.config.insertUser
 import ru.itmo.clothesadvisor.config.updateUserRoleAndStatus
 import ru.itmo.clothesadvisor.dto.account.AccountUserResponse
-import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionRequest
-import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionResponse
-import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionStylePreferences
-import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionWeather
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionRequest
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionResponse
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionStylePreferences
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionWeather
 import ru.itmo.clothesadvisor.dto.wardrobe.CreateWardrobeItemRequest
 import ru.itmo.clothesadvisor.dto.wardrobe.UpdateWardrobeItemRequest
-import ru.itmo.clothesadvisor.model.ai.AiOutfitException
-import ru.itmo.clothesadvisor.model.ai.AiOutfitFailure
+import ru.itmo.clothesadvisor.model.ai.AiSelectionException
+import ru.itmo.clothesadvisor.model.ai.AiSelectionFailure
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
 import ru.itmo.clothesadvisor.repository.outfit.OutfitItemRepository
@@ -93,8 +93,8 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
     private val providerCalls = AtomicInteger()
     private val downloaded = mutableListOf<String>()
     private var onDownload: () -> Unit = {}
-    private var select: (OutfitSelectionRequest) -> OutfitSelectionResponse = { selection ->
-        OutfitSelectionResponse(selection.candidates.map { it.itemId }.reversed(), "Подходит для погоды.")
+    private var select: (ItemSelectionRequest) -> ItemSelectionResponse = { selection ->
+        ItemSelectionResponse(selection.candidates.map { it.itemId }.reversed(), "Подходит для погоды.")
     }
 
     @BeforeEach
@@ -123,21 +123,21 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
             .`when`(storage)
             .get(anyString(), anyLong())
         val weather =
-            OutfitSelectionWeather(BigDecimal.ZERO, BigDecimal.ONE, "", "")
-        val selection = OutfitSelectionRequest(weather, emptyList())
+            ItemSelectionWeather(BigDecimal.ZERO, BigDecimal.ONE, "", "")
+        val selection = ItemSelectionRequest(weather, emptyList())
         doAnswer { call ->
                 assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
                 assertThat(Thread.currentThread().name).startsWith("boundedElastic-")
                 assertThat(Schedulers.isInNonBlockingThread()).isFalse()
                 providerCalls.incrementAndGet()
-                val actual = call.getArgument<OutfitSelectionRequest>(0)
+                val actual = call.getArgument<ItemSelectionRequest>(0)
                 assertThat(actual.weather.temperatureC).isEqualByComparingTo(TEMPERATURE)
                 assertThat(actual.weather.precipitationCode).isNotBlank()
                 assertThat(actual.weather.precipitationName).isNotBlank()
                 select(actual)
             }
             .`when`(provider)
-            .select(anyArgument(OutfitSelectionRequest::class.java) ?: selection)
+            .select(anyArgument(ItemSelectionRequest::class.java) ?: selection)
     }
 
     @AfterEach fun close() = http.close()
@@ -166,7 +166,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         if (duringDownload) onDownload = waitForRelease
         select = { selection ->
             if (!duringDownload) waitForRelease()
-            OutfitSelectionResponse(selection.candidates.map { it.itemId })
+            ItemSelectionResponse(selection.candidates.map { it.itemId })
         }
         Executors.newSingleThreadExecutor().use { executor ->
             // when
@@ -257,7 +257,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
             assertThat(request.candidates.map { it.itemId }).containsExactly(first, second)
             assertThat(request.stylePreferences).isNull()
             assertThat(downloaded.takeLast(2)).containsExactly("photo-$first", "photo-$second")
-            OutfitSelectionResponse(listOf(second, first))
+            ItemSelectionResponse(listOf(second, first))
         }
         for (candidates in listOf(null, "null", "[$second,$noPhoto,$first]")) {
 
@@ -338,10 +338,10 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         jdbc.update("""INSERT INTO style_preferences
             (owner_id, preferred_colors_and_materials, avoidances, additional_wishes, version)
             VALUES (?, '  Blue  ', 'Wool', 'Loose fit', 1)""", owner.id)
-        val received = mutableListOf<OutfitSelectionStylePreferences?>()
+        val received = mutableListOf<ItemSelectionStylePreferences?>()
         select = { selection ->
             received += selection.stylePreferences
-            OutfitSelectionResponse(listOf(itemId), "Подходит.")
+            ItemSelectionResponse(listOf(itemId), "Подходит.")
         }
         onDownload = {
             jdbc.update("""UPDATE style_preferences SET preferred_colors_and_materials = 'Red',
@@ -357,7 +357,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         assertThat(created.statusCode()).isEqualTo(201)
         assertThat(replay.statusCode()).isEqualTo(201)
         assertThat(replay.body()).isEqualTo(created.body())
-        assertThat(received).containsExactly(OutfitSelectionStylePreferences("  Blue  ", "Wool", "Loose fit"))
+        assertThat(received).containsExactly(ItemSelectionStylePreferences("  Blue  ", "Wool", "Loose fit"))
         assertThat(downloaded).containsExactly("photo-$itemId")
         assertThat(providerCalls).hasValue(1)
         verify(preferences).findByOwnerId(owner.id)
@@ -370,8 +370,8 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         assertThat(next.statusCode()).isEqualTo(201)
         assertThat(number(dto(next), "id")).isNotEqualTo(number(dto(created), "id"))
         assertThat(received).containsExactly(
-            OutfitSelectionStylePreferences("  Blue  ", "Wool", "Loose fit"),
-            OutfitSelectionStylePreferences("Red", "Wool", "Loose fit"),
+            ItemSelectionStylePreferences("  Blue  ", "Wool", "Loose fit"),
+            ItemSelectionStylePreferences("Red", "Wool", "Loose fit"),
         )
         assertThat(providerCalls).hasValue(2)
         verify(preferences, times(2)).findByOwnerId(owner.id)
@@ -391,7 +391,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         select = { selection ->
             assertThat(selection.occasion).isEqualTo(occasion)
             assertThat(selection.preferredStyle).isEqualTo(style)
-            OutfitSelectionResponse(selection.candidates.map { it.itemId }, explanation)
+            ItemSelectionResponse(selection.candidates.map { it.itemId }, explanation)
         }
         val input = body().dropLast(1) + """, "occasion":"$occasion", "preferredStyle":"$style"}"""
 
@@ -496,7 +496,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         val owner = connectedUser()
         val actorId = actorId(owner)
         val ids = List(20) { item(owner) }
-        select = { OutfitSelectionResponse(listOf(it.candidates.last().itemId)) }
+        select = { ItemSelectionResponse(listOf(it.candidates.last().itemId)) }
 
         // when
         val maximumCandidatesStatus = request("POST", actorId = actorId, body = body()).statusCode()
@@ -647,7 +647,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         val owner = connectedUser()
         val actorId = actorId(owner)
         val id = item(owner)
-        select = { throw AiOutfitException(AiOutfitFailure.UNAVAILABLE) }
+        select = { throw AiSelectionException(AiSelectionFailure.UNAVAILABLE) }
 
         // when
         val unavailableProvider = request("POST", actorId = actorId, body = body())
@@ -668,14 +668,14 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
 
         for (failure in
             listOf(
-                AiOutfitFailure.NO_OUTFIT,
-                AiOutfitFailure.INVALID_RESPONSE,
-                AiOutfitFailure.UNAVAILABLE,
-                AiOutfitFailure.TIMEOUT,
+                AiSelectionFailure.NO_OUTFIT,
+                AiSelectionFailure.INVALID_RESPONSE,
+                AiSelectionFailure.UNAVAILABLE,
+                AiSelectionFailure.TIMEOUT,
             )) {
 
             // given: the next provider failure
-            select = { throw AiOutfitException(failure) }
+            select = { throw AiSelectionException(failure) }
 
             // when
             val providerFailure = request("POST", actorId = actorId, body = body())
@@ -725,7 +725,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         val unused = item(owner)
         select = { _ ->
             items.delete(owner.id, unused, 1)
-            OutfitSelectionResponse(listOf(chosen))
+            ItemSelectionResponse(listOf(chosen))
         }
 
         // when
@@ -742,7 +742,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
                 chosen,
                 UpdateWardrobeItemRequest(1, "Edited", 1, "Black", "Wool"),
             )
-            OutfitSelectionResponse(listOf(chosen))
+            ItemSelectionResponse(listOf(chosen))
         }
 
         // when
@@ -779,7 +779,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
                         owner.role,
                         UserStatus.BLOCKED,
                     )
-                    OutfitSelectionResponse(it.candidates.map { candidate -> candidate.itemId })
+                    ItemSelectionResponse(it.candidates.map { candidate -> candidate.itemId })
                 }
             }
 
@@ -801,7 +801,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         val item = item(owner)
         select = {
             jdbc.update("UPDATE app_user SET login = ? WHERE id = ?", "renamed", owner.id)
-            OutfitSelectionResponse(listOf(item))
+            ItemSelectionResponse(listOf(item))
         }
 
         // when
@@ -830,7 +830,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         select = { _ ->
             providerEntered.countDown()
             assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue()
-            OutfitSelectionResponse(listOf(item))
+            ItemSelectionResponse(listOf(item))
         }
         Executors.newFixedThreadPool(2).use { executor ->
 
@@ -1003,8 +1003,8 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
             assertThat(selection.occasion).isEqualTo("  Work  ")
             assertThat(selection.preferredStyle).isEqualTo("Classic")
             assertThat(selection.stylePreferences)
-                .isEqualTo(OutfitSelectionStylePreferences("Blue", "", "Loose fit"))
-            OutfitSelectionResponse(listOf(retained, added), "Подходит для работы.")
+                .isEqualTo(ItemSelectionStylePreferences("Blue", "", "Loose fit"))
+            ItemSelectionResponse(listOf(retained, added), "Подходит для работы.")
         }
         val path = "/api/outfits/$source/ai-replacements"
         val input = """{"name":"New","replaceItemIds":[$removed],"candidateItemIds":[$added,$removed]}"""
@@ -1062,7 +1062,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         select = { selection ->
             assertThat(selection.candidates.map { it.itemId }).containsExactlyElementsOf(candidates)
             assertThat(selection.requiredItemIds).containsExactly(candidates.first())
-            OutfitSelectionResponse(candidates, "Подходит.")
+            ItemSelectionResponse(candidates, "Подходит.")
         }
 
         // when
@@ -1136,7 +1136,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         select = { selection ->
             assertThat(selection.requiredItemIds).isEmpty()
             assertThat(selection.candidates.map { it.itemId }).containsExactly(added)
-            OutfitSelectionResponse(listOf(added), "Подходит.")
+            ItemSelectionResponse(listOf(added), "Подходит.")
         }
 
         // when
@@ -1160,7 +1160,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         val input = """{"name":"New","replaceItemIds":[$removed]}"""
         select = {
             assertThat(request("DELETE", "/api/outfits/$source", actorId(owner)).statusCode()).isEqualTo(204)
-            OutfitSelectionResponse(listOf(added), "Подходит.")
+            ItemSelectionResponse(listOf(added), "Подходит.")
         }
 
         // when
@@ -1276,7 +1276,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         // given
         select = { selection ->
             assertThat(selection.candidates.map { it.itemId }).containsExactly(retained, added.first())
-            OutfitSelectionResponse(listOf(retained, added.first()), "Подходит.")
+            ItemSelectionResponse(listOf(retained, added.first()), "Подходит.")
         }
 
         // when
@@ -1312,7 +1312,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         val foreign = item(user())
         select = { selection ->
             assertThat(selection.candidates.map { it.itemId }).containsExactly(available)
-            OutfitSelectionResponse(listOf(available))
+            ItemSelectionResponse(listOf(available))
         }
 
         // when
@@ -1376,7 +1376,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         if (duringDownload) onDownload = change
         select = {
             if (!duringDownload) change()
-            OutfitSelectionResponse(listOf(chosen))
+            ItemSelectionResponse(listOf(chosen))
         }
 
         // when
@@ -1401,7 +1401,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         select = {
             providerEntered.countDown()
             assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue()
-            OutfitSelectionResponse(listOf(id))
+            ItemSelectionResponse(listOf(id))
         }
         Executors.newFixedThreadPool(2).use { executor ->
             // when

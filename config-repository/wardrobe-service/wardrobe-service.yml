@@ -38,9 +38,12 @@ resilience4j:
         wait-duration-in-open-state: 60s
         permitted-number-of-calls-in-half-open-state: 10
     instances:
-      RecommendationClientselectOutfitSelectionRequest:
+      RecommendationClientselectItemSelectionRequest:
         base-config: remote-service
-        ignore-exception-predicate: ru.itmo.clothesadvisor.client.recommendation.NoOutfitFailurePredicate
+        ignore-exception-predicate: ru.itmo.clothesadvisor.client.recommendation.NoSelectionFailurePredicate
+      RecommendationClientselectCapsuleItemSelectionRequest:
+        base-config: remote-service
+        ignore-exception-predicate: ru.itmo.clothesadvisor.client.recommendation.NoSelectionFailurePredicate
       AccountClientgetUserlong:
         base-config: remote-service
         ignore-exception-predicate: ru.itmo.clothesadvisor.client.account.AccountDomainFailurePredicate
