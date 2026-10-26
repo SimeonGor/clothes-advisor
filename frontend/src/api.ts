@@ -62,6 +62,13 @@ export type Outfit = {
   preferredStyle?: string | null;
   explanation?: string | null;
 };
+export type StylistRequestAnswer = { outfitId: number; explanation: string; createdAt: string };
+export type StylistRequest = {
+  id: number; ownerId: number; stylistId: number; wishes: string;
+  weather: { temperatureC: number; windSpeedMps: number; precipitationTypeId: number };
+  status: "PENDING" | "CANCELLED" | "ANSWERED"; version: number;
+  createdAt: string; modifiedAt: string; answer?: StylistRequestAnswer | null;
+};
 
 export function outfitsPath(context: WorkspaceContext): string {
   if (context.kind === "own") return "/api/outfits";
