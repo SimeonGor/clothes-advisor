@@ -143,7 +143,8 @@ class OpenAiOutfitClient internal constructor(
                         "weather" to selection.weather,
                         "occasion" to selection.occasion,
                         "preferredStyle" to selection.preferredStyle,
-                    ) + (selection.requiredItemIds?.let { mapOf("requiredItemIds" to it) } ?: emptyMap()),
+                    ) + (selection.requiredItemIds?.let { mapOf("requiredItemIds" to it) } ?: emptyMap()) +
+                        (selection.stylePreferences?.let { mapOf("stylePreferences" to it) } ?: emptyMap()),
                 ),
             ),
         )

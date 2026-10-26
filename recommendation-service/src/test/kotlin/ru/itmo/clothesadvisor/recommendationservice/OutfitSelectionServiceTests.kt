@@ -16,6 +16,7 @@ import ru.itmo.clothesadvisor.client.ai.OpenAiOutfitClient
 import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionCandidate
 import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionRequest
 import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionResponse
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionStylePreferences
 import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionWeather
 import ru.itmo.clothesadvisor.recommendationservice.service.OutfitSelectionService
 
@@ -57,6 +58,42 @@ class OutfitSelectionServiceTests {
             assertThat(response.itemIds).containsExactly(7)
             verify(provider).select(input)
         }
+    }
+
+    @Test
+    fun `optional preferences accept absent empty and maximum values unchanged`() {
+        // given
+        val inputs = listOf(request, request.copy(stylePreferences = OutfitSelectionStylePreferences("", "", "")),
+            request.copy(stylePreferences = OutfitSelectionStylePreferences("c".repeat(2000), "a".repeat(2000), "w".repeat(2000))))
+        inputs.forEach { input ->
+            `when`(provider.select(input)).thenReturn(OutfitSelectionResponse(listOf(7), "Подходит."))
+
+            // when
+            val response = service.select(input)
+
+            // then
+            assertThat(response.itemIds).containsExactly(7)
+            verify(provider).select(input)
+        }
+    }
+
+    @Test
+    fun `each oversized preference is rejected before provider`() {
+        // given
+        val preferences = OutfitSelectionStylePreferences("", "", "")
+        val invalid = listOf(
+            preferences.copy(preferredColorsAndMaterials = "c".repeat(2001)),
+            preferences.copy(avoidances = "a".repeat(2001)),
+            preferences.copy(additionalWishes = "w".repeat(2001)),
+        )
+        invalid.forEach { input ->
+            // when
+            val failure = catchThrowable { service.select(request.copy(stylePreferences = input)) }
+
+            // then
+            assertFailure(AiOutfitFailure.INVALID_REQUEST, failure)
+        }
+        verifyNoInteractions(provider)
     }
 
     @Test

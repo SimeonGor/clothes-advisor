@@ -10,6 +10,14 @@ data class OutfitSelectionRequest(
     val preferredStyle: String? = null,
     @get:JsonInclude(JsonInclude.Include.NON_NULL)
     val requiredItemIds: List<Long?>? = null,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL)
+    val stylePreferences: OutfitSelectionStylePreferences? = null,
+)
+
+data class OutfitSelectionStylePreferences(
+    val preferredColorsAndMaterials: String,
+    val avoidances: String,
+    val additionalWishes: String,
 )
 
 data class OutfitSelectionWeather(
