@@ -162,7 +162,7 @@ describe("Ручные капсулы", () => {
       const url = String(input);
       if (url.startsWith("/api/wardrobe/items?page=")) {
         wardrobeReads += 1;
-        if (wardrobeReads === 2) return fail(503);
+        if (wardrobeReads === 2 || wardrobeReads === 4) return fail(503);
         return ok(wardrobeReads === 1 ? [item(1), item(2)] : [item(2)]);
       }
       if (url === "/api/me/capsules" && init?.method === "POST") {
@@ -174,7 +174,7 @@ describe("Ручные капсулы", () => {
       if (url.endsWith("/photos")) return ok([]);
       return fail(404);
     }));
-    mount();
+    const { client } = mount();
     fireEvent.change(screen.getByLabelText("НАЗВАНИЕ КАПСУЛЫ"), { target: { value: "  Набор  " } });
     fireEvent.click(await screen.findByLabelText("Выбрать: Вещь 1"));
     fireEvent.click(screen.getByLabelText("Выбрать: Вещь 2"));
@@ -194,6 +194,18 @@ describe("Ручные капсулы", () => {
     await screen.findByRole("button", { name: "Гардероб обновлён" });
     fireEvent.submit(screen.getByLabelText("НАЗВАНИЕ КАПСУЛЫ").closest("form")!);
     expect(posts).toHaveLength(1);
+
+    // when: a background read fails after the explicit conflict refresh.
+    await act(async () => { await client.refetchQueries({ queryKey: ["capsule-items", user.id], exact: true }); });
+
+    // then: another explicit refresh is available without discarding the draft.
+    await waitFor(() => expect((screen.getByRole("button", { name: "Новая попытка" }) as HTMLButtonElement).disabled).toBe(true));
+    expect((screen.getByRole("button", { name: "Обновить гардероб" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(posts).toHaveLength(1);
+
+    // when
+    fireEvent.click(screen.getByRole("button", { name: "Обновить гардероб" }));
+    await screen.findByRole("button", { name: "Гардероб обновлён" });
     fireEvent.click(screen.getByRole("button", { name: "Новая попытка" }));
     expect(confirm).toHaveBeenCalled();
     expect(await screen.findByLabelText("Выбрать: Вещь 2")).toBeTruthy();
@@ -304,6 +316,34 @@ describe("Ручные капсулы", () => {
     expect(screen.getByText("Отметьте от одной до 50 вещей.")).toBeTruthy();
     fireEvent.click(screen.getByRole("button", { name: "Далее →" }));
     expect((screen.getByLabelText("Выбрать: Вещь 21") as HTMLInputElement).disabled).toBe(false);
+  });
+
+  it("подписывает AI и ручные записи, а сохранённая AI-капсула переживает ошибку справочника", async () => {
+    // given
+    const ai = capsule({ source: "AI", weather: { temperatureC: 4.5, windSpeedMps: 2, precipitationTypeId: 77 }, occasion: "Поездка", preferredStyle: "Спокойный", explanation: "Текст <script>безопасен</script>." });
+    const manual = capsule({ id: 6, name: "Ручная", source: undefined, weather: undefined, explanation: undefined });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/me/capsules?page=")) return ok([ai, manual]);
+      if (url === "/api/me/capsules/5") return ok(ai);
+      if (url === "/api/wardrobe/items/1") return ok(item(1));
+      if (url.startsWith("/api/weather/precipitation-types?")) return fail(503);
+      if (url.endsWith("/photos")) return ok([]);
+      return fail(404);
+    }));
+
+    // when: read the list, then open the AI detail while its weather lookup is unavailable.
+    mount("/capsules");
+
+    // then
+    expect(await screen.findByText("Подбор с ИИ")).toBeTruthy();
+    expect(screen.getByText("Ручной набор")).toBeTruthy();
+    cleanup();
+    mount("/capsules/5");
+    expect(await screen.findByText("Текст <script>безопасен</script>.")).toBeTruthy();
+    expect(screen.getByText("4.5 °C · ветер 2 м/с · осадки: ID 77")).toBeTruthy();
+    expect(screen.getByText("Повод: Поездка")).toBeTruthy();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   it("не показывает капсулы стилисту и оставляет обычный маршрут приложения", async () => {
