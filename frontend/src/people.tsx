@@ -5,6 +5,7 @@ import { allPages, ApiError, request, resourceErrorMessage, type Account, type A
 import { Wardrobe, WardrobeDetail } from "./wardrobe";
 import { OutfitDetail, OutfitEditor, Outfits } from "./outfits";
 import { ClientPreferences } from "./preferences";
+import { StylistRequestDetail, StylistRequests } from "./stylist-requests";
 import styles from "./site.module.css";
 
 type Person = { id: number; login: string };
@@ -150,10 +151,11 @@ export function OwnerWorkspace({ kind, actor, pending, onPending }: Props & { ki
       {query.isError && <ReadError error={query.error} retry={() => void query.refetch()} />}
       {query.isFetching && <p className={styles.state}>Проверяем доступ… Запись временно недоступна.</p>}
       <nav className={styles.contextTabs} aria-label="Разделы владельца">
-        {kind === "admin" && <Link to={base} aria-disabled={pending}>Роль и статус</Link>}
-        <Link to={`${base}/wardrobe`} aria-disabled={pending}>Гардероб владельца</Link>
-        <Link to={`${base}/outfits`} aria-disabled={pending}>Образы владельца</Link>
-        {kind === "client" && <Link to={`${base}/preferences`} aria-disabled={pending}>Предпочтения клиента</Link>}
+        {kind === "admin" && <Link to={base} aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>Роль и статус</Link>}
+        <Link to={`${base}/wardrobe`} aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>Гардероб владельца</Link>
+        <Link to={`${base}/outfits`} aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>Образы владельца</Link>
+        {kind === "client" && <Link to={`${base}/requests`} aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>Запросы</Link>}
+        {kind === "client" && <Link to={`${base}/preferences`} aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>Предпочтения клиента</Link>}
       </nav>
     </section>
     <Routes>
@@ -166,6 +168,8 @@ export function OwnerWorkspace({ kind, actor, pending, onPending }: Props & { ki
         ? <ClientPreferences actor={actor} ownerId={id} />
         : <main className={styles.main}><p className={styles.state}>Предпочтения недоступны до успешной проверки доступа.</p></main>} />}
       <Route path="outfits/:outfitId" element={<OutfitDetail {...props} />} />
+      {kind === "client" && <Route path="requests" element={<StylistRequests {...props} ownerId={id} />} />}
+      {kind === "client" && <Route path="requests/:requestId" element={<StylistRequestDetail {...props} ownerId={id} />} />}
       <Route path="*" element={<Navigate to={base} replace />} />
     </Routes>
   </>;
