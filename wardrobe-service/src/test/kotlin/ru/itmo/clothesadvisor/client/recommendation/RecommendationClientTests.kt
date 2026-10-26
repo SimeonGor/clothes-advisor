@@ -65,6 +65,7 @@ import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemPhotoRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.repository.weather.PrecipitationTypeRepository
 import ru.itmo.clothesadvisor.service.ai.AiOutfitService
+import ru.itmo.clothesadvisor.service.ai.AiSelectionService
 import ru.itmo.clothesadvisor.service.outfit.OutfitService
 import ru.itmo.clothesadvisor.service.user.CurrentUserService
 import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemPhotoService
@@ -341,9 +342,13 @@ class RecommendationClientTests {
         `when`(outfits.createAi(eq(7L), refEq(outfitRequest) ?: outfitRequest, org.mockito.Mockito.isNull(), org.mockito.Mockito.isNull(), org.mockito.Mockito.isNull(), org.mockito.Mockito.isNull()))
             .thenReturn(saved)
         val service = AiOutfitService(
-            users, items, photos, precipitation,
-            mock(ru.itmo.clothesadvisor.repository.preferences.StylePreferencesRepository::class.java),
-            content, client, outfits, idempotencyService(transactions), transactions, meters, "user",
+            AiSelectionService(
+                users, items, photos, precipitation,
+                mock(ru.itmo.clothesadvisor.repository.preferences.StylePreferencesRepository::class.java),
+                content, client, transactions, meters, "user",
+            ),
+            outfits,
+            idempotencyService(transactions),
         )
         val release = CountDownLatch(1)
         val exited = CountDownLatch(1)

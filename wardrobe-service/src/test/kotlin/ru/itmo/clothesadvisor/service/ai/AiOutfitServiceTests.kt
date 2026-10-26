@@ -88,6 +88,7 @@ internal class AiOutfitServiceTests {
     private var savedStyle: String? = null
     private var savedExplanation: String? = null
     private var savedSourceId: Long? = null
+    private var onSave: () -> Unit = {}
     private val storedAt = Instant.parse("2024-02-03T04:05:06Z")
     private val weather = OutfitWeatherDto(BigDecimal.ONE, 1, BigDecimal.ZERO)
     private val saved =
@@ -100,13 +101,14 @@ internal class AiOutfitServiceTests {
                 savedStyle = call.getArgument(3)
                 savedExplanation = call.getArgument(4)
                 savedSourceId = call.getArgument(5)
+                onSave()
                 saved
             } else RETURNS_DEFAULTS.answer(call)
         }
     private val transactions = mock(PlatformTransactionManager::class.java)
     private val meters = SimpleMeterRegistry()
-    private val service =
-        AiOutfitService(
+    private val selections =
+        AiSelectionService(
             users,
             items,
             photos,
@@ -114,12 +116,11 @@ internal class AiOutfitServiceTests {
             preferences,
             content,
             provider,
-            outfits,
-            idempotencyService(transactions),
             transactions,
             meters,
             "user",
         )
+    private val service = AiOutfitService(selections, outfits, idempotencyService(transactions))
     private val owner = CurrentUser(7, "user", UserRole.USER)
     private val item =
         WardrobeItem(7, WardrobeCategory("TOP", "Top"), "Shirt", "White", "Cotton", storedAt)
@@ -283,8 +284,12 @@ internal class AiOutfitServiceTests {
         // given
         val unconfigured =
             AiOutfitService(
-                users, items, photos, precipitation, preferences, content, provider, outfits, idempotencyService(transactions), transactions,
-                SimpleMeterRegistry(), " ",
+                AiSelectionService(
+                    users, items, photos, precipitation, preferences, content, provider,
+                    transactions, SimpleMeterRegistry(), " ",
+                ),
+                outfits,
+                idempotencyService(transactions),
             )
 
         // when
@@ -485,6 +490,64 @@ internal class AiOutfitServiceTests {
 
         // then
         assertRecovered(recovered)
+    }
+
+    @Test
+    fun `shared selection slot blocks another scenario while replacement source is prepared`() {
+        // given
+        prepareReplacement()
+        selected = listOf(12, 11)
+        val other = AiOutfitService(selections, outfits, idempotencyService(transactions))
+        var rejected: Throwable? = null
+        doAnswer {
+            rejected = catchThrowable { other.create(7, request()) }
+            saved.copy(itemIds = listOf(11, 13))
+        }.`when`(outfits).get(7, 80)
+
+        // when
+        val response = service.replace(
+            7, 80, CreateAiOutfitReplacementRequest("New", listOf(13), listOf(12, 13)),
+        )
+
+        // then
+        assertThat(response).isSameAs(saved)
+        assertFailure(AiOutfitFailure.UNAVAILABLE, rejected)
+        verify(items, never()).findAvailableOwnedItemsWithPhotos(7, 21)
+        assertThat(meters.get("wardrobe.ai.active").gauge().value()).isZero()
+        assertThat(meters.get("wardrobe.ai.rejected").counter().count()).isEqualTo(1.0)
+        assertThat(meters.get("wardrobe.ai.duration").tag("outcome", "success").timer().count())
+            .isEqualTo(1)
+        assertThat(meters.get("wardrobe.ai.duration").tag("outcome", "failure").timer().count())
+            .isZero()
+    }
+
+    @Test
+    fun `shared selection slot blocks replacement preparation until create is saved`() {
+        // given
+        val other = AiOutfitService(selections, outfits, idempotencyService(transactions))
+        var rejected: Throwable? = null
+        var activeDuringSave = 0.0
+        onSave = {
+            activeDuringSave = meters.get("wardrobe.ai.active").gauge().value()
+            rejected = catchThrowable {
+                other.replace(7, 80, CreateAiOutfitReplacementRequest("New", listOf(11)))
+            }
+        }
+
+        // when
+        val response = service.create(7, request())
+
+        // then
+        assertThat(response).isSameAs(saved)
+        assertThat(activeDuringSave).isEqualTo(1.0)
+        assertFailure(AiOutfitFailure.UNAVAILABLE, rejected)
+        verify(outfits, never()).get(7, 80)
+        assertThat(meters.get("wardrobe.ai.active").gauge().value()).isZero()
+        assertThat(meters.get("wardrobe.ai.rejected").counter().count()).isEqualTo(1.0)
+        assertThat(meters.get("wardrobe.ai.duration").tag("outcome", "success").timer().count())
+            .isEqualTo(1)
+        assertThat(meters.get("wardrobe.ai.duration").tag("outcome", "failure").timer().count())
+            .isZero()
     }
 
     @Test
