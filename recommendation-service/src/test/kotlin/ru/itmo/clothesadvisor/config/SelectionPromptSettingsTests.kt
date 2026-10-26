@@ -21,6 +21,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.ValueSource
+import org.junit.jupiter.params.provider.EnumSource
 import org.springframework.boot.WebApplicationType
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration
 import org.springframework.boot.builder.SpringApplicationBuilder
@@ -31,16 +32,17 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Import
 import org.springframework.core.env.MapPropertySource
 import org.springframework.core.io.FileSystemResource
-import ru.itmo.clothesadvisor.client.ai.AiOutfitException
+import ru.itmo.clothesadvisor.client.ai.AiSelectionException
 import ru.itmo.clothesadvisor.client.ai.ChatGptCredentialFixture
 import ru.itmo.clothesadvisor.client.ai.ChatGptCredentials
-import ru.itmo.clothesadvisor.client.ai.OpenAiOutfitClient
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionCandidate
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionRequest
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionWeather
+import ru.itmo.clothesadvisor.client.ai.OpenAiSelectionClient
+import ru.itmo.clothesadvisor.client.ai.SelectionGoal
+import ru.itmo.clothesadvisor.dto.ai.ItemSelectionCandidate
+import ru.itmo.clothesadvisor.dto.ai.ItemSelectionRequest
+import ru.itmo.clothesadvisor.dto.ai.ItemSelectionWeather
 import tools.jackson.databind.json.JsonMapper
 
-class OutfitPromptSettingsTests {
+class SelectionPromptSettingsTests {
     @TempDir lateinit var temporary: Path
 
     @Test
@@ -49,13 +51,13 @@ class OutfitPromptSettingsTests {
         val source = YamlPropertySourceLoader().load(
             "prompt", FileSystemResource("../config-repository/recommendation-service/recommendation-service.yml"),
         ).single()
-        val settings = OutfitPromptSettings(null, null)
+        val settings = SelectionPromptSettings("app.openai.prompt", null, null)
 
         // when
         settings.apply(source)
 
         // then
-        assertThat(settings.snapshot()).isEqualTo(OutfitPrompt(
+        assertThat(settings.snapshot()).isEqualTo(SelectionPrompt(
             5,
             "Select one suitable clothing outfit for the supplied weather using only the supplied item IDs. " +
                 "Consider the optional occasion and preferredStyle wishes when choosing among suitable items. " +
@@ -73,7 +75,7 @@ class OutfitPromptSettingsTests {
     @Test
     fun `invalid or incomplete updates retain the entire last good pair`() {
         // given
-        val settings = OutfitPromptSettings("7", "Original instructions")
+        val settings = SelectionPromptSettings("app.openai.prompt", "7", "Original instructions")
         val original = settings.snapshot()
         val invalid = listOf(
             emptyMap(),
@@ -97,7 +99,7 @@ class OutfitPromptSettingsTests {
     @Test
     fun `valid text is verbatim and labels allow rollback and replacement at the same version`() {
         // given
-        val settings = OutfitPromptSettings("7", "Original instructions")
+        val settings = SelectionPromptSettings("app.openai.prompt", "7", "Original instructions")
         val text = "  New instructions\nwith preserved whitespace  "
 
         // when
@@ -105,7 +107,7 @@ class OutfitPromptSettingsTests {
 
         // then
         assertThat(changed).isTrue()
-        assertThat(settings.snapshot()).isEqualTo(OutfitPrompt(2, text))
+        assertThat(settings.snapshot()).isEqualTo(SelectionPrompt(2, text))
 
         // when
         val same = settings.apply(MapPropertySource("remote", values("2", text)))
@@ -114,11 +116,12 @@ class OutfitPromptSettingsTests {
         // then
         assertThat(same).isFalse()
         assertThat(replaced).isTrue()
-        assertThat(settings.snapshot()).isEqualTo(OutfitPrompt(2, "Replacement"))
+        assertThat(settings.snapshot()).isEqualTo(SelectionPrompt(2, "Replacement"))
     }
 
-    @Test
-    fun `invalid initial prompt disables selection before credentials and a good update recovers`() {
+    @ParameterizedTest
+    @EnumSource(SelectionGoal::class)
+    fun `invalid initial prompt disables selection before credentials and a good update recovers`(goal: SelectionGoal) {
         // given
         val credentials = ChatGptCredentialFixture(temporary)
         var credentialReads = 0
@@ -130,14 +133,14 @@ class OutfitPromptSettingsTests {
                 return credentials.clock.instant()
             }
         }
-        val settings = OutfitPromptSettings("bad", "Initial instructions")
+        val settings = SelectionPromptSettings("app.openai.prompt", "bad", "Initial instructions")
         withProvider { endpoint, instructions ->
-            client(credentials, clock, settings, endpoint).use { client ->
+            client(credentials, clock, settings, endpoint, goal).use { client ->
                 // when
-                val failure = catchThrowable { client.select(selection()) }
+                val failure = catchThrowable { client.select(goal, selection()) }
 
                 // then
-                assertThat(failure).isInstanceOfSatisfying(AiOutfitException::class.java) {
+                assertThat(failure).isInstanceOfSatisfying(AiSelectionException::class.java) {
                     assertThat(it.status).isEqualTo(503)
                     assertThat(it.message).isNull()
                     assertThat(it.cause).isNull()
@@ -145,20 +148,28 @@ class OutfitPromptSettingsTests {
                 assertThat(credentialReads).isZero()
                 assertThat(instructions).isEmpty()
 
+                // when: the other scenario is available without a fallback for this one
+                val other = if (goal == SelectionGoal.OUTFIT) SelectionGoal.CAPSULE else SelectionGoal.OUTFIT
+                val otherResult = client.select(other, selection())
+
+                // then
+                assertThat(otherResult.itemIds).containsExactly(7)
+
                 // when
                 settings.apply(MapPropertySource("remote", values("1", "Recovered instructions")))
-                val result = client.select(selection())
+                val result = client.select(goal, selection())
 
                 // then
                 assertThat(result.itemIds).containsExactly(7)
-                assertThat(instructions).containsExactly("Recovered instructions")
-                assertThat(credentialReads).isEqualTo(1)
+                assertThat(instructions).containsExactly(if (other == SelectionGoal.OUTFIT) "Outfit" else "Capsule", "Recovered instructions")
+                assertThat(credentialReads).isEqualTo(2)
             }
         }
     }
 
-    @Test
-    fun `selection freezes prompt before credentials while the next selection sees the new pair`() {
+    @ParameterizedTest
+    @EnumSource(SelectionGoal::class)
+    fun `selection freezes prompt before credentials while the next selection sees the new pair`(goal: SelectionGoal) {
         // given
         val credentials = ChatGptCredentialFixture(temporary)
         val entered = CountDownLatch(1)
@@ -175,12 +186,12 @@ class OutfitPromptSettingsTests {
                 return credentials.clock.instant()
             }
         }
-        val settings = OutfitPromptSettings("1", "First instructions")
+        val settings = SelectionPromptSettings("app.openai.prompt", "1", "First instructions")
         val first = settings.snapshot()
         withProvider { endpoint, instructions ->
-            client(credentials, clock, settings, endpoint).use { client ->
+            client(credentials, clock, settings, endpoint, goal).use { client ->
                 Executors.newVirtualThreadPerTaskExecutor().use { executor ->
-                    val pending = executor.submit { client.select(selection()) }
+                    val pending = executor.submit { client.select(goal, selection()) }
                     try {
                         assertThat(entered.await(10, TimeUnit.SECONDS)).isTrue()
 
@@ -190,15 +201,35 @@ class OutfitPromptSettingsTests {
                         release.countDown()
                     }
                     pending.get(10, TimeUnit.SECONDS)
-                    client.select(selection())
+                    client.select(goal, selection())
 
                     // then
-                    assertThat(first).isEqualTo(OutfitPrompt(1, "First instructions"))
-                    assertThat(settings.snapshot()).isEqualTo(OutfitPrompt(2, "Second instructions"))
+                    assertThat(first).isEqualTo(SelectionPrompt(1, "First instructions"))
+                    assertThat(settings.snapshot()).isEqualTo(SelectionPrompt(2, "Second instructions"))
                     assertThat(instructions).containsExactly("First instructions", "Second instructions")
                 }
             }
         }
+    }
+
+    @Test
+    fun `capsule configuration has its own version and instructions without outfit fallback`() {
+        // given
+        val source = YamlPropertySourceLoader().load(
+            "prompt", FileSystemResource("../config-repository/recommendation-service/recommendation-service.yml"),
+        ).single()
+        val settings = SelectionPromptSettings("app.openai.capsule-prompt", null, null)
+
+        // when
+        settings.apply(source)
+
+        // then
+        assertThat(settings.snapshot()?.version).isEqualTo(1)
+        assertThat(settings.snapshot()?.text).contains(
+            "capsule for several outfit combinations", "only the supplied item IDs", "supplied weather",
+            "stylePreferences", "take priority", "untrusted data", "1 to 20 distinct itemIds",
+            "Russian plain-text", "2000 characters", "Do not describe internal reasoning steps",
+        ).doesNotContain("requiredItemIds")
     }
 
     @TestConfiguration(proxyBeanMethods = false)
@@ -247,17 +278,19 @@ class OutfitPromptSettingsTests {
                 "--app.openai.model=test-model",
                 "--app.openai.prompt.poll-interval=100ms",
             ).use { context ->
-                val settings = context.getBean(OutfitPromptSettings::class.java)
-                val client = context.getBean(OpenAiOutfitClient::class.java)
+                val settings = context.getBean("outfitPromptSettings", SelectionPromptSettings::class.java)
+                val capsule = context.getBean("capsulePromptSettings", SelectionPromptSettings::class.java)
+                val client = context.getBean(OpenAiSelectionClient::class.java)
                 val imported = context.getBean("configDataConfigClientProperties", ConfigClientProperties::class.java)
                 val originalProfile = imported.profile
 
                 // when
-                val failure = catchThrowable { client.select(selection()) }
+                val failure = catchThrowable { client.select(SelectionGoal.OUTFIT, selection()) }
 
                 // then
                 assertThat(settings.snapshot()).isNull()
-                assertThat(failure).isInstanceOfSatisfying(AiOutfitException::class.java) {
+                assertThat(capsule.snapshot()).isNull()
+                assertThat(failure).isInstanceOfSatisfying(AiSelectionException::class.java) {
                     assertThat(it.status).isEqualTo(503)
                 }
 
@@ -265,7 +298,8 @@ class OutfitPromptSettingsTests {
                 remote.publish(Response(values = values("2", "Working instructions")))
 
                 // then
-                assertThat(settings.snapshot()).isEqualTo(OutfitPrompt(2, "Working instructions"))
+                assertThat(settings.snapshot()).isEqualTo(SelectionPrompt(2, "Working instructions"))
+                assertThat(capsule.snapshot()).isNull()
                 assertThat(imported.uri).containsExactly(uri)
                 assertThat(imported.profile).isEqualTo(originalProfile)
                 assertThat(imported.requestConnectTimeout).isEqualTo(2_000)
@@ -286,15 +320,36 @@ class OutfitPromptSettingsTests {
                     remote.publish(rejected)
 
                     // then
-                    assertThat(settings.snapshot()).isEqualTo(OutfitPrompt(2, "Working instructions"))
+                    assertThat(settings.snapshot()).isEqualTo(SelectionPrompt(2, "Working instructions"))
                 }
 
                 // when
                 remote.publish(Response(values = values("1", "Recovered instructions")))
 
                 // then
-                assertThat(settings.snapshot()).isEqualTo(OutfitPrompt(1, "Recovered instructions"))
-                assertThat(context.getBean(OpenAiOutfitClient::class.java)).isSameAs(client)
+                assertThat(settings.snapshot()).isEqualTo(SelectionPrompt(1, "Recovered instructions"))
+                assertThat(context.getBean(OpenAiSelectionClient::class.java)).isSameAs(client)
+
+                // when: invalid outfit update must not block capsule recovery
+                remote.publish(Response(values = values("bad", "Rejected outfit") + capsuleValues("1", "First capsule")))
+
+                // then
+                assertThat(settings.snapshot()).isEqualTo(SelectionPrompt(1, "Recovered instructions"))
+                assertThat(capsule.snapshot()).isEqualTo(SelectionPrompt(1, "First capsule"))
+
+                // when: invalid capsule update must not block outfit update
+                remote.publish(Response(values = values("4", "Updated outfit") + capsuleValues("2", " ")))
+
+                // then
+                assertThat(settings.snapshot()).isEqualTo(SelectionPrompt(4, "Updated outfit"))
+                assertThat(capsule.snapshot()).isEqualTo(SelectionPrompt(1, "First capsule"))
+
+                // when: missing outfit fields must not block capsule update
+                remote.publish(Response(values = capsuleValues("2", "Recovered capsule")))
+
+                // then
+                assertThat(settings.snapshot()).isEqualTo(SelectionPrompt(4, "Updated outfit"))
+                assertThat(capsule.snapshot()).isEqualTo(SelectionPrompt(2, "Recovered capsule"))
             }
         } finally {
             server.stop(0)
@@ -306,16 +361,22 @@ class OutfitPromptSettingsTests {
         "app.openai.prompt.version" to version, "app.openai.prompt.text" to text,
     )
 
-    private fun selection() = OutfitSelectionRequest(
-        OutfitSelectionWeather(BigDecimal.TEN, BigDecimal.ZERO, "NONE", "None"),
-        listOf(OutfitSelectionCandidate(7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", "AQID")),
+    private fun capsuleValues(version: String, text: String): Map<String, Any> = mapOf(
+        "app.openai.capsule-prompt.version" to version, "app.openai.capsule-prompt.text" to text,
     )
 
-    private fun client(credentials: ChatGptCredentialFixture, clock: Clock, settings: OutfitPromptSettings, endpoint: URI) =
-        OpenAiOutfitClient(
+    private fun selection() = ItemSelectionRequest(
+        ItemSelectionWeather(BigDecimal.TEN, BigDecimal.ZERO, "NONE", "None"),
+        listOf(ItemSelectionCandidate(7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", "AQID")),
+    )
+
+    private fun client(credentials: ChatGptCredentialFixture, clock: Clock, settings: SelectionPromptSettings, endpoint: URI, goal: SelectionGoal) =
+        OpenAiSelectionClient(
             HttpClient.newHttpClient(), credentials.mapper,
             ChatGptCredentials(credentials.mapper, clock, credentials.directory.toString()),
-            "test-model", endpoint, Duration.ofSeconds(5), settings,
+            "test-model", endpoint, Duration.ofSeconds(5),
+            if (goal == SelectionGoal.OUTFIT) settings else SelectionPromptSettings("app.openai.prompt", "1", "Outfit"),
+            if (goal == SelectionGoal.CAPSULE) settings else SelectionPromptSettings("app.openai.capsule-prompt", "1", "Capsule"),
         )
 
     private fun withProvider(action: (URI, List<String>) -> Unit) {

@@ -21,11 +21,12 @@ import org.springframework.context.ApplicationContext
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
-import ru.itmo.clothesadvisor.client.ai.AiOutfitException
-import ru.itmo.clothesadvisor.client.ai.AiOutfitFailure
-import ru.itmo.clothesadvisor.client.ai.OpenAiOutfitClient
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionRequest
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionWeather
+import ru.itmo.clothesadvisor.client.ai.AiSelectionException
+import ru.itmo.clothesadvisor.client.ai.AiSelectionFailure
+import ru.itmo.clothesadvisor.client.ai.OpenAiSelectionClient
+import ru.itmo.clothesadvisor.client.ai.SelectionGoal
+import ru.itmo.clothesadvisor.dto.ai.ItemSelectionRequest
+import ru.itmo.clothesadvisor.dto.ai.ItemSelectionWeather
 import tools.jackson.databind.json.JsonMapper
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -35,7 +36,7 @@ class RecommendationServiceTests {
 
     @Autowired private lateinit var applicationContext: ApplicationContext
 
-    @Autowired private lateinit var outfitClient: OpenAiOutfitClient
+    @Autowired private lateinit var outfitClient: OpenAiSelectionClient
 
     private val http = HttpClient.newHttpClient()
     private val mapper = JsonMapper.builder().build()
@@ -68,11 +69,11 @@ class RecommendationServiceTests {
                 .GET().build(),
             HttpResponse.BodyHandlers.ofString(),
         )
-        val selection = OutfitSelectionRequest(
-            OutfitSelectionWeather(BigDecimal.ZERO, BigDecimal.ZERO, "NONE", "None"),
+        val selection = ItemSelectionRequest(
+            ItemSelectionWeather(BigDecimal.ZERO, BigDecimal.ZERO, "NONE", "None"),
             emptyList(),
         )
-        val failure = catchThrowable { outfitClient.select(selection) }
+        val failure = catchThrowable { outfitClient.select(SelectionGoal.OUTFIT, selection) }
 
         // then
         assertThat(healthResponse.statusCode()).isEqualTo(200)
@@ -88,9 +89,9 @@ class RecommendationServiceTests {
         assertThat(applicationContext.environment.getProperty("spring.application.name"))
             .isEqualTo("recommendation-service")
         assertThat(applicationContext.getBeansOfType(Clock::class.java)).hasSize(1)
-        assertThat(applicationContext.getBeansOfType(OpenAiOutfitClient::class.java)).hasSize(1)
-        assertThat(failure).isInstanceOfSatisfying(AiOutfitException::class.java) {
-            assertThat(it.failure).isEqualTo(AiOutfitFailure.UNAVAILABLE)
+        assertThat(applicationContext.getBeansOfType(OpenAiSelectionClient::class.java)).hasSize(1)
+        assertThat(failure).isInstanceOfSatisfying(AiSelectionException::class.java) {
+            assertThat(it.failure).isEqualTo(AiSelectionFailure.UNAVAILABLE)
         }
         assertThat(providerRequests).hasValue(0)
     }
