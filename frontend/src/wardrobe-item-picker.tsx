@@ -7,13 +7,14 @@ import styles from "./site.module.css";
 const pageSize = 12;
 const contextKey = (context: WorkspaceContext) => context.kind === "own" ? "own" : `${context.kind}:${context.ownerId}`;
 
-export function WardrobeItemPicker({ actor, context, items, selected, onSelectedChange, disabled }: {
+export function WardrobeItemPicker({ actor, context, items, selected, onSelectedChange, disabled, maxItems = 50 }: {
   actor: Actor;
   context: WorkspaceContext;
   items: WardrobeItem[] | undefined;
   selected: number[];
   onSelectedChange: (items: number[]) => void;
   disabled: boolean;
+  maxItems?: number;
 }) {
   const [search, setSearch] = React.useState("");
   const [page, setPage] = React.useState(0);
@@ -22,13 +23,13 @@ export function WardrobeItemPicker({ actor, context, items, selected, onSelected
 
   function toggle(id: number) {
     if (selected.includes(id)) onSelectedChange(selected.filter((itemId) => itemId !== id));
-    else if (selected.length < 50) onSelectedChange([...selected, id]);
+    else if (selected.length < maxItems) onSelectedChange([...selected, id]);
   }
 
   return <section className={styles.wardrobe}>
-    <div className={styles.sectionHeading}><span>01</span><div><h2>Вещи</h2><p>Отметьте от одной до пятидесяти вещей.</p></div>
+    <div className={styles.sectionHeading}><span>01</span><div><h2>Вещи</h2><p>Отметьте от одной до {maxItems} вещей.</p></div>
       <span className={styles.count}>{selected.length} выбрано</span></div>
-    {selectedUnavailable.length > 0 && <p className={styles.notice} role="status">В выбранном образе есть вещи в стирке или убранные. Их можно оставить вручную.</p>}
+    {selectedUnavailable.length > 0 && <p className={styles.notice} role="status">В выбранном наборе есть вещи в стирке или убранные. Их можно оставить вручную.</p>}
     <label className={styles.nameField}>ПОИСК ПО НАЗВАНИЮ
       <input value={search} onChange={(event) => { setSearch(event.target.value); setPage(0); }} disabled={disabled} />
     </label>
@@ -36,7 +37,7 @@ export function WardrobeItemPicker({ actor, context, items, selected, onSelected
     {items && rows.length === 0 && <p className={styles.state}>Ничего не найдено.</p>}
     <div className={styles.grid}>{rows.slice(page * pageSize, (page + 1) * pageSize).map((item) => <SelectionCard
       key={item.id} actor={actor} context={context} item={item} selected={selected.includes(item.id)}
-      toggle={() => toggle(item.id)} disabled={disabled || (!selected.includes(item.id) && selected.length >= 50)} />)}</div>
+      toggle={() => toggle(item.id)} disabled={disabled || (!selected.includes(item.id) && selected.length >= maxItems)} />)}</div>
     {rows.length > pageSize && <div className={styles.pages}><span>Страница {page + 1}</span><div>
       <button type="button" disabled={!page || disabled} onClick={() => setPage((value) => value - 1)}>← Назад</button>
       <button type="button" disabled={(page + 1) * pageSize >= rows.length || disabled} onClick={() => setPage((value) => value + 1)}>Далее →</button>

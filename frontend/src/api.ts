@@ -62,6 +62,7 @@ export type Outfit = {
   preferredStyle?: string | null;
   explanation?: string | null;
 };
+export type Capsule = { id: number; ownerId: number; name: string; itemIds: number[]; createdAt: string };
 export type StylistRequestAnswer = { outfitId: number; explanation: string; createdAt: string };
 export type StylistRequest = {
   id: number; ownerId: number; stylistId: number; wishes: string;
