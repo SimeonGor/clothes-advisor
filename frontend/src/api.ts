@@ -62,7 +62,14 @@ export type Outfit = {
   preferredStyle?: string | null;
   explanation?: string | null;
 };
-export type Capsule = { id: number; ownerId: number; name: string; itemIds: number[]; createdAt: string };
+export type Capsule = {
+  id: number; ownerId: number; name: string; itemIds: number[]; createdAt: string;
+  source?: "USER" | "AI";
+  weather?: { temperatureC: number; windSpeedMps: number; precipitationTypeId: number } | null;
+  occasion?: string | null;
+  preferredStyle?: string | null;
+  explanation?: string | null;
+};
 export type StylistRequestAnswer = { outfitId: number; explanation: string; createdAt: string };
 export type StylistRequest = {
   id: number; ownerId: number; stylistId: number; wishes: string;

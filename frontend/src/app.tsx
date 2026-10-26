@@ -9,6 +9,7 @@ import { Preferences } from "./preferences";
 import { Calendar, CalendarEditor } from "./calendar";
 import { StylistRequestDetail, StylistRequestEditor, StylistRequests } from "./stylist-requests";
 import { CapsuleDetail, CapsuleEditor, Capsules } from "./capsules";
+import { AiCapsuleEditor } from "./ai-capsule";
 import type { Actor } from "./api";
 import styles from "./site.module.css";
 
@@ -55,6 +56,7 @@ export function AppRoutes({ account, onChoose, onSwitch, onPending, pending }: {
       {account.role === "USER" && <>
         <Route path="/capsules" element={<Capsules key={identity} actor={account} pending={pending} />} />
         <Route path="/capsules/new" element={<CapsuleEditor key={identity} {...props} />} />
+        <Route path="/capsules/ai" element={<AiCapsuleEditor key={identity} {...props} />} />
         <Route path="/capsules/:capsuleId" element={<CapsuleDetail key={identity} {...props} />} />
         <Route path="/calendar" element={<Calendar key={identity} actor={account} pending={pending} />} />
         <Route path="/calendar/new" element={<CalendarEditor key={identity} {...props} />} />

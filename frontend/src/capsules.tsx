@@ -5,6 +5,7 @@ import { createRequest, NewAttempt } from "./idempotency";
 import { allPages, ApiError, request, resourceErrorMessage, type Actor, type Capsule, type WardrobeItem, wardrobeItemsPath } from "./api";
 import { WardrobeItemPicker } from "./wardrobe-item-picker";
 import { WardrobeItemCard } from "./wardrobe-item-card";
+import { CapsuleAiContext } from "./ai-capsule";
 import styles from "./site.module.css";
 
 const pageSize = 12;
@@ -30,10 +31,11 @@ export function Capsules({ actor, pending }: { actor: Actor; pending: boolean })
   });
   if (actor.role !== "USER") return <Denied />;
   return <main className={styles.main}>
-    <header className={styles.top}><span>ПЕРСОНАЛЬНЫЙ СТИЛЬ</span><span>РУЧНЫЕ НАБОРЫ</span></header>
+    <header className={styles.top}><span>ПЕРСОНАЛЬНЫЙ СТИЛЬ</span><span>НАБОРЫ</span></header>
     <section className={styles.intro}><div><p className={styles.eyebrow}>ВАШ ГАРДЕРОБ</p><h1>Капсулы</h1>
-      <p className={styles.muted}>Именованные наборы вещей, которые можно собирать вручную.</p></div>
-      <Link className={styles.create} to="/capsules/new" aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>Новая капсула <span>↗</span></Link>
+      <p className={styles.muted}>Ручные наборы вещей и подборки, созданные с помощью ИИ.</p></div>
+      <div><Link className={styles.create} to="/capsules/ai" aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>Подобрать с ИИ <span>↗</span></Link>{" "}
+        <Link className={styles.textButton} to="/capsules/new" aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>Новая капсула</Link></div>
     </section>
     {query.isLoading && <p className={styles.state}>Загружаем капсулы…</p>}
     {query.isError && <><ReadError error={query.error} retry={() => void query.refetch()} />
@@ -41,10 +43,12 @@ export function Capsules({ actor, pending }: { actor: Actor; pending: boolean })
     {!query.isError && query.data?.length === 0 && page > 0 && <p className={styles.state}>На этой странице нет капсул. Вернитесь на предыдущую.</p>}
     {!query.isError && query.data?.length === 0 && page === 0 && <section className={styles.empty}>
       <h2>Пока нет капсул</h2><p>Создайте первый набор из своих вещей.</p>
-      <Link className={styles.create} to="/capsules/new" aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>Создать капсулу <span>↗</span></Link>
+      <Link className={styles.create} to="/capsules/ai" aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>Подобрать с ИИ <span>↗</span></Link>{" "}
+      <Link className={styles.textButton} to="/capsules/new" aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>Создать вручную</Link>
     </section>}
     {!query.isError && <div className={styles.grid}>{query.data?.map((capsule) => <Link className={styles.card} key={capsule.id} to={`/capsules/${capsule.id}`} aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>
       <span className={styles.cardInfo}><span className={styles.itemName}>{capsule.name}</span>
+        <small>{capsule.source === "AI" ? "Подбор с ИИ" : "Ручной набор"}</small>
         <small>{new Date(capsule.createdAt).toLocaleDateString("ru-RU")}</small><small>{capsule.itemIds.length} вещей</small></span>
     </Link>)}</div>}
     {(query.data?.length || page > 0) && !query.isError && <div className={styles.pages}><span>Страница {page + 1}</span><div>
@@ -146,6 +150,7 @@ export function CapsuleEditor({ actor, onPending, pending }: { actor: Actor; onP
     <header className={styles.top}><span>ПЕРСОНАЛЬНЫЙ СТИЛЬ</span><span>НОВАЯ КАПСУЛА</span></header>
     <section className={styles.intro}><div><p className={styles.eyebrow}>РУЧНОЙ НАБОР</p><h1>Новая капсула</h1>
       <p className={styles.muted}>Состав нельзя изменить после сохранения. Для другого набора создайте новую капсулу.</p></div></section>
+    <p className={styles.muted}><Link to="/capsules/ai">Подобрать капсулу с ИИ</Link></p>
     <form onSubmit={(event) => void submit(event)}>
       <section className={styles.formTop}><label className={styles.nameField}>НАЗВАНИЕ КАПСУЛЫ
         <input required maxLength={300} value={name} onChange={(event) => setName(event.target.value)} disabled={pending || attemptFailed} />
@@ -154,8 +159,8 @@ export function CapsuleEditor({ actor, onPending, pending }: { actor: Actor; onP
       {items.isError && !wardrobeReloadRequired && <ReadError error={items.error} retry={() => void reloadWardrobe()} />}
       {wardrobeReloadRequired && <div role="status" className={styles.state}>
         <p>{wardrobeReloading ? "Обновляем гардероб…" : "Для продолжения загрузите актуальный гардероб."}</p>
-        <button type="button" disabled={pending || wardrobeReloading || wardrobeReloaded} onClick={() => void reloadWardrobe()}>
-          {wardrobeReloaded ? "Гардероб обновлён" : "Обновить гардероб"}
+        <button type="button" disabled={pending || wardrobeReloading || (wardrobeReloaded && items.isSuccess)} onClick={() => void reloadWardrobe()}>
+          {wardrobeReloaded && items.isSuccess ? "Гардероб обновлён" : "Обновить гардероб"}
         </button>
       </div>}
       <WardrobeItemPicker actor={actor} context={{ kind: "own" }} items={items.isSuccess && !wardrobeReloadRequired && !items.isFetching ? items.data : undefined}
@@ -228,9 +233,10 @@ export function CapsuleDetail({ actor, onPending, pending }: { actor: Actor; onP
   return <main className={styles.main}>
     <header className={styles.top}><span>ПЕРСОНАЛЬНЫЙ СТИЛЬ</span><span>КАПСУЛА №{row.id}</span></header>
     <section className={styles.intro}><div><p className={styles.eyebrow}>СОЗДАНА {new Date(row.createdAt).toLocaleDateString("ru-RU")}</p>
-      <h1>{row.name}</h1><p className={styles.muted}>{row.itemIds.length} вещей · состав нельзя изменить. Для другого набора создайте новую капсулу.</p></div>
+      <h1>{row.name}</h1><p className={styles.muted}>{row.source === "AI" ? "Подбор с ИИ" : "Ручной набор"} · {row.itemIds.length} вещей · состав нельзя изменить. Для другого набора создайте новую капсулу.</p></div>
       <Link className={styles.textButton} to="/capsules" aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>← К капсулам</Link>
     </section>
+    {row.source === "AI" && <CapsuleAiContext actor={actor} capsule={row} />}
     {items.isLoading && <p className={styles.state}>Загружаем вещи…</p>}
     {items.isError && <ReadError error={items.error} retry={() => void items.refetch()} />}
     {items.data?.length === 0 && <p className={styles.state}>В капсуле нет вещей.</p>}
