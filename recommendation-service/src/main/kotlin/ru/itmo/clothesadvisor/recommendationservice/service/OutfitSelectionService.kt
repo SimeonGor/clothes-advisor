@@ -38,6 +38,11 @@ class OutfitSelectionService(private val provider: OpenAiOutfitClient) {
         }
         val allowed = request.candidates.map { it.itemId }.toSet()
         if (allowed.size != request.candidates.size) invalidRequest()
+        request.requiredItemIds?.let { required ->
+            if (required.distinct().size != required.size || required.any { it == null || it <= 0 || it !in allowed }) {
+                invalidRequest()
+            }
+        }
         return provider.select(request)
     }
 

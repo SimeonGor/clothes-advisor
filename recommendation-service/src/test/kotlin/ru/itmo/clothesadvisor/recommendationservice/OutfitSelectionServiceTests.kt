@@ -136,6 +136,36 @@ class OutfitSelectionServiceTests {
         }
     }
 
+    @Test
+    fun `invalid required IDs are rejected before provider`() {
+        // given
+        val invalid = listOf(listOf(null), listOf(0L), listOf(-1L), listOf(7L, 7L), listOf(99L))
+        invalid.forEach { ids ->
+            // when
+            val failure = catchThrowable { service.select(request.copy(requiredItemIds = ids)) }
+
+            // then
+            assertFailure(AiOutfitFailure.INVALID_REQUEST, failure)
+        }
+        verifyNoInteractions(provider)
+    }
+
+    @Test
+    fun `empty and nonempty required IDs reach provider unchanged`() {
+        // given
+        for (ids in listOf(emptyList(), listOf(7L))) {
+            val input = request.copy(requiredItemIds = ids)
+            `when`(provider.select(input)).thenReturn(OutfitSelectionResponse(listOf(7, 9), "Подходит."))
+
+            // when
+            val result = service.select(input)
+
+            // then
+            assertThat(result.itemIds).containsExactly(7, 9)
+            verify(provider).select(input)
+        }
+    }
+
     private fun assertFailure(expected: AiOutfitFailure, error: Throwable?) {
         assertThat(error).isInstanceOfSatisfying(AiOutfitException::class.java) {
             assertThat(it.failure).isEqualTo(expected)

@@ -1,5 +1,6 @@
 package ru.itmo.clothesadvisor.dto.ai
 
+import com.fasterxml.jackson.annotation.JsonInclude
 import java.math.BigDecimal
 
 data class OutfitSelectionRequest(
@@ -7,6 +8,8 @@ data class OutfitSelectionRequest(
     val candidates: List<OutfitSelectionCandidate>,
     val occasion: String? = null,
     val preferredStyle: String? = null,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL)
+    val requiredItemIds: List<Long?>? = null,
 )
 
 data class OutfitSelectionWeather(

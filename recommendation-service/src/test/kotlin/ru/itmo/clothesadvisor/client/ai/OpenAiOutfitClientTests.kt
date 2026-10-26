@@ -117,6 +117,7 @@ class OpenAiOutfitClientTests {
         val context = mapper.readTree(content[0].path("text").asString())
         assertThat(context.path("occasion").asString()).isEqualTo(occasion)
         assertThat(context.path("preferredStyle").asString()).isEqualTo(preferredStyle)
+        assertThat(context.has("requiredItemIds")).isFalse()
         assertThat(content[1].path("text").asString())
             .contains("Shirt 7", "White", "Cotton", "TOP")
             .doesNotContain("photoId")
@@ -126,6 +127,46 @@ class OpenAiOutfitClientTests {
                     .map { it.path("image_url").asString() },
             )
             .containsOnly("data:image/png;base64,AQID")
+    }
+
+    @Test
+    fun `replacement includes required IDs as data and validates retained plus new selection`() {
+        // given
+        var reply = ""
+        var requestBody = ""
+        server.createContext("/v1/responses") { exchange ->
+            requestBody = exchange.requestBody.bufferedReader().readText()
+            val bytes = completed(reply).toByteArray()
+            exchange.sendResponseHeaders(200, bytes.size.toLong())
+            exchange.responseBody.use { it.write(bytes) }
+        }
+        val replacement = selection.copy(requiredItemIds = listOf(7, 9))
+        for ((ids, status) in listOf("[]" to 422, "[11]" to 502, "[7,9]" to 502, "[7,11]" to 502)) {
+            reply = """{"itemIds":$ids,"explanation":"Подходит."}"""
+
+            // when
+            val failure = catchThrowable { client().select(replacement) }
+
+            // then
+            assertFailure(status, failure)
+        }
+        reply = """{"itemIds":[9,11,7],"explanation":"Подходит."}"""
+
+        // when
+        val result = client().select(replacement)
+
+        // then
+        assertThat(result.itemIds).containsExactly(9, 11, 7)
+        val body = mapper.readTree(requestBody)
+        val context = mapper.readTree(body.path("input")[0].path("content")[0].path("text").asString())
+        assertThat(context.path("requiredItemIds").toList().map { it.longValue() }).containsExactly(7, 9)
+        assertThat(body.path("text").path("format").path("schema").path("properties").size()).isEqualTo(2)
+
+        // when
+        val allReplaced = client().select(selection.copy(requiredItemIds = emptyList()))
+
+        // then
+        assertThat(allReplaced.itemIds).containsExactly(9, 11, 7)
     }
 
     @Test
