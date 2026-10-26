@@ -202,7 +202,7 @@ ID имеют тип Long. Непарсируемый параметр — 400; 
 
 Для подключения предпочтений сначала обновляются recommendation и динамический промпт, затем wardrobe. Новый recommendation принимает старые запросы без профиля. Передаваемые пожелания остаются JSON-данными пользователя; высокоуровневые инструкции задаются отдельно в промпте Config Server.
 
-Типы данных описаны в [серверном контракте](../../recommendation-service/src/main/kotlin/ru/itmo/clothesadvisor/dto/ai/ItemSelectionDtos.kt) и независимом [контракте клиента](../../wardrobe-service/src/main/kotlin/ru/itmo/clothesadvisor/dto/recommendation/OutfitSelectionDtos.kt). Wardrobe вызывает recommendation через Feign; зависимости на код провайдера нет. Проверки владельца, исходных фотографий и сохранение остаются в wardrobe; перед сохранением он отдельно проверяет результат подбора.
+Типы данных описаны в [серверном контракте](../../recommendation-service/src/main/kotlin/ru/itmo/clothesadvisor/dto/ai/ItemSelectionDtos.kt) и независимом [контракте клиента](../../wardrobe-service/src/main/kotlin/ru/itmo/clothesadvisor/dto/recommendation/ItemSelectionDtos.kt). Wardrobe вызывает recommendation через Feign; зависимости на код провайдера нет. Проверки владельца, исходных фотографий и сохранение остаются в wardrobe; перед сохранением он отдельно проверяет результат подбора.
 
 `POST /api/outfit-selections`, Content-Type: application/json — подбор одного образа. Wardrobe вызывает его напрямую через Feign и Eureka, без автоматических повторов. Маршрут не публикуется через Gateway: внешний запрос получает 404. Префикс `/api` не означает внешнюю доступность. Recommendation принимает данные, а не ссылку на гардероб или URL для самостоятельного скачивания.
 
@@ -231,6 +231,20 @@ ID имеют тип Long. Непарсируемый параметр — 400; 
 сочетаний. Отказ или пустой выбор даёт 422 с кодом `no_capsule`; остальные коды совпадают с
 подбором образа. Маршрут также не доступен через Gateway. Сохранение AI-капсулы в wardrobe
 и её публичный маршрут добавляются отдельно; recommendation сам ничего не сохраняет.
+
+Клиент wardrobe вызывает этот маршрут методом `RecommendationClient.selectCapsule` с общими
+`ItemSelectionRequest`/`ItemSelectionResponse`. Ошибка `no_capsule` принимается только для капсулы,
+`no_outfit` — только для образа; чужой код даёт 502 без повторного подбора. Общий decoder пока
+допускает отсутствие `explanation` ради старого ответа подбора образа. Будущий сценарий сохранения
+AI-капсулы обязан отдельно потребовать объяснение до записи; nullable DTO не отменяет это требование.
+
+Оба метода имеют отдельные Circuit Breaker:
+`RecommendationClientselectItemSelectionRequest` и
+`RecommendationClientselectCapsuleItemSelectionRequest`. Они получают общую политику `remote-service`
+и индивидуальные overrides через существующий опрос Config Server. Оба доменных отказа исключены
+из статистики сбоев; сетевые таймауты и отсутствие повторов общие. Приложение и конфигурация
+обновляются вместе: прежний ID `RecommendationClientselectOutfitSelectionRequest` больше не
+используется, его статистика сбрасывается. При откате нужны прежние приложение и конфигурация.
 
 Общий транспорт OpenAI использует прежнюю подписку, изображения и структурированный ответ,
 без автоматических повторов. У каждого сценария свой промпт: `app.openai.prompt.version/text`
