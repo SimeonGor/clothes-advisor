@@ -44,6 +44,20 @@ package "account_db · account-service" as account #FFF8E9 {
 }
 
 package "wardrobe_db · wardrobe-service" as wardrobe #F2F8F5 {
+  entity "capsule" as capsule #F2EDFB {
+    * id : bigint <<PK>>
+    --
+    * owner_id : bigint
+    * name : varchar(300)
+    * created_at : timestamptz
+  }
+  entity "capsule_item" as capsule_item #E8F5EF {
+    * capsule_id : bigint <<PK, FK>>
+    * wardrobe_item_id : bigint <<PK, FK>>
+    --
+    * position : integer
+    UNIQUE(capsule_id, position)
+  }
   entity "calendar_entry" as calendar_entry #F2EDFB {
     * id : bigint <<PK>>
     --
@@ -246,6 +260,8 @@ package "wardrobe_db · wardrobe-service" as wardrobe #F2F8F5 {
   outfit -[hidden]right-> stylist_request
   outfit ||--o{ calendar_entry : outfit_id
   calendar_entry -[hidden]right-> calendar_history
+  capsule ||--|{ capsule_item : capsule_id
+  item ||--o{ capsule_item : wardrobe_item_id
   precipitation ||--o{ request_weather : precipitation_type_id
   outfit ||--o{ rating : outfit_id
   rating -[hidden]down-> rating_history
