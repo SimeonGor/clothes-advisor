@@ -95,6 +95,7 @@ package "wardrobe_db · wardrobe-service" as wardrobe #F2F8F5 {
     * name: text
     * color: text
     * material: text
+    * availability: AVAILABLE | IN_LAUNDRY | STORED
     * version: bigint
     * created_at: timestamptz
     * modified_at: timestamptz
@@ -107,6 +108,7 @@ package "wardrobe_db · wardrobe-service" as wardrobe #F2F8F5 {
     * name: text
     * color: text
     * material: text
+    * availability: AVAILABLE | IN_LAUNDRY | STORED
     * modified_at: timestamptz
     * archived_at: timestamptz
   }
