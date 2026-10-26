@@ -90,6 +90,7 @@ internal class AdminModerationIntegrationTests : AccountBackedIntegrationTest() 
         val fixtureState = fixture()
         addRatings(fixtureState)
         val actorId = actorId(fixtureState.admin)
+        jdbc.update("UPDATE wardrobe_item SET availability = 'STORED' WHERE id = ?", fixtureState.item)
 
         // when
         val item = dto(request("GET", itemPath(fixtureState), actorId))
@@ -105,7 +106,9 @@ internal class AdminModerationIntegrationTests : AccountBackedIntegrationTest() 
                 "version",
                 "createdAt",
                 "modifiedAt",
+                "availability",
             )
+        assertThat(item["availability"]).isEqualTo("STORED")
 
         // then
 

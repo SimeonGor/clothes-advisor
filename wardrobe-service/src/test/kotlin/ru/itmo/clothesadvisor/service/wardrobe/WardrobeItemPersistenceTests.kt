@@ -31,6 +31,7 @@ import ru.itmo.clothesadvisor.dto.wardrobe.UpdateWardrobeItemRequest
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemResponse
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItem
+import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItemAvailability
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 
 @SpringBootTest
@@ -173,7 +174,8 @@ class WardrobeItemPersistenceTests : PostgresIntegrationTest() {
 
             // then
             assertThat(saved)
-                .isEqualTo(original.copy(name = winner, version = 2, modifiedAt = saved.modifiedAt))
+                .isEqualTo(original.copy(name = winner, version = 2, modifiedAt = saved.modifiedAt,
+                    availability = WardrobeItemAvailability.IN_LAUNDRY))
             assertOriginalHistory(original)
         } finally {
             executor.shutdownNow()
@@ -235,7 +237,8 @@ class WardrobeItemPersistenceTests : PostgresIntegrationTest() {
             // then
             assertThat(saved)
                 .isEqualTo(
-                    original.copy(name = "Winner", version = 2, modifiedAt = saved.modifiedAt),
+                    original.copy(name = "Winner", version = 2, modifiedAt = saved.modifiedAt,
+                        availability = WardrobeItemAvailability.IN_LAUNDRY),
                 )
             assertOriginalHistory(original)
         } finally {
@@ -251,7 +254,8 @@ class WardrobeItemPersistenceTests : PostgresIntegrationTest() {
             items.create(owner, CreateWardrobeItemRequest("Shirt", 1, "White", "Cotton"))
     }
 
-    private fun update(name: String) = UpdateWardrobeItemRequest(1, name, 1, "White", "Cotton")
+    private fun update(name: String) =
+        UpdateWardrobeItemRequest(1, name, 1, "White", "Cotton", WardrobeItemAvailability.IN_LAUNDRY)
 
     private fun assertOriginalHistory(original: WardrobeItemResponse) {
         assertThat(history(original.id))
@@ -262,6 +266,7 @@ class WardrobeItemPersistenceTests : PostgresIntegrationTest() {
                     "category_id" to original.categoryId,
                     "color" to original.color,
                     "material" to original.material,
+                    "availability" to original.availability!!.name,
                     "modified_at" to original.modifiedAt,
                     "archived_at" to
                         jdbc
@@ -285,6 +290,7 @@ class WardrobeItemPersistenceTests : PostgresIntegrationTest() {
                     "category_id" to row.getLong("category_id"),
                     "color" to row.getString("color"),
                     "material" to row.getString("material"),
+                    "availability" to row.getString("availability"),
                     "modified_at" to row.getTimestamp("modified_at").toInstant(),
                     "archived_at" to row.getTimestamp("archived_at").toInstant(),
                 )

@@ -58,17 +58,19 @@ internal class WardrobeItemService(
         val item = findOwnedItem(ownerId, id)
         checkVersion(item, request.version)
         val category = categories.getById(request.categoryId)
+        val availability = request.availability ?: item.availability
         if (
             item.name == request.name &&
                 item.category.id == request.categoryId &&
                 item.color == request.color &&
-                item.material == request.material
+                item.material == request.material &&
+                item.availability == availability
         ) {
             return toResponse(item)
         }
 
         val previous = WardrobeItemHistory(item)
-        item.replace(category, request.name, request.color, request.material)
+        item.replace(category, request.name, request.color, request.material, availability)
         val saved = items.update(item)
         history.insert(previous)
 
@@ -103,5 +105,6 @@ internal class WardrobeItemService(
             item.version,
             item.createdAt,
             item.modifiedAt,
+            item.availability,
         )
 }

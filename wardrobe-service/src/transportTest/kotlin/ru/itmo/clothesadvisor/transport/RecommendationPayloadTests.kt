@@ -107,7 +107,7 @@ class RecommendationPayloadTests {
         `when`(preferences.findByOwnerId(7)).thenReturn(
             StylePreferences(7, "c".repeat(2000), "a".repeat(2000), "w".repeat(2000), 3, storedAt, storedAt),
         )
-        `when`(items.findOwnedItemsWithPhotos(7, 21)).thenReturn(candidates)
+        `when`(items.findAvailableOwnedItemsWithPhotos(7, 21)).thenReturn(candidates)
         `when`(items.lockOwnedItemsForShare(7, candidateIds)).thenReturn(candidates)
         candidateIds.forEach { id ->
             val photoId = id + 100

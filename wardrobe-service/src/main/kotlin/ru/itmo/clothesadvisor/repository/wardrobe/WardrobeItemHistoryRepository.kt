@@ -18,13 +18,14 @@ internal interface WardrobeItemHistoryRepository :
             history.color,
             history.material,
             history.modifiedAt,
+            history.availability.name,
         )
 
     @Modifying
     @Query(
         """
-        INSERT INTO wardrobe_item_history (wardrobe_item_id, version, name, category_id, color, material, modified_at)
-        VALUES (:itemId, :version, :name, :categoryId, :color, :material, :modifiedAt)
+        INSERT INTO wardrobe_item_history (wardrobe_item_id, version, name, category_id, color, material, modified_at, availability)
+        VALUES (:itemId, :version, :name, :categoryId, :color, :material, :modifiedAt, :availability::wardrobe_item_availability)
     """,
     )
     fun insert(
@@ -35,5 +36,6 @@ internal interface WardrobeItemHistoryRepository :
         color: String,
         material: String,
         modifiedAt: Instant,
+        availability: String,
     )
 }

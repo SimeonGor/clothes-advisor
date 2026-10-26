@@ -1,5 +1,7 @@
 package ru.itmo.clothesadvisor.config
 
+import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItemAvailability
+
 import java.math.BigDecimal
 import java.sql.Timestamp
 import org.assertj.core.api.Assertions.assertThat
@@ -134,5 +136,6 @@ internal fun JdbcTemplate.insertItem(
         1,
         now,
         now,
+        WardrobeItemAvailability.AVAILABLE,
     )
 }

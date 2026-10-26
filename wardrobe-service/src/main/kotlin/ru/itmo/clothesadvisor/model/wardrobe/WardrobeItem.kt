@@ -14,6 +14,7 @@ internal class WardrobeItem(
     material: String,
     val createdAt: Instant,
     modifiedAt: Instant = createdAt,
+    availability: WardrobeItemAvailability = WardrobeItemAvailability.AVAILABLE,
 ) {
     @Id
     var id: Long? = null
@@ -38,10 +39,20 @@ internal class WardrobeItem(
     var modifiedAt: Instant = modifiedAt
         internal set
 
-    fun replace(category: WardrobeCategory, name: String, color: String, material: String) {
+    var availability: WardrobeItemAvailability = availability
+        internal set
+
+    fun replace(
+        category: WardrobeCategory,
+        name: String,
+        color: String,
+        material: String,
+        availability: WardrobeItemAvailability = this.availability,
+    ) {
         this.category = category
         this.name = name
         this.color = color
         this.material = material
+        this.availability = availability
     }
 }

@@ -25,6 +25,7 @@ import ru.itmo.clothesadvisor.model.ai.AiOutfitException
 import ru.itmo.clothesadvisor.model.ai.AiOutfitFailure
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItem
+import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItemAvailability
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemPhotoRepository
 import ru.itmo.clothesadvisor.repository.preferences.StylePreferencesRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
@@ -154,8 +155,8 @@ internal class AiOutfitService(
                 ?: throw AiOutfitException(AiOutfitFailure.INVALID_REQUEST)
         val offeredItems =
             if (ids == null) {
-                val found = if (excludedIds.isEmpty()) items.findOwnedItemsWithPhotos(ownerId, MAX_AI_CANDIDATES + 1)
-                    else items.findOwnedItemsWithPhotosExcluding(ownerId, excludedIds, MAX_AI_CANDIDATES + 1)
+                val found = if (excludedIds.isEmpty()) items.findAvailableOwnedItemsWithPhotos(ownerId, MAX_AI_CANDIDATES + 1)
+                    else items.findAvailableOwnedItemsWithPhotosExcluding(ownerId, excludedIds, MAX_AI_CANDIDATES + 1)
                 found.also {
                     if (it.size > MAX_AI_CANDIDATES) {
                         throw AiOutfitException(AiOutfitFailure.INVALID_REQUEST)
@@ -170,11 +171,14 @@ internal class AiOutfitService(
                             throw EntityNotFoundException()
                         }
                     }
-            }.filter { it.id !in excludedIds }
+            }.filter { it.id !in excludedIds && it.availability == WardrobeItemAvailability.AVAILABLE }
 
         val requiredItems = if (requiredItemIds.isNullOrEmpty()) emptyList()
             else items.findAllByOwnerIdAndIdInOrderByIdAsc(ownerId, requiredItemIds).also {
                 if (it.size != requiredItemIds.size) throw AiOutfitException(AiOutfitFailure.SOURCE_CHANGED)
+                if (it.any { item -> item.availability != WardrobeItemAvailability.AVAILABLE }) {
+                    throw AiOutfitException(AiOutfitFailure.INVALID_REQUEST)
+                }
             }
         val candidateItems = (offeredItems + requiredItems).distinctBy { it.id }
 
@@ -248,7 +252,10 @@ internal class AiOutfitService(
     ): OutfitResponse {
         val candidateIds = candidates.map { requireNotNull(it.item.id) }
         return transaction.execute {
-            if (items.lockOwnedItemsForShare(ownerId, candidateIds).size != candidates.size) {
+            val currentItems = items.lockOwnedItemsForShare(ownerId, candidateIds)
+            if (currentItems.size != candidates.size ||
+                currentItems.any { it.availability != WardrobeItemAvailability.AVAILABLE }
+            ) {
                 throw AiOutfitException(AiOutfitFailure.SOURCE_CHANGED)
             }
             candidates.forEach {

@@ -14,6 +14,7 @@ import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicBoolean
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
@@ -67,6 +68,7 @@ import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.service.user.CurrentUserService
 import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemPhotoService
 import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemService
+import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItemAvailability
 import ru.itmo.clothesadvisor.storage.wardrobe.PhotoStorageUnavailableException
 import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
 
@@ -190,7 +192,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
                 assertEmpty(busyReplacement, 503)
                 assertThat(health.statusCode()).isEqualTo(200)
                 assertThat(creation.isDone).isFalse()
-                verify(wardrobe).findOwnedItemsWithPhotos(owner.id, 21)
+                verify(wardrobe).findAvailableOwnedItemsWithPhotos(owner.id, 21)
                 verify(photos).findFirstByItemIdOrderByIdAsc(itemId)
                 verify(preferences).findByOwnerId(owner.id)
                 verifyNoMoreInteractions(preferences)
@@ -501,7 +503,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
 
         // then
         assertThat(maximumCandidatesStatus).isEqualTo(201)
-        verify(wardrobe).findOwnedItemsWithPhotos(owner.id, 21)
+        verify(wardrobe).findAvailableOwnedItemsWithPhotos(owner.id, 21)
 
         // given
         item(owner)
@@ -555,7 +557,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
                 rows
             }
             .`when`(wardrobe)
-            .findOwnedItemsWithPhotos(owner.id, 21)
+            .findAvailableOwnedItemsWithPhotos(owner.id, 21)
 
         // when
         val oversizedWardrobe = request("POST", actorId = actorId, body = body())
@@ -1047,6 +1049,12 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         // given
         val owner = connectedUser()
         val removed = item(owner)
+        val unavailable = List(22) { index ->
+            item(owner).also { id ->
+                jdbc.update("UPDATE wardrobe_item SET availability = ?::wardrobe_item_availability WHERE id = ?",
+                    if (index % 2 == 0) "IN_LAUNDRY" else "STORED", id)
+            }
+        }
         val candidates = List(20) { item(owner) }
         val source = source(owner, listOf(removed, candidates.first()))
         val path = "/api/outfits/$source/ai-replacements"
@@ -1063,7 +1071,8 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         // then
         assertThat(accepted.statusCode()).isEqualTo(201)
         assertThat(downloaded).hasSize(20).doesNotContain("photo-$removed")
-        verify(wardrobe).findOwnedItemsWithPhotosExcluding(owner.id, setOf(removed), 21)
+        assertThat(downloaded).doesNotContainAnyElementsOf(unavailable.map { "photo-$it" })
+        verify(wardrobe).findAvailableOwnedItemsWithPhotosExcluding(owner.id, setOf(removed), 21)
 
         // when
         item(owner)
@@ -1286,6 +1295,139 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         assertEmpty(missingRetainedPhoto, 400)
         assertThat(downloaded).hasSize(2)
         assertThat(providerCalls).hasValue(1)
+    }
+
+    @Test
+    fun `automatic candidates filter unavailable rows before limit and explicit candidates preserve ownership errors`() {
+        // given
+        val owner = connectedUser()
+        val unavailable = List(22) { index ->
+            item(owner).also { id ->
+                jdbc.update("UPDATE wardrobe_item SET availability = ?::wardrobe_item_availability WHERE id = ?",
+                    if (index % 2 == 0) "IN_LAUNDRY" else "STORED", id)
+            }
+        }
+        val available = item(owner)
+        val withoutPhoto = item(owner, withPhoto = false)
+        val foreign = item(user())
+        select = { selection ->
+            assertThat(selection.candidates.map { it.itemId }).containsExactly(available)
+            OutfitSelectionResponse(listOf(available))
+        }
+
+        // when
+        val automatic = request("POST", actorId = actorId(owner), body = body())
+        val explicit = request("POST", actorId = actorId(owner),
+            body = body("[${unavailable.take(2).joinToString(",")},$withoutPhoto,$available]"))
+        val forbidden = request("POST", actorId = actorId(owner), body = body("[${unavailable.first()},$foreign]"))
+        val empty = request("POST", actorId = actorId(owner), body = body("[${unavailable.first()},$withoutPhoto]"))
+
+        // then
+        assertThat(automatic.statusCode()).isEqualTo(201)
+        assertThat(explicit.statusCode()).isEqualTo(201)
+        assertEmpty(forbidden, 404)
+        assertEmpty(empty, 400)
+        assertThat(downloaded).containsExactly("photo-$available", "photo-$available")
+        assertThat(providerCalls).hasValue(2)
+    }
+
+    @Test
+    fun `unavailable retained item rejects replacement while manual outfits keep their composition`() {
+        // given
+        val owner = connectedUser()
+        val retained = item(owner)
+        val removed = item(owner)
+        val added = item(owner)
+        items.update(owner.id, retained,
+            UpdateWardrobeItemRequest(1, "Shirt", 1, "White", "Cotton", WardrobeItemAvailability.IN_LAUNDRY))
+        val source = source(owner, listOf(retained, removed))
+        val before = request("GET", "/api/outfits/$source", actorId(owner)).body()
+        items.update(owner.id, retained,
+            UpdateWardrobeItemRequest(2, "Shirt", 1, "White", "Cotton", WardrobeItemAvailability.STORED))
+
+        // when
+        val replacement = request("POST", "/api/outfits/$source/ai-replacements", actorId(owner),
+            """{"name":"New","replaceItemIds":[$removed],"candidateItemIds":[$added]}""")
+        val unchanged = request("GET", "/api/outfits/$source", actorId(owner))
+
+        // then
+        assertEmpty(replacement, 400)
+        assertThat(unchanged.body()).isEqualTo(before)
+        assertThat(downloaded).isEmpty()
+        assertThat(providerCalls).hasValue(0)
+        assertThat(count("outfit", "owner_id", owner.id)).isEqualTo(1)
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `unselected candidate becoming unavailable during downloads or inference prevents saving`(duringDownload: Boolean) {
+        // given
+        val owner = connectedUser()
+        val chosen = item(owner)
+        val unused = item(owner)
+        val changed = AtomicBoolean()
+        val change = {
+            if (changed.compareAndSet(false, true)) {
+                items.update(owner.id, unused,
+                    UpdateWardrobeItemRequest(1, "Shirt", 1, "White", "Cotton", WardrobeItemAvailability.IN_LAUNDRY))
+            }
+            Unit
+        }
+        if (duringDownload) onDownload = change
+        select = {
+            if (!duringDownload) change()
+            OutfitSelectionResponse(listOf(chosen))
+        }
+
+        // when
+        val response = request("POST", actorId = actorId(owner), body = body())
+
+        // then
+        assertEmpty(response, 409)
+        assertNoOutfits(owner)
+        assertThat(providerCalls).hasValue(1)
+        assertThat(items.get(owner.id, unused).availability).isEqualTo(WardrobeItemAvailability.IN_LAUNDRY)
+    }
+
+    @Test
+    fun `final shared lock observes availability committed while it waits`() {
+        // given
+        val owner = connectedUser()
+        val id = item(owner)
+        val providerEntered = CountDownLatch(1)
+        val locked = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val blockerPid = AtomicInteger()
+        select = {
+            providerEntered.countDown()
+            assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue()
+            OutfitSelectionResponse(listOf(id))
+        }
+        Executors.newFixedThreadPool(2).use { executor ->
+            // when
+            val creation = executor.submit(Callable { request("POST", actorId = actorId(owner), body = body()) })
+            assertThat(providerEntered.await(10, TimeUnit.SECONDS)).isTrue()
+            val blocker = executor.submit(Callable {
+                TransactionTemplate(transactionManager).executeWithoutResult {
+                    blockerPid.set(jdbc.queryForObject("SELECT pg_backend_pid()", Int::class.java)!!)
+                    items.update(owner.id, id,
+                        UpdateWardrobeItemRequest(1, "Shirt", 1, "White", "Cotton", WardrobeItemAvailability.STORED))
+                    locked.countDown()
+                    assertThat(release.await(10, TimeUnit.SECONDS)).isTrue()
+                }
+            })
+            try {
+                assertThat(locked.await(10, TimeUnit.SECONDS)).isTrue()
+                awaitBlockedBy(blockerPid.get())
+            } finally {
+                release.countDown()
+            }
+            blocker.get(15, TimeUnit.SECONDS)
+
+            // then
+            assertEmpty(creation.get(15, TimeUnit.SECONDS), 409)
+            assertNoOutfits(owner)
+        }
     }
 
     private fun source(owner: AccountUserResponse, ids: List<Long>): Long {

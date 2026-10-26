@@ -331,7 +331,7 @@ class RecommendationClientTests {
         `when`(transactions.getTransaction(any())).thenAnswer { SimpleTransactionStatus() }
         `when`(users.requireActive(7)).thenReturn(CurrentUser(7, "user", UserRole.USER))
         `when`(precipitation.findById(1)).thenReturn(PrecipitationType("NONE", "None"))
-        `when`(items.findOwnedItemsWithPhotos(7, 21)).thenReturn(listOf(item))
+        `when`(items.findAvailableOwnedItemsWithPhotos(7, 21)).thenReturn(listOf(item))
         `when`(items.lockOwnedItemsForShare(7, listOf(7))).thenReturn(listOf(item))
         `when`(photos.findFirstByItemIdOrderByIdAsc(7)).thenReturn(photo)
         `when`(photos.findByIdAndItemIdAndItemOwnerId(21, 7, 7)).thenReturn(photo)
@@ -373,7 +373,7 @@ class RecommendationClientTests {
             assertFailure(AiOutfitFailure.UNAVAILABLE, busy)
             assertThat(exited.count).isEqualTo(1)
             assertThat(calls).hasValue(1)
-            verify(items).findOwnedItemsWithPhotos(7, 21)
+            verify(items).findAvailableOwnedItemsWithPhotos(7, 21)
             verify(photos).findFirstByItemIdOrderByIdAsc(7)
             verify(content).getContent(7, 7, 21)
             verifyNoInteractions(outfits)
