@@ -105,6 +105,49 @@ class OutfitSelectionHttpTests {
         )
         assertThat(selection.path("occasion").isNull).isTrue()
         assertThat(selection.path("preferredStyle").isNull).isTrue()
+        assertThat(selection.has("requiredItemIds")).isFalse()
+    }
+
+    @Test
+    fun `required IDs decode through HTTP and constrain the provider response`() {
+        // given
+        val mapper = credentials.mapper
+        val replacement = mapper.readTree(valid) as ObjectNode
+        val candidates = replacement.withArray("candidates")
+        candidates.add((candidates[0].deepCopy() as ObjectNode).put("itemId", 9))
+        replacement.putArray("requiredItemIds").add(7)
+        providerBody = completed("""{"itemIds":[7,9],"explanation":"Подходит."}""")
+
+        // when
+        val accepted = http.send(request(mapper.writeValueAsString(replacement)), HttpResponse.BodyHandlers.ofString())
+
+        // then
+        assertThat(accepted.statusCode()).isEqualTo(200)
+        val payload = mapper.readTree(providerRequests.single())
+        val context = mapper.readTree(payload.path("input")[0].path("content")[0].path("text").asString())
+        assertThat(context.path("requiredItemIds").toList().map { it.longValue() }).containsExactly(7)
+
+        // when
+        providerBody = completed("""{"itemIds":[9],"explanation":"Подходит."}""")
+        val omitted = http.send(request(mapper.writeValueAsString(replacement)), HttpResponse.BodyHandlers.ofString())
+
+        // then
+        assertThat(omitted.statusCode()).isEqualTo(502)
+    }
+
+    @Test
+    fun `invalid required IDs fail HTTP validation before provider`() {
+        // given
+        for (ids in listOf("[null]", "[0]", "[-1]", "[7,7]", "[99]", "{}", "\"bad\"")) {
+            val body = valid.dropLast(1) + """, "requiredItemIds":$ids}"""
+
+            // when
+            val response = http.send(request(body), HttpResponse.BodyHandlers.ofString())
+
+            // then
+            assertThat(response.statusCode()).isEqualTo(400)
+        }
+        assertThat(calls).hasValue(0)
     }
 
     @Test

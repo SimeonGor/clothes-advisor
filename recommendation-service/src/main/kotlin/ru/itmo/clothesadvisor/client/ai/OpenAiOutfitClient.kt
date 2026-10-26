@@ -90,7 +90,7 @@ class OpenAiOutfitClient internal constructor(
                         ) {
                             throw AiOutfitException(AiOutfitFailure.INVALID_RESPONSE)
                         }
-                        parse(OpenAiResponseStream(mapper).read(stream), allowed)
+                        parse(OpenAiResponseStream(mapper).read(stream), allowed, selection.requiredItemIds)
                     }
                 },
             )
@@ -143,7 +143,7 @@ class OpenAiOutfitClient internal constructor(
                         "weather" to selection.weather,
                         "occasion" to selection.occasion,
                         "preferredStyle" to selection.preferredStyle,
-                    ),
+                    ) + (selection.requiredItemIds?.let { mapOf("requiredItemIds" to it) } ?: emptyMap()),
                 ),
             ),
         )
@@ -184,7 +184,7 @@ class OpenAiOutfitClient internal constructor(
         )
     }
 
-    private fun parse(body: String, allowed: Set<Long>): OutfitSelectionResponse {
+    private fun parse(body: String, allowed: Set<Long>, requiredIds: List<Long?>?): OutfitSelectionResponse {
         try {
             val reader =
                 mapper
@@ -219,6 +219,9 @@ class OpenAiOutfitClient internal constructor(
             }
             if (selected.isEmpty()) {
                 throw AiOutfitException(AiOutfitFailure.NO_OUTFIT)
+            }
+            if (requiredIds != null && (!selected.containsAll(requiredIds) || selected.none { it !in requiredIds })) {
+                throw AiOutfitException(AiOutfitFailure.INVALID_RESPONSE)
             }
 
             return OutfitSelectionResponse(selected, explanation.asString())

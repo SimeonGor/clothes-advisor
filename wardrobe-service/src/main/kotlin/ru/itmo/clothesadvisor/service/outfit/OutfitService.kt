@@ -15,6 +15,8 @@ import ru.itmo.clothesadvisor.dto.outfit.OutfitResponse
 import ru.itmo.clothesadvisor.dto.outfit.OutfitWeatherDto
 import ru.itmo.clothesadvisor.dto.outfit.StylistOutfitResponse
 import ru.itmo.clothesadvisor.model.EntityNotFoundException
+import ru.itmo.clothesadvisor.model.ai.AiOutfitException
+import ru.itmo.clothesadvisor.model.ai.AiOutfitFailure
 import ru.itmo.clothesadvisor.model.outfit.Outfit
 import ru.itmo.clothesadvisor.model.outfit.OutfitItem
 import ru.itmo.clothesadvisor.model.outfit.OutfitItemId
@@ -68,8 +70,12 @@ internal class OutfitService(
         occasion: String? = null,
         preferredStyle: String? = null,
         explanation: String? = null,
+        sourceOutfitId: Long? = null,
     ): OutfitResponse =
         writeTransaction.execute {
+            if (sourceOutfitId != null && outfits.findLockedByIdAndOwnerId(sourceOutfitId, ownerId) == null) {
+                throw AiOutfitException(AiOutfitFailure.SOURCE_CHANGED)
+            }
             create(ownerId, ownerId, OutfitSource.AI, request, occasion, preferredStyle, explanation)
         }
 

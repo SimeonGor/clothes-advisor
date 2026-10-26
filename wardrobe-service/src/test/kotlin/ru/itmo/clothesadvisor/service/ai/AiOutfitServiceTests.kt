@@ -27,6 +27,7 @@ import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.SimpleTransactionStatus
 import ru.itmo.clothesadvisor.client.recommendation.RecommendationClient
 import ru.itmo.clothesadvisor.dto.ai.CreateAiOutfitRequest
+import ru.itmo.clothesadvisor.dto.ai.CreateAiOutfitReplacementRequest
 import ru.itmo.clothesadvisor.dto.outfit.CreateOutfitRequest
 import ru.itmo.clothesadvisor.dto.outfit.OutfitResponse
 import ru.itmo.clothesadvisor.dto.outfit.OutfitWeatherDto
@@ -77,6 +78,7 @@ class AiOutfitServiceTests {
     private var savedOccasion: String? = null
     private var savedStyle: String? = null
     private var savedExplanation: String? = null
+    private var savedSourceId: Long? = null
     private val storedAt = Instant.parse("2024-02-03T04:05:06Z")
     private val weather = OutfitWeatherDto(BigDecimal.ONE, 1, BigDecimal.ZERO)
     private val saved =
@@ -88,6 +90,7 @@ class AiOutfitServiceTests {
                 savedOccasion = call.getArgument(2)
                 savedStyle = call.getArgument(3)
                 savedExplanation = call.getArgument(4)
+                savedSourceId = call.getArgument(5)
                 saved
             } else RETURNS_DEFAULTS.answer(call)
         }
@@ -141,6 +144,8 @@ class AiOutfitServiceTests {
         assertThat(savedRequest!!.itemIds).containsExactly(11)
         assertThat(savedRequest!!.weather).isSameAs(weather)
         assertThat(savedExplanation).isNull()
+        assertThat(receivedSelection!!.requiredItemIds).isNull()
+        assertThat(savedSourceId).isNull()
         assertThat(receivedSelection!!.candidates.single())
             .isEqualTo(
                 OutfitSelectionCandidate(
@@ -419,7 +424,7 @@ class AiOutfitServiceTests {
         // given
         val unavailable = IllegalStateException("save unavailable")
         val expected = CreateOutfitRequest("Daily", listOf(11), weather)
-        doThrow(unavailable).`when`(outfits).createAi(eq(7L), refEq(expected) ?: expected, isNull(), isNull(), isNull())
+        doThrow(unavailable).`when`(outfits).createAi(eq(7L), refEq(expected) ?: expected, isNull(), isNull(), isNull(), isNull())
 
         // when
         val failure = catchThrowable { service.create(7, request()) }
@@ -428,7 +433,7 @@ class AiOutfitServiceTests {
         assertThat(failure).isSameAs(unavailable)
 
         // when
-        doReturn(saved).`when`(outfits).createAi(eq(7L), refEq(expected) ?: expected, isNull(), isNull(), isNull())
+        doReturn(saved).`when`(outfits).createAi(eq(7L), refEq(expected) ?: expected, isNull(), isNull(), isNull(), isNull())
         val recovered = service.create(7, request())
 
         // then
@@ -519,6 +524,124 @@ class AiOutfitServiceTests {
         // then
         assertFailure(AiOutfitFailure.SOURCE_CHANGED, failure)
         verifyNoInteractions(outfits)
+    }
+
+    @Test
+    fun `replacement excludes removed items adds retained items and preserves source context`() {
+        // given
+        prepareReplacement()
+        selected = listOf(12, 11)
+
+        // when
+        service.replace(7, 80, CreateAiOutfitReplacementRequest("Replacement", listOf(13), listOf(12, 13)))
+
+        // then
+        assertThat(receivedSelection!!.candidates.map { it.itemId }).containsExactly(12, 11)
+        assertThat(receivedSelection!!.requiredItemIds).containsExactly(11)
+        assertThat(receivedSelection!!.occasion).isEqualTo("  Dinner  ")
+        assertThat(receivedSelection!!.preferredStyle).isEqualTo("Classic")
+        assertThat(savedRequest!!.name).isEqualTo("Replacement")
+        assertThat(savedRequest!!.weather).isSameAs(weather)
+        assertThat(savedRequest!!.itemIds).containsExactly(12, 11)
+        assertThat(savedOccasion).isEqualTo("  Dinner  ")
+        assertThat(savedStyle).isEqualTo("Classic")
+        assertThat(savedSourceId).isEqualTo(80)
+        verify(photos, never()).findFirstByItemIdOrderByIdAsc(13)
+        verify(outfits, never()).delete(7, 80)
+    }
+
+    @Test
+    fun `invalid replacement lists fail before storage`() {
+        // given
+        prepareReplacement()
+        val invalid = listOf(emptyList(), listOf(null), listOf(0L), listOf(-1L), listOf(13L, 13L), listOf(12L))
+
+        invalid.forEach { ids ->
+            // when
+            val failure = catchThrowable { service.replace(7, 80, CreateAiOutfitReplacementRequest("New", ids)) }
+
+            // then
+            assertFailure(AiOutfitFailure.INVALID_REQUEST, failure)
+        }
+        verifyNoInteractions(content, provider)
+    }
+
+    @Test
+    fun `explicit foreign candidate is not masked by replacement filtering`() {
+        // given
+        prepareReplacement()
+
+        // when
+        val failure = catchThrowable {
+            service.replace(7, 80, CreateAiOutfitReplacementRequest("New", listOf(13), listOf(12, 13, 99)))
+        }
+
+        // then
+        assertThat(failure).isInstanceOf(EntityNotFoundException::class.java)
+        verifyNoInteractions(content, provider)
+    }
+
+    @Test
+    fun `retained item without a photo rejects replacement before storage`() {
+        // given
+        prepareReplacement()
+        doReturn(null).`when`(photos).findFirstByItemIdOrderByIdAsc(11)
+
+        // when
+        val failure = catchThrowable {
+            service.replace(7, 80, CreateAiOutfitReplacementRequest("New", listOf(13), listOf(12, 13)))
+        }
+
+        // then
+        assertFailure(AiOutfitFailure.INVALID_REQUEST, failure)
+        verifyNoInteractions(content, provider)
+    }
+
+    @Test
+    fun `replacement needs at least one candidate besides retained items`() {
+        // given
+        prepareReplacement()
+        doReturn(listOf(item)).`when`(items).findOwnedItemsWithPhotosExcluding(7, setOf(13L), 21)
+
+        // when
+        val failure = catchThrowable { service.replace(7, 80, CreateAiOutfitReplacementRequest("New", listOf(13))) }
+
+        // then
+        assertFailure(AiOutfitFailure.INVALID_REQUEST, failure)
+        verifyNoInteractions(content, provider)
+    }
+
+    @Test
+    fun `replacement rejects omitted retained items unchanged selection and excluded items`() {
+        // given
+        prepareReplacement()
+        for (ids in listOf(listOf(12L), listOf(11L), listOf(11L, 13L))) {
+            selected = ids
+
+            // when
+            val failure = catchThrowable {
+                service.replace(7, 80, CreateAiOutfitReplacementRequest("New", listOf(13), listOf(12, 13)))
+            }
+
+            // then
+            assertFailure(AiOutfitFailure.INVALID_RESPONSE, failure)
+        }
+        assertThat(savedRequest).isNull()
+        verify(items, never()).lockOwnedItemsForShare(7, listOf(12, 11))
+    }
+
+    private fun prepareReplacement() {
+        doReturn(saved.copy(itemIds = listOf(11, 13), occasion = "  Dinner  ", preferredStyle = "Classic"))
+            .`when`(outfits).get(7, 80)
+        val added = WardrobeItem(7, item.category, "New", "Black", "Wool", storedAt).apply { id = 12 }
+        val removed = WardrobeItem(7, item.category, "Old", "Grey", "Wool", storedAt).apply { id = 13 }
+        val addedPhoto = WardrobeItemPhoto(12, "new", "image/png", 3, storedAt).apply { id = 22 }
+        doReturn(listOf(added, removed)).`when`(items).findAllByOwnerIdAndIdInOrderByIdAsc(7, listOf(12, 13))
+        doReturn(listOf(item)).`when`(items).findAllByOwnerIdAndIdInOrderByIdAsc(7, setOf(11L))
+        doReturn(listOf(added, item)).`when`(items).lockOwnedItemsForShare(7, listOf(12, 11))
+        doReturn(addedPhoto).`when`(photos).findFirstByItemIdOrderByIdAsc(12)
+        doReturn(addedPhoto).`when`(photos).findByIdAndItemIdAndItemOwnerId(22, 12, 7)
+        doReturn(WardrobeItemPhotoContent("image/png", byteArrayOf(1, 2, 3))).`when`(content).getContent(7, 12, 22)
     }
 
     private fun assertRecovered(response: OutfitResponse) {
