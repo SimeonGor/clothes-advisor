@@ -7,6 +7,7 @@ import { OutfitDetail, OutfitEditor, Outfits } from "./outfits";
 import { Access, Accounts, Clients, OwnerWorkspace } from "./people";
 import { Preferences } from "./preferences";
 import { Calendar, CalendarEditor } from "./calendar";
+import { StylistRequestDetail, StylistRequestEditor, StylistRequests } from "./stylist-requests";
 import type { Actor } from "./api";
 import styles from "./site.module.css";
 
@@ -34,7 +35,9 @@ export function AppRoutes({ account, onChoose, onSwitch, onPending, pending }: {
   const identity = `${account.id}:${path}`;
   const props = { actor: account, onPending, pending };
   const active = path.startsWith("/clients") ? "clients" : path.startsWith("/accounts") ? "accounts"
-    : path.startsWith("/preferences") ? "preferences" : path.startsWith("/access") ? "access" : path.startsWith("/calendar") ? "calendar" : path.startsWith("/outfits") ? "outfits" : "wardrobe";
+    : path.startsWith("/preferences") ? "preferences" : path.startsWith("/access") ? "access"
+      : path.startsWith("/requests") ? "requests" : path.startsWith("/calendar") ? "calendar"
+        : path.startsWith("/outfits") ? "outfits" : "wardrobe";
   if (path === "/today" && account.role === "USER") {
     return <Today key={identity} account={account} onSwitch={switchAccount} onPending={onPending} pending={pending} />;
   }
@@ -52,6 +55,9 @@ export function AppRoutes({ account, onChoose, onSwitch, onPending, pending }: {
         <Route path="/calendar" element={<Calendar key={identity} actor={account} pending={pending} />} />
         <Route path="/calendar/new" element={<CalendarEditor key={identity} {...props} />} />
         <Route path="/calendar/:entryId" element={<CalendarEditor key={identity} {...props} />} />
+        <Route path="/requests" element={<StylistRequests key={identity} {...props} />} />
+        <Route path="/requests/new" element={<StylistRequestEditor key={identity} {...props} />} />
+        <Route path="/requests/:requestId" element={<StylistRequestDetail key={identity} {...props} />} />
       </>}
       {account.role === "STYLIST" && <>
         <Route path="/clients" element={<Clients {...props} />} />

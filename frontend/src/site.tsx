@@ -242,7 +242,7 @@ export function SiteShell({ account, onSwitch, pending, active, children }: {
   account: Actor;
   onSwitch: () => void;
   pending: boolean;
-  active: "today" | "wardrobe" | "outfits" | "access" | "clients" | "accounts" | "preferences" | "calendar";
+  active: "today" | "wardrobe" | "outfits" | "access" | "clients" | "accounts" | "preferences" | "calendar" | "requests";
   context?: WorkspaceContext;
   children: React.ReactNode;
 }) {
@@ -285,6 +285,7 @@ export function SiteShell({ account, onSwitch, pending, active, children }: {
         {account.role === "USER" && <Link className={active === "calendar" ? styles.activeNav : styles.navLink} to="/calendar" aria-current={active === "calendar" ? "page" : undefined} aria-disabled={pending} onClick={guard}>Календарь <span>↗</span></Link>}
         {([{ role: "USER", path: "preferences", label: "Предпочтения" },
           { role: "USER", path: "access", label: "Доступ стилистам" },
+          { role: "USER", path: "requests", label: "Запросы стилисту" },
           { role: "STYLIST", path: "clients", label: "Клиенты" },
           { role: "ADMIN", path: "accounts", label: "Аккаунты" }]).filter((entry) => entry.role === account.role).map((entry) => (
           <Link key={entry.path} className={active === entry.path ? styles.activeNav : styles.navLink}
