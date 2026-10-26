@@ -10,4 +10,10 @@ internal data class Capsule(
     val ownerId: Long,
     val name: String,
     val createdAt: Instant,
+    val source: CapsuleSource = CapsuleSource.USER,
+    val occasion: String? = null,
+    val preferredStyle: String? = null,
+    val explanation: String? = null,
 )
+
+internal enum class CapsuleSource { USER, AI }
