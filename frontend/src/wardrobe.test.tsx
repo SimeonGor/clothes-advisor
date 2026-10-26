@@ -159,7 +159,7 @@ describe("Гардероб", () => {
 
     await waitFor(() => expect(urls.some(([url, init]) => url === "/api/wardrobe/items/8?version=3" && init?.method === "DELETE")).toBe(true));
     expect(urls.find(([url, init]) => url === "/api/wardrobe/items/8" && init?.method === "PUT")?.[1]?.body)
-      .toBe(JSON.stringify({ name: "Моё название", categoryId: 4, color: "серое", material: "шерсть", version: 3 }));
+      .toBe(JSON.stringify({ name: "Моё название", categoryId: 4, color: "серое", material: "шерсть", availability: "AVAILABLE", version: 3 }));
     expect((await screen.findByRole("alert")).textContent).toContain("используется в образе");
     expect(name.value).toBe("Моё название");
   });
@@ -208,16 +208,16 @@ describe("Гардероб", () => {
   it("сохраняет версию исходного черновика при фоне и обновляет её только по явному запросу", async () => {
     let reads = 0;
     const versions = [
-      { ...item, name: "Исходное пальто", version: 1 },
-      { ...item, name: "Фоновое изменение", version: 2 },
-      { ...item, name: "Обновлённое пальто", version: 3 },
+      { ...item, name: "Исходное пальто", version: 1, availability: "IN_LAUNDRY" },
+      { ...item, name: "Фоновое изменение", version: 2, availability: "STORED" },
+      { ...item, name: "Обновлённое пальто", version: 3, availability: "AVAILABLE" },
     ];
     const puts: Array<Record<string, unknown>> = [];
     const fetchMock = fixtureFetch((url, init) => {
       if (url.startsWith("/api/wardrobe/categories")) return json([category]);
       if (url === "/api/wardrobe/items/8" && init?.method === "PUT") {
         puts.push(JSON.parse(String(init.body)) as Record<string, unknown>);
-        return puts.length === 1 ? failed(409) : json({ ...item, name: "Сохранённое пальто", version: 4 });
+        return puts.length === 1 ? failed(409) : json({ ...item, name: "Сохранённое пальто", version: 4, availability: "STORED" });
       }
       if (url === "/api/wardrobe/items/8") return json(versions[Math.min(reads++, versions.length - 1)]);
       if (url === "/api/wardrobe/items/8/photos") return json([]);
@@ -226,28 +226,36 @@ describe("Гардероб", () => {
     const { client } = mount("/wardrobe/8", fetchMock);
     const name = await screen.findByLabelText("НАЗВАНИЕ") as HTMLInputElement;
     await screen.findByRole("option", { name: "Пальто" });
+    const availability = screen.getByLabelText("ДОСТУПНОСТЬ") as HTMLSelectElement;
+    expect(availability.value).toBe("IN_LAUNDRY");
 
     // given: draft is based on v1, then a background query refresh observes v2.
 
     await client.invalidateQueries({ queryKey: ["wardrobe-item", actor.id, 8] });
     await waitFor(() => expect(reads).toBe(2));
     expect(name.value).toBe("Исходное пальто");
+    expect(availability.value).toBe("IN_LAUNDRY");
     fireEvent.change(name, { target: { value: "Черновик пользователя" } });
+    fireEvent.change(availability, { target: { value: "STORED" } });
 
     // when: v1 conflicts, the user explicitly reloads v3, edits, and saves.
 
     fireEvent.click(screen.getByRole("button", { name: /Сохранить изменения/ }));
     expect((await screen.findByRole("alert")).textContent).toContain("Данные вещи изменились");
     expect(puts[0].version).toBe(1);
+    expect(puts[0].availability).toBe("STORED");
+    expect(availability.value).toBe("STORED");
     fireEvent.click(screen.getByRole("button", { name: "Обновить данные" }));
     await waitFor(() => expect(name.value).toBe("Обновлённое пальто"));
+    expect(availability.value).toBe("AVAILABLE");
     fireEvent.change(name, { target: { value: "Новая правка" } });
     fireEvent.click(screen.getByRole("button", { name: /Сохранить изменения/ }));
 
     // then: the reloaded fields and v3 travel together; successful PUT reports saved.
 
     await waitFor(() => expect(screen.getByRole("status").textContent).toContain("Сохранено"));
-    expect(puts[1]).toEqual({ name: "Новая правка", categoryId: 4, color: "серое", material: "шерсть", version: 3 });
+    expect(puts[1]).toEqual({ name: "Новая правка", categoryId: 4, color: "серое", material: "шерсть", availability: "AVAILABLE", version: 3 });
+    expect(availability.value).toBe("STORED");
     expect(screen.getByRole("status").textContent).toContain("Сохранено");
   });
 

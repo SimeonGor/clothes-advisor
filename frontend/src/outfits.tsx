@@ -15,6 +15,8 @@ import {
   type Photo,
   type Precipitation,
   type WardrobeItem,
+  availabilityLabel,
+  itemAvailability,
   type WorkspaceContext,
 } from "./api";
 import { PhotoImage } from "./site";
@@ -152,6 +154,7 @@ export function OutfitEditor({ actor, context = { kind: "own" }, onPending, pend
     queryFn: ({ signal }) => allPages<WardrobeItem>(itemsBase, actor.id, signal),
   });
   const rows = (items.data ?? []).filter((item) => item.name.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
+  const selectedUnavailable = (items.data ?? []).filter((item) => selected.includes(item.id) && itemAvailability(item) !== "AVAILABLE");
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -226,6 +229,7 @@ export function OutfitEditor({ actor, context = { kind: "own" }, onPending, pend
             <span>01</span><div><h2>Вещи</h2><p>Отметьте от одной до пятидесяти вещей.</p></div>
             <span className={styles.count}>{selected.length} выбрано</span>
           </div>
+          {selectedUnavailable.length > 0 && <p className={styles.notice} role="status">В выбранном образе есть вещи в стирке или убранные. Их можно оставить вручную.</p>}
           <label className={styles.nameField}>ПОИСК ПО НАЗВАНИЮ
             <input value={search} onChange={(event) => { setSearch(event.target.value); setPage(0); }} disabled={pending} />
           </label>
@@ -283,6 +287,7 @@ function SelectionCard({ actor, context, item, selected, toggle, disabled }: { a
       <span className={styles.cardInfo}>
         <span className={styles.itemName}>{item.name}</span>
         <small>{item.color} · {item.material}</small>
+        <small>{availabilityLabel(item)}</small>
       </span>
       <input type="checkbox" checked={selected} disabled={disabled} onChange={toggle} aria-label={`Выбрать: ${item.name}`} />
     </label>
@@ -445,5 +450,5 @@ export function OutfitDetail({ actor, context = { kind: "own" }, onPending, pend
 
 function DetailItem({ actor, item, base, context }: { actor: Actor; item: WardrobeItem; base: string; context: WorkspaceContext }) {
   const photos = useQuery({ queryKey: ["photos", actor.id, contextKey(context), item.id], queryFn: ({ signal }) => request<Photo[]>(`${base}/${item.id}/photos`, actor.id, { signal }) });
-  return <article className={styles.card}><span className={styles.image}>{photos.data?.[0] ? <PhotoImage actor={actor} item={item} photo={photos.data[0]} itemsBase={base} /> : <span className={styles.photoEmpty}>{photos.isError ? "Фото не загрузилось" : photos.data ? "Нет фото" : "Загружаем фото…"}</span>}</span><span className={styles.cardInfo}><span className={styles.itemName}>{item.name}</span><small>{item.color} · {item.material}</small></span></article>;
+  return <article className={styles.card}><span className={styles.image}>{photos.data?.[0] ? <PhotoImage actor={actor} item={item} photo={photos.data[0]} itemsBase={base} /> : <span className={styles.photoEmpty}>{photos.isError ? "Фото не загрузилось" : photos.data ? "Нет фото" : "Загружаем фото…"}</span>}</span><span className={styles.cardInfo}><span className={styles.itemName}>{item.name}</span><small>{item.color} · {item.material}</small><small>{availabilityLabel(item)}</small></span></article>;
 }

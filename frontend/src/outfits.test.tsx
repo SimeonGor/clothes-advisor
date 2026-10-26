@@ -98,6 +98,43 @@ describe("Сохранённые образы", () => {
     expect((screen.getByLabelText("НАЗВАНИЕ ОБРАЗА") as HTMLInputElement).value).toBe("  Городской день  ");
   });
 
+  it.each([{ actor: user, role: "USER" }, { actor: stylist, role: "STYLIST" }])(
+    "$role может вручную включить недоступную вещь в сохранённый образ",
+    async ({ actor }) => {
+      // given: гардероб содержит вещь в стирке.
+      const unavailable = { ...item(4), availability: "IN_LAUNDRY" as const };
+      const posts: Record<string, unknown>[] = [];
+      vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url.startsWith("/api/weather/precipitation-types")) return ok([{ id: 7, name: "Ясно", code: "CLEAR" }]);
+        if (url.startsWith("/api/wardrobe/items?page=")) return ok([unavailable]);
+        if (url === "/api/outfits" && init?.method === "POST") {
+          posts.push(JSON.parse(String(init.body)) as Record<string, unknown>);
+          return ok(outfit(), 201);
+        }
+        return fail(404);
+      }));
+      mount(<OutfitEditor actor={actor} onPending={vi.fn()} pending={false} />);
+      fireEvent.change(screen.getByLabelText("НАЗВАНИЕ ОБРАЗА"), { target: { value: "Ручной выбор" } });
+      fireEvent.change(screen.getByLabelText("ТЕМПЕРАТУРА °C"), { target: { value: "12" } });
+      fireEvent.change(screen.getByLabelText("ВЕТЕР м/с"), { target: { value: "2" } });
+      const precipitation = await screen.findByLabelText("ОСАДКИ") as HTMLSelectElement;
+      await waitFor(() => expect(precipitation.disabled).toBe(false));
+      fireEvent.change(precipitation, { target: { value: "7" } });
+      const checkbox = await screen.findByLabelText("Выбрать: Вещь 4") as HTMLInputElement;
+      expect(checkbox.disabled).toBe(false);
+
+      // when: пользователь выбирает недоступную вещь и сохраняет образ.
+      fireEvent.click(checkbox);
+      expect(screen.getByRole("status").textContent).toContain("вещи в стирке");
+      fireEvent.submit(screen.getByLabelText("НАЗВАНИЕ ОБРАЗА").closest("form")!);
+
+      // then: предупреждение не скрывает ID и ручной состав остаётся точным.
+      await waitFor(() => expect(posts).toHaveLength(1));
+      expect(posts[0].itemIds).toEqual([4]);
+    },
+  );
+
   it("проводит рейтинг POST, PUT и DELETE с текущими версиями", async () => {
     // given: чужой образ без текущего голоса, новая версия начинается с двух.
     let saved = outfit(); let nextVersion = 2;

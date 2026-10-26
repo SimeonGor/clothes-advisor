@@ -10,6 +10,8 @@ import {
   type Actor,
   type Outfit,
   type WardrobeItem,
+  availabilityLabel,
+  itemAvailability,
 } from "./api";
 import { createRequest, NewAttempt } from "./idempotency";
 import styles from "./site.module.css";
@@ -36,11 +38,24 @@ export function OutfitReplacement({ actor, outfit, sourceItems, onPending, pendi
     enabled: manual,
     queryFn: ({ signal }) => allPages<WardrobeItem>("/api/wardrobe/items", actor.id, signal),
   });
-  const availableCandidates = (items.data ?? []).filter((item) => !sourceIds.has(item.id));
+  const candidateOptions = (items.data ?? []).filter((item) => !sourceIds.has(item.id));
+  const unavailableSources = sourceItems.filter((item) => itemAvailability(item) !== "AVAILABLE");
+  const selectedUnavailable = candidates.filter((id) => {
+    const item = items.data?.find((row) => row.id === id);
+    return item && itemAvailability(item) !== "AVAILABLE";
+  });
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
     if (busy.current || pending) return;
+    if (unavailableSources.some((item) => !replaced.includes(item.id))) {
+      setFailure("Отметьте недоступные вещи исходного образа к замене.");
+      return;
+    }
+    if (manual && selectedUnavailable.length) {
+      setFailure("Снимите выбор с вещей-кандидатов, которые сейчас в стирке или убраны.");
+      return;
+    }
 
     const cleanName = name.trim();
     if (!cleanName || cleanName.length > 300 || replaced.length === 0) {
@@ -95,7 +110,7 @@ export function OutfitReplacement({ actor, outfit, sourceItems, onPending, pendi
                   ? old.filter((id) => id !== item.id)
                   : [...old, item.id])}
               />
-              {item.name}
+              {item.name} · {availabilityLabel(item)}
             </label>
           ))}
         </fieldset>
@@ -110,18 +125,18 @@ export function OutfitReplacement({ actor, outfit, sourceItems, onPending, pendi
             <p>{resourceErrorMessage(items.error)}</p>
             <button type="button" disabled={pending} onClick={() => void items.refetch()}>Повторить загрузку</button>
           </div>}
-          {items.data && availableCandidates.length === 0 && <p className={styles.state}>Нет других вещей в гардеробе.</p>}
-          {availableCandidates.map((item) => (
+          {items.data && candidateOptions.length === 0 && <p className={styles.state}>Нет других вещей в гардеробе.</p>}
+          {candidateOptions.map((item) => (
             <label key={item.id}>
               <input
                 type="checkbox"
                 checked={candidates.includes(item.id)}
-                disabled={pending}
+                disabled={pending || (!candidates.includes(item.id) && itemAvailability(item) !== "AVAILABLE")}
                 onChange={() => setCandidates((old) => old.includes(item.id)
                   ? old.filter((id) => id !== item.id)
                   : [...old, item.id])}
               />
-              {item.name}
+              {item.name} · {availabilityLabel(item)}
             </label>
           ))}
         </div>}
