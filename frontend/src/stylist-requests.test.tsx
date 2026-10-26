@@ -29,6 +29,17 @@ function mount(path: string, seed?: Array<[readonly unknown[], unknown]>) {
   return { ...view, client, onPending };
 }
 
+function mountStylistDetail() {
+  const stylist: Actor = { id: 22, login: "stylist", role: "STYLIST" };
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const onPending = vi.fn();
+  const props = { actor: stylist, pending: false, onPending, ownerId: 77 };
+  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/clients/77/requests/5"]}><Routes>
+    <Route path="/clients/:ownerId/requests/:requestId" element={<StylistRequestDetail {...props} />} />
+  </Routes></MemoryRouter></QueryClientProvider>);
+  return { client, onPending };
+}
+
 beforeEach(() => { sessionStorage.clear(); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
@@ -52,16 +63,16 @@ describe("Запросы стилисту владельца", () => {
 
     // when
     let read!: Promise<void>;
-    act(() => { read = client.invalidateQueries({ queryKey: ["stylist-request", user.id, 5] }); });
+    act(() => { read = client.invalidateQueries({ queryKey: ["stylist-request", user.id, "own", "/api/me/stylist-requests", 5] }); });
     await waitFor(() => expect(finishRead).toBeDefined());
     await act(async () => { finishCancel(ok(row({ status: "CANCELLED", version: 4 }))); });
-    await screen.findByText(/Отменён · версия 4/);
+    await screen.findByText(/Отменён/);
     await act(async () => { finishRead(ok(row())); await read; });
 
     // then
-    expect(screen.getByText(/Отменён · версия 4/)).toBeTruthy();
+    expect(screen.getByText(/Отменён/)).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Отменить запрос" })).toBeNull();
-    expect(client.getQueryData<StylistRequest>(["stylist-request", user.id, 5])?.version).toBe(4);
+    expect(client.getQueryData<StylistRequest>(["stylist-request", user.id, "own", "/api/me/stylist-requests", 5])?.version).toBe(4);
   });
 
   it("во время отправки блокирует переходы и смену аккаунта в приложении", async () => {
@@ -269,7 +280,7 @@ describe("Запросы стилисту владельца", () => {
       if (url.endsWith("page=1&size=12")) return fail(503);
       return ok([]);
     }));
-    const { client } = mount("/requests", [[ ["stylist-requests", user.id, 1], [row({ id: 99 })] ]]);
+    const { client } = mount("/requests", [[ ["stylist-requests", user.id, "own", "/api/me/stylist-requests", 1], [row({ id: 99 })] ]]);
 
     // when
     expect(await screen.findByRole("link", { name: /^Запрос №1 · стилист/ })).toBeTruthy();
@@ -321,5 +332,259 @@ describe("Запросы стилисту владельца", () => {
     expect(screen.queryByRole("heading", { name: "Запрос №5" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Отменить запрос" })).toBeNull();
     expect(screen.getByRole("link", { name: "← К запросам" })).toBeTruthy();
+  });
+
+  it("отвечает через клиентский маршрут, сохраняет точный DTO и блокирует навигацию пока POST ожидает", async () => {
+    // given
+    const stylist: Actor = { id: 22, login: "stylist", role: "STYLIST" };
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    let finish!: (value: Response) => void;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); calls.push({ url, init });
+      if (url.startsWith("/api/stylist/clients?page=")) return ok([{ id: 77, login: "Клиент" }]);
+      if (url === "/api/stylist/clients/77/requests/5") return ok(row({ ownerId: 77, stylistId: 22 }));
+      if (url.startsWith("/api/stylist/clients/77/wardrobe/items?page=")) return ok([{ id: 3, name: "Пальто", categoryId: 1, color: "синее", material: "шерсть", version: 1, createdAt: "", modifiedAt: "" }]);
+      if (url.endsWith("/wardrobe/items/3/photos")) return ok([]);
+      if (url.startsWith("/api/weather/precipitation-types")) return ok([]);
+      if (url === "/api/stylist/clients/77/requests/5/answer" && init?.method === "POST") return new Promise<Response>((resolve) => { finish = resolve; });
+      return fail(404);
+    }));
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const switched = vi.fn();
+    function Harness() {
+      const [pending, setPending] = React.useState(false);
+      return <AppRoutes account={stylist} pending={pending} onPending={setPending} onChoose={vi.fn()} onSwitch={switched} />;
+    }
+    render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/clients/77/requests/5"]}><Harness /></MemoryRouter></QueryClientProvider>);
+
+    // when
+    expect(await screen.findByRole("link", { name: "Запросы" })).toBeTruthy();
+    fireEvent.change(await screen.findByLabelText("НАЗВАНИЕ ОБРАЗА"), { target: { value: "  На каждый день  " } });
+    fireEvent.change(screen.getByLabelText("ПОЯСНЕНИЕ"), { target: { value: "  Тёплый слой  " } });
+    fireEvent.click(await screen.findByLabelText("Выбрать: Пальто"));
+    fireEvent.click(screen.getByRole("button", { name: "Отправить ответ" }));
+    await waitFor(() => expect(finish).toBeDefined());
+    fireEvent.click(screen.getByRole("link", { name: "Образы владельца" }));
+    fireEvent.click(screen.getByRole("button", { name: "Сменить аккаунт" }));
+
+    // then
+    expect(screen.getByRole("heading", { name: "Запрос №5" })).toBeTruthy();
+    expect(switched).not.toHaveBeenCalled();
+    const post = calls.find((call) => call.url.endsWith("/requests/5/answer") && call.init?.method === "POST");
+    expect(JSON.parse(String(post?.init?.body))).toEqual({ version: 3, name: "На каждый день", itemIds: [3], explanation: "Тёплый слой" });
+    expect(new Headers(post?.init?.headers).get("X-User-Id")).toBe("22");
+    expect(new Headers(post?.init?.headers).get("Idempotency-Key")).toBeTruthy();
+    await act(async () => { finish(ok(row({ ownerId: 77, status: "ANSWERED", version: 4, answer: { outfitId: 101, explanation: "Тёплый слой", createdAt: "2026-01-02T00:00:00Z" } }))); });
+    expect((await screen.findByRole("link", { name: "Открыть образ №101 ↗" })).getAttribute("href")).toBe("/clients/77/outfits/101");
+  });
+
+  it("после 403 скрывает запрос и не позволяет начать новую попытку до успешного перечитывания", async () => {
+    // given
+    let reads = 0;
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/stylist/clients/77/requests/5" && !init?.method) return ok(row({ ownerId: 77, stylistId: 22, version: ++reads === 1 ? 3 : 8 }));
+      if (url.startsWith("/api/stylist/clients/77/wardrobe/items?page=")) return ok([{ id: 3, name: "Пальто", categoryId: 1, color: "синее", material: "шерсть", version: 1, createdAt: "", modifiedAt: "" }]);
+      if (url.endsWith("/wardrobe/items/3/photos")) return ok([]);
+      if (url.endsWith("/requests/5/answer") && init?.method === "POST") return fail(403);
+      return ok([]);
+    }));
+    mountStylistDetail();
+    fireEvent.change(await screen.findByLabelText("НАЗВАНИЕ ОБРАЗА"), { target: { value: "Рабочий образ" } });
+    fireEvent.change(screen.getByLabelText("ПОЯСНЕНИЕ"), { target: { value: "Тёплый слой" } });
+    fireEvent.click(await screen.findByLabelText("Выбрать: Пальто"));
+
+    // when
+    fireEvent.click(screen.getByRole("button", { name: "Отправить ответ" }));
+
+    // then
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Запрос №5" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Новая попытка" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Повторить загрузку" }));
+    expect(await screen.findByRole("heading", { name: "Запрос №5" })).toBeTruthy();
+    const name = screen.getByLabelText("НАЗВАНИЕ ОБРАЗА") as HTMLInputElement;
+    expect(name.value).toBe("Рабочий образ");
+    expect(name.disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Отправить ответ" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Новая попытка" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("сохраняет заблокированный черновик и ключ через неизвестную отправку и неудачное перечитывание", async () => {
+    // given
+    let reads = 0;
+    let posts = 0;
+    const keys: Array<string | null> = [];
+    const bodies: unknown[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/stylist/clients/77/requests/5" && !init?.method) {
+        reads += 1;
+        if (reads === 2) return fail(503);
+        return ok(row({ ownerId: 77, stylistId: 22, version: reads === 3 ? 8 : 3 }));
+      }
+      if (url.startsWith("/api/stylist/clients/77/wardrobe/items?page=")) return ok([{ id: 3, name: "Пальто", categoryId: 1, color: "синее", material: "шерсть", version: 1, createdAt: "", modifiedAt: "" }]);
+      if (url.endsWith("/wardrobe/items/3/photos")) return ok([]);
+      if (url.endsWith("/requests/5/answer") && init?.method === "POST") {
+        posts += 1;
+        keys.push(new Headers(init.headers).get("Idempotency-Key"));
+        bodies.push(JSON.parse(String(init.body)) as unknown);
+        if (posts === 1) throw new TypeError("network unavailable");
+        return ok(row({ ownerId: 77, stylistId: 22, status: "ANSWERED", version: 4, answer: { outfitId: 101, explanation: "Тёплый слой", createdAt: "2026-01-02T00:00:00Z" } }), 201);
+      }
+      return ok([]);
+    }));
+    const { onPending } = mountStylistDetail();
+    fireEvent.change(await screen.findByLabelText("НАЗВАНИЕ ОБРАЗА"), { target: { value: "Рабочий образ" } });
+    fireEvent.change(screen.getByLabelText("ПОЯСНЕНИЕ"), { target: { value: "Тёплый слой" } });
+    fireEvent.click(await screen.findByLabelText("Выбрать: Пальто"));
+
+    // when
+    fireEvent.click(screen.getByRole("button", { name: "Отправить ответ" }));
+    await screen.findByText(/Не удалось отправить ответ/);
+    fireEvent.click(screen.getByRole("button", { name: "Проверить состояние запроса" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Повторить загрузку" }));
+
+    // then
+    expect(await screen.findByLabelText("НАЗВАНИЕ ОБРАЗА")).toHaveProperty("value", "Рабочий образ");
+    expect((screen.getByLabelText("НАЗВАНИЕ ОБРАЗА") as HTMLInputElement).disabled).toBe(true);
+    onPending.mockClear();
+    await waitFor(() => expect((screen.getByRole("button", { name: "Отправить ответ" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.submit(screen.getByRole("button", { name: "Отправить ответ" }).closest("form")!);
+    await waitFor(() => expect(onPending).toHaveBeenCalledWith(true));
+    await waitFor(() => expect(posts).toBe(2));
+    expect(await screen.findByRole("link", { name: "Открыть образ №101 ↗" })).toBeTruthy();
+    expect(posts).toBe(2);
+    expect(keys[0]).toBeTruthy();
+    expect(keys[1]).toBe(keys[0]);
+    expect(bodies[0]).toEqual({ version: 3, name: "Рабочий образ", itemIds: [3], explanation: "Тёплый слой" });
+    expect(bodies[1]).toEqual(bodies[0]);
+  });
+
+  it("скрывает деталь во время фонового чтения и не принимает его версию для ответа", async () => {
+    // given
+    let finish!: (value: Response) => void;
+    let reads = 0;
+    let submitted: unknown;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/stylist/clients/77/requests/5" && !init?.method) {
+        reads += 1;
+        return reads === 1 ? ok(row({ ownerId: 77, stylistId: 22, version: 3 })) : new Promise<Response>((resolve) => { finish = resolve; });
+      }
+      if (url.startsWith("/api/stylist/clients/77/wardrobe/items?page=")) return ok([{ id: 3, name: "Пальто", categoryId: 1, color: "синее", material: "шерсть", version: 1, createdAt: "", modifiedAt: "" }]);
+      if (url.endsWith("/wardrobe/items/3/photos")) return ok([]);
+      if (url.endsWith("/requests/5/answer") && init?.method === "POST") {
+        submitted = JSON.parse(String(init.body)) as unknown;
+        return ok(row({ ownerId: 77, stylistId: 22, status: "ANSWERED", version: 4, answer: { outfitId: 101, explanation: "Тёплый слой", createdAt: "2026-01-02T00:00:00Z" } }), 201);
+      }
+      return ok([]);
+    }));
+    const { client } = mountStylistDetail();
+    await screen.findByRole("heading", { name: "Запрос №5" });
+    fireEvent.change(screen.getByLabelText("НАЗВАНИЕ ОБРАЗА"), { target: { value: "Рабочий образ" } });
+    fireEvent.change(screen.getByLabelText("ПОЯСНЕНИЕ"), { target: { value: "Тёплый слой" } });
+    fireEvent.click(await screen.findByLabelText("Выбрать: Пальто"));
+
+    // when
+    let reading!: Promise<void>;
+    act(() => { reading = client.invalidateQueries({ queryKey: ["stylist-request", 22, 77, "/api/stylist/clients/77/requests", 5] }); });
+    await waitFor(() => expect(finish).toBeDefined());
+
+    // then
+    expect(screen.queryByRole("heading", { name: "Запрос №5" })).toBeNull();
+    await act(async () => { finish(ok(row({ ownerId: 77, stylistId: 22, version: 8 }))); await reading; });
+    expect(await screen.findByRole("heading", { name: "Запрос №5" })).toBeTruthy();
+    await waitFor(() => expect((screen.getByRole("button", { name: "Отправить ответ" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.submit(screen.getByRole("button", { name: "Отправить ответ" }).closest("form")!);
+    await screen.findByRole("link", { name: "Открыть образ №101 ↗" });
+    expect(submitted).toEqual({ version: 3, name: "Рабочий образ", itemIds: [3], explanation: "Тёплый слой" });
+  });
+
+  it("после доменного конфликта требует явного чтения, а при терминальном статусе убирает форму", async () => {
+    // given
+    let reads = 0;
+    let posts = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/stylist/clients/77/requests/5" && !init?.method) {
+        reads += 1;
+        if (reads === 1) return ok(row({ ownerId: 77, stylistId: 22, version: 3 }));
+        if (reads === 2) return fail(503);
+        return ok(row({ ownerId: 77, stylistId: 22, status: "ANSWERED", version: 4, answer: { outfitId: 101, explanation: "Тёплый слой", createdAt: "2026-01-02T00:00:00Z" } }));
+      }
+      if (url.startsWith("/api/stylist/clients/77/wardrobe/items?page=")) return ok([{ id: 3, name: "Пальто", categoryId: 1, color: "синее", material: "шерсть", version: 1, createdAt: "", modifiedAt: "" }]);
+      if (url.endsWith("/wardrobe/items/3/photos")) return ok([]);
+      if (url.endsWith("/requests/5/answer") && init?.method === "POST") { posts += 1; return fail(409); }
+      return ok([]);
+    }));
+    mountStylistDetail();
+    fireEvent.change(await screen.findByLabelText("НАЗВАНИЕ ОБРАЗА"), { target: { value: "Рабочий образ" } });
+    fireEvent.change(screen.getByLabelText("ПОЯСНЕНИЕ"), { target: { value: "Тёплый слой" } });
+    fireEvent.click(await screen.findByLabelText("Выбрать: Пальто"));
+
+    // when
+    fireEvent.click(screen.getByRole("button", { name: "Отправить ответ" }));
+    await screen.findByRole("button", { name: "Перечитать запрос" });
+    fireEvent.click(screen.getByRole("button", { name: "Перечитать запрос" }));
+
+    // then
+    expect(await screen.findByRole("alert")).toBeTruthy();
+    expect(screen.queryByRole("heading", { name: "Запрос №5" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Новая попытка" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Повторить загрузку" }));
+    expect(await screen.findByRole("link", { name: "Открыть образ №101 ↗" })).toBeTruthy();
+    expect(screen.queryByLabelText("НАЗВАНИЕ ОБРАЗА")).toBeNull();
+    expect(posts).toBe(1);
+  });
+
+  it("после доменного конфликта требует новую попытку даже после успешного чтения актуальной версии", async () => {
+    // given
+    let reads = 0;
+    let posts = 0;
+    const bodies: unknown[] = [];
+    const keys: Array<string | null> = [];
+    vi.stubGlobal("confirm", vi.fn(() => true));
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url === "/api/stylist/clients/77/requests/5" && !init?.method) {
+        reads += 1;
+        return ok(row({ ownerId: 77, stylistId: 22, version: reads === 1 ? 1 : 2 }));
+      }
+      if (url.startsWith("/api/stylist/clients/77/wardrobe/items?page=")) return ok([{ id: 3, name: "Пальто", categoryId: 1, color: "синее", material: "шерсть", version: 1, createdAt: "", modifiedAt: "" }]);
+      if (url.endsWith("/wardrobe/items/3/photos")) return ok([]);
+      if (url.endsWith("/requests/5/answer") && init?.method === "POST") {
+        posts += 1;
+        keys.push(new Headers(init.headers).get("Idempotency-Key"));
+        bodies.push(JSON.parse(String(init.body)) as unknown);
+        return posts === 1 ? fail(409) : ok(row({ ownerId: 77, stylistId: 22, status: "ANSWERED", version: 3, answer: { outfitId: 101, explanation: "Тёплый слой", createdAt: "2026-01-02T00:00:00Z" } }), 201);
+      }
+      return ok([]);
+    }));
+    mountStylistDetail();
+    fireEvent.change(await screen.findByLabelText("НАЗВАНИЕ ОБРАЗА"), { target: { value: "Рабочий образ" } });
+    fireEvent.change(screen.getByLabelText("ПОЯСНЕНИЕ"), { target: { value: "Тёплый слой" } });
+    fireEvent.click(await screen.findByLabelText("Выбрать: Пальто"));
+
+    // when
+    fireEvent.click(screen.getByRole("button", { name: "Отправить ответ" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Перечитать запрос" }));
+
+    // then
+    await waitFor(() => expect(screen.getByRole("heading", { name: "Запрос №5" })).toBeTruthy());
+    const submit = screen.getByRole("button", { name: "Отправить ответ" }) as HTMLButtonElement;
+    expect(submit.disabled).toBe(true);
+    expect(posts).toBe(1);
+    fireEvent.click(screen.getByRole("button", { name: "Новая попытка" }));
+    await waitFor(() => expect((screen.getByRole("button", { name: "Отправить ответ" }) as HTMLButtonElement).disabled).toBe(false));
+    fireEvent.click(screen.getByRole("button", { name: "Отправить ответ" }));
+    expect(await screen.findByRole("link", { name: "Открыть образ №101 ↗" })).toBeTruthy();
+    expect(posts).toBe(2);
+    expect(bodies[0]).toEqual({ version: 1, name: "Рабочий образ", itemIds: [3], explanation: "Тёплый слой" });
+    expect(bodies[1]).toEqual({ version: 2, name: "Рабочий образ", itemIds: [3], explanation: "Тёплый слой" });
+    expect(keys[0]).toBeTruthy();
+    expect(keys[1]).toBeTruthy();
+    expect(keys[1]).not.toBe(keys[0]);
   });
 });
