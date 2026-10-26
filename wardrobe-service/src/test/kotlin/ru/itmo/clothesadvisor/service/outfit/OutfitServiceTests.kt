@@ -232,4 +232,28 @@ class OutfitServiceTests {
             verify(outfits).delete(stored)
         }
     }
+
+    @Test
+    fun `request answer creation reuses ordered manual composition and persists stylist authorship and explanation`() {
+        // given
+        val input = request()
+        val explanation = "  Suitable for rain.  "
+        val stored = Outfit(7, 8, OutfitSource.STYLIST, "Daily", storedAt, explanation = explanation).apply { id = 11 }
+        `when`(precipitation.existsById(1)).thenReturn(true)
+        `when`(wardrobe.countByOwnerIdAndIdIn(7, listOf(2, 1))).thenReturn(2)
+        `when`(outfits.create(7, 8, OutfitSource.STYLIST, "Daily", explanation = explanation)).thenReturn(stored)
+
+        // when
+        val result = service.createForStylistRequest(8, 7, input, explanation)
+
+        // then
+        assertThat(result.ownerId).isEqualTo(7)
+        assertThat(result.authorId).isEqualTo(8)
+        assertThat(result.source).isEqualTo(OutfitSource.STYLIST)
+        assertThat(result.explanation).isEqualTo(explanation)
+        assertThat(result.itemIds).containsExactly(2, 1)
+        assertThat(result.weather).isEqualTo(input.weather)
+        verify(composition).insertAll(anyList())
+        verifyNoInteractions(access, transactions)
+    }
 }

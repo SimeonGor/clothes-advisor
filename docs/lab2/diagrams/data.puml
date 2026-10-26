@@ -50,7 +50,7 @@ package "wardrobe_db · wardrobe-service" as wardrobe #F2F8F5 {
     * owner_id: bigint <<account ID>>
     * stylist_id: bigint <<account ID>>
     * wishes: varchar(2000)
-    * status: PENDING | CANCELLED
+    * status: PENDING | CANCELLED | ANSWERED
     * version: bigint
     * created_at: timestamptz
     * modified_at: timestamptz
@@ -69,10 +69,16 @@ package "wardrobe_db · wardrobe-service" as wardrobe #F2F8F5 {
     * owner_id: bigint <<account ID>>
     * stylist_id: bigint <<account ID>>
     * wishes: varchar(2000)
-    * status: PENDING | CANCELLED
+    * status: PENDING | CANCELLED | ANSWERED
     * created_at: timestamptz
     * modified_at: timestamptz
     * archived_at: timestamptz
+  }
+  entity "stylist_request_answer" as request_answer #F2EDFB {
+    * request_id: bigint <<PK, FK>>
+    --
+    * outfit_id: bigint <<UK, FK>>
+    * created_at: timestamptz
   }
   entity "style_preferences" as preferences #E8F5EF {
     * owner_id: bigint <<PK, account ID>>
@@ -211,6 +217,9 @@ package "wardrobe_db · wardrobe-service" as wardrobe #F2F8F5 {
   precipitation ||--o{ weather : precipitation_type_id
   stylist_request ||--|| request_weather : request_id
   stylist_request ||--o{ request_history : request_id
+  stylist_request ||--o| request_answer : request_id
+  outfit ||--o| request_answer : outfit_id
+  outfit -[hidden]right-> stylist_request
   precipitation ||--o{ request_weather : precipitation_type_id
   outfit ||--o{ rating : outfit_id
   rating -[hidden]down-> rating_history

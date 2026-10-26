@@ -6,7 +6,7 @@ import org.springframework.data.annotation.Id
 import org.springframework.data.relational.core.mapping.Embedded
 import org.springframework.data.relational.core.mapping.Table
 
-internal enum class StylistRequestStatus { PENDING, CANCELLED }
+internal enum class StylistRequestStatus { PENDING, CANCELLED, ANSWERED }
 
 internal data class StylistRequestWeather(
     val temperatureC: BigDecimal,
@@ -26,4 +26,12 @@ internal data class StylistRequest(
     val modifiedAt: Instant,
     @Embedded(onEmpty = Embedded.OnEmpty.USE_EMPTY, prefix = "weather_")
     val weather: StylistRequestWeather,
+)
+
+@Table("stylist_request_answer")
+internal data class StylistRequestAnswer(
+    @Id val requestId: Long,
+    val outfitId: Long,
+    val explanation: String,
+    val createdAt: Instant,
 )

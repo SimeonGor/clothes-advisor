@@ -106,6 +106,24 @@ class OpenApiIntegrationTests : PostgresIntegrationTest() {
         }
 
         val preferences = "$.paths['/api/me/style-preferences']"
+        val answer = "$.paths['/api/stylist/clients/{ownerId}/requests/{id}/answer'].post"
+        assertThat(spec.read<Map<String, Any?>>("$answer.responses").keys)
+            .contains("201", "400", "403", "404", "409", "503").doesNotContain("200")
+        assertThat(spec.read<String>("$answer.responses['201'].headers.Location.schema.format")).isEqualTo("uri")
+        assertThat(spec.read<List<String>>("$answer.responses['201'].content.*.schema['\$ref']"))
+            .containsExactly("#/components/schemas/StylistRequestResponse")
+        assertThat(spec.read<String>("$answer.requestBody.content['application/json'].schema['\$ref']"))
+            .isEqualTo("#/components/schemas/AnswerStylistRequest")
+        assertThat(spec.read<List<String>>("$.components.schemas.StylistRequestResponse.properties.answer..['\$ref']"))
+            .containsExactly("#/components/schemas/StylistRequestAnswerResponse")
+        assertThat(spec.read<List<String>>("$.components.schemas.StylistRequestResponse.required")).doesNotContain("answer")
+        val answerSchema = "$.components.schemas.AnswerStylistRequest.properties"
+        assertThat(spec.read<Int>("$answerSchema.name.maxLength")).isEqualTo(300)
+        assertThat(spec.read<Int>("$answerSchema.explanation.maxLength")).isEqualTo(2000)
+        assertThat(spec.read<Int>("$answerSchema.itemIds.minItems")).isEqualTo(1)
+        assertThat(spec.read<Int>("$answerSchema.itemIds.maxItems")).isEqualTo(50)
+        assertThat(spec.read<Boolean>("$answerSchema.itemIds.uniqueItems")).isTrue()
+
         assertThat(paths.getValue("/api/me/style-preferences").keys)
             .containsExactlyInAnyOrder("get", "put")
         assertThat(paths.getValue("/api/stylist/clients/{ownerId}/style-preferences").keys)

@@ -8,6 +8,8 @@ import org.springframework.data.domain.Pageable
 import org.springframework.stereotype.Service
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.TransactionDefinition
+import org.springframework.transaction.annotation.Propagation
+import org.springframework.transaction.annotation.Transactional
 import org.springframework.transaction.support.TransactionTemplate
 import ru.itmo.clothesadvisor.client.account.BlockingAccountClient
 import ru.itmo.clothesadvisor.dto.outfit.CreateOutfitRequest
@@ -96,6 +98,14 @@ internal class OutfitService(
         }
         return StylistOutfitResponse(created, null)
     }
+
+    @Transactional(propagation = Propagation.MANDATORY)
+    fun createForStylistRequest(
+        stylistId: Long,
+        ownerId: Long,
+        request: CreateOutfitRequest,
+        explanation: String,
+    ): OutfitResponse = create(ownerId, stylistId, OutfitSource.STYLIST, request, explanation = explanation)
 
     fun list(ownerId: Long, pageable: Pageable): Page<OutfitResponse> = readTransaction.execute {
         val page = outfits.findAllByOwnerIdOrderByIdDesc(ownerId, pageable)

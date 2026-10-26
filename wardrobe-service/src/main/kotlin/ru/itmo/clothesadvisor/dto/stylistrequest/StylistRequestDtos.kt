@@ -1,6 +1,10 @@
 package ru.itmo.clothesadvisor.dto.stylistrequest
 
+import com.fasterxml.jackson.annotation.JsonInclude
+import io.swagger.v3.oas.annotations.media.ArraySchema
+import io.swagger.v3.oas.annotations.media.Schema
 import jakarta.validation.Valid
+import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.Positive
 import jakarta.validation.constraints.Size
 import java.time.Instant
@@ -15,6 +19,20 @@ internal data class CreateStylistRequest(
 
 internal data class CancelStylistRequest(@field:Positive val version: Long)
 
+internal data class AnswerStylistRequest(
+    @field:Positive val version: Long,
+    @field:NotBlank @field:Size(max = 300) val name: String,
+    @field:ArraySchema(
+        minItems = 1, maxItems = 50, uniqueItems = true,
+        schema = Schema(type = "integer", format = "int64", minimum = "1", nullable = false),
+        arraySchema = Schema(description = "Различные положительные ID вещей клиента; null недопустим"),
+    )
+    val itemIds: List<Long?>,
+    @field:NotBlank @field:Size(max = 2000) val explanation: String,
+)
+
+internal data class StylistRequestAnswerResponse(val outfitId: Long, val explanation: String, val createdAt: Instant)
+
 internal data class StylistRequestResponse(
     val id: Long,
     val ownerId: Long,
@@ -25,4 +43,5 @@ internal data class StylistRequestResponse(
     val version: Long,
     val createdAt: Instant,
     val modifiedAt: Instant,
+    @get:JsonInclude(JsonInclude.Include.NON_NULL) val answer: StylistRequestAnswerResponse? = null,
 )
