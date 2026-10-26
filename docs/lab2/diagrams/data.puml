@@ -44,6 +44,36 @@ package "account_db · account-service" as account #FFF8E9 {
 }
 
 package "wardrobe_db · wardrobe-service" as wardrobe #F2F8F5 {
+  entity "stylist_request" as stylist_request #F2EDFB {
+    * id: bigint <<PK>>
+    --
+    * owner_id: bigint <<account ID>>
+    * stylist_id: bigint <<account ID>>
+    * wishes: varchar(2000)
+    * status: PENDING | CANCELLED
+    * version: bigint
+    * created_at: timestamptz
+    * modified_at: timestamptz
+  }
+  entity "stylist_request_weather" as request_weather #E8F5EF {
+    * request_id: bigint <<PK, FK>>
+    --
+    * temperature_c: numeric
+    * precipitation_type_id: bigint <<FK>>
+    * wind_speed_mps: numeric
+  }
+  entity "stylist_request_history" as request_history #F2EDFB {
+    * request_id: bigint <<PK, FK>>
+    * version: bigint <<PK>>
+    --
+    * owner_id: bigint <<account ID>>
+    * stylist_id: bigint <<account ID>>
+    * wishes: varchar(2000)
+    * status: PENDING | CANCELLED
+    * created_at: timestamptz
+    * modified_at: timestamptz
+    * archived_at: timestamptz
+  }
   entity "style_preferences" as preferences #E8F5EF {
     * owner_id: bigint <<PK, account ID>>
     --
@@ -179,6 +209,9 @@ package "wardrobe_db · wardrobe-service" as wardrobe #F2F8F5 {
   outfit ||--|{ composition : outfit_id
   outfit ||--|| weather : outfit_id
   precipitation ||--o{ weather : precipitation_type_id
+  stylist_request ||--|| request_weather : request_id
+  stylist_request ||--o{ request_history : request_id
+  precipitation ||--o{ request_weather : precipitation_type_id
   outfit ||--o{ rating : outfit_id
   rating -[hidden]down-> rating_history
 }
