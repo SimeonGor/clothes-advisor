@@ -22,6 +22,7 @@ constructor(
     val color: String,
     val material: String,
     val modifiedAt: Instant,
+    val availability: WardrobeItemAvailability,
 ) {
     constructor(
         item: WardrobeItem,
@@ -32,5 +33,6 @@ constructor(
         item.color,
         item.material,
         item.modifiedAt,
+        item.availability,
     )
 }

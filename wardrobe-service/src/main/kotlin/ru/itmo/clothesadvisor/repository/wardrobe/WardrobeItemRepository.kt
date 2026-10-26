@@ -19,20 +19,22 @@ internal interface WardrobeItemRepository : Repository<WardrobeItem, Long> {
         SELECT_ITEM +
             """
         WHERE i.owner_id = :ownerId
+            AND i.availability = 'AVAILABLE'
             AND EXISTS (SELECT 1 FROM wardrobe_item_photo p WHERE p.wardrobe_item_id = i.id)
         ORDER BY i.id LIMIT :limit
     """,
     )
-    fun findOwnedItemsWithPhotos(ownerId: Long, limit: Int): List<WardrobeItem>
+    fun findAvailableOwnedItemsWithPhotos(ownerId: Long, limit: Int): List<WardrobeItem>
 
     @Query(
         SELECT_ITEM + """
         WHERE i.owner_id = :ownerId AND i.id NOT IN (:excludedIds)
+            AND i.availability = 'AVAILABLE'
             AND EXISTS (SELECT 1 FROM wardrobe_item_photo p WHERE p.wardrobe_item_id = i.id)
         ORDER BY i.id LIMIT :limit
         """,
     )
-    fun findOwnedItemsWithPhotosExcluding(ownerId: Long, excludedIds: Collection<Long>, limit: Int): List<WardrobeItem>
+    fun findAvailableOwnedItemsWithPhotosExcluding(ownerId: Long, excludedIds: Collection<Long>, limit: Int): List<WardrobeItem>
 
     fun findAllByOwnerIdAndIdInOrderByIdAsc(
         ownerId: Long,
@@ -96,6 +98,7 @@ internal interface WardrobeItemRepository : Repository<WardrobeItem, Long> {
         WITH updated AS (
             UPDATE wardrobe_item SET category_id = :#{#item.category.id}, name = :#{#item.name},
                 color = :#{#item.color}, material = :#{#item.material},
+                availability = :#{#item.availability.name()}::wardrobe_item_availability,
                 modified_at = CURRENT_TIMESTAMP, version = version + 1
             WHERE id = :#{#item.id} AND version = :#{#item.version} RETURNING *
         )
