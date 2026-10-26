@@ -178,6 +178,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
                 val busy = request("POST", actorId = actorId, body = body())
                 val busyReplacement = request("POST", "/api/outfits/999999/ai-replacements", actorId,
                     """{"name":"New","replaceItemIds":[1]}""")
+                val busyCapsule = request("POST", "/api/me/capsules/ai", actorId, body())
                 val health =
                     http.send(
                         HttpRequest.newBuilder(URI("http://localhost:$port/actuator/health"))
@@ -190,6 +191,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
                 // then
                 assertEmpty(busy, 503)
                 assertEmpty(busyReplacement, 503)
+                assertEmpty(busyCapsule, 503)
                 assertThat(health.statusCode()).isEqualTo(200)
                 assertThat(creation.isDone).isFalse()
                 verify(wardrobe).findAvailableOwnedItemsWithPhotos(owner.id, 21)
@@ -200,7 +202,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
                 assertThat(providerCalls).hasValue(if (duringDownload) 0 else 1)
                 assertThat(meters.get("wardrobe.ai.active").gauge().value()).isEqualTo(1.0)
                 assertThat(meters.get("wardrobe.ai.rejected").counter().count())
-                    .isEqualTo(rejectedBefore + 2)
+                    .isEqualTo(rejectedBefore + 3)
                 assertThat(meters.get("wardrobe.ai.duration").tag("outcome", "success").timer().count())
                     .isEqualTo(successBefore)
                 assertThat(meters.get("wardrobe.ai.duration").tag("outcome", "failure").timer().count())

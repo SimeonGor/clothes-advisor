@@ -83,7 +83,7 @@ class OpenApiIntegrationTests : PostgresIntegrationTest() {
         val capsules = "$.paths['/api/me/capsules']"
         assertThat(paths.getValue("/api/me/capsules").keys).containsExactlyInAnyOrder("get", "post")
         assertThat(paths.getValue("/api/me/capsules/{id}").keys).containsExactlyInAnyOrder("get", "delete")
-        assertThat(paths.keys.filter { "capsules" in it }).containsExactlyInAnyOrder("/api/me/capsules", "/api/me/capsules/{id}")
+        assertThat(paths.keys.filter { "capsules" in it }).containsExactlyInAnyOrder("/api/me/capsules", "/api/me/capsules/{id}", "/api/me/capsules/ai")
         assertThat(spec.read<Map<String, Any?>>("$capsules.post.responses").keys)
             .contains("201", "400", "403", "404", "409", "503").doesNotContain("200")
         assertThat(spec.read<String>("$capsules.post.responses['201'].headers.Location.schema.format")).isEqualTo("uri")
@@ -95,7 +95,18 @@ class OpenApiIntegrationTests : PostgresIntegrationTest() {
         assertThat(spec.read<Map<String, Any?>>("$.components.schemas.CreateCapsuleRequest.properties.itemIds"))
             .containsEntry("minItems", 1).containsEntry("maxItems", 20).containsEntry("uniqueItems", true)
         assertThat(spec.read<Map<String, Any?>>("$.components.schemas.CapsuleResponse.properties").keys)
-            .containsExactlyInAnyOrder("id", "ownerId", "name", "itemIds", "createdAt")
+            .containsExactlyInAnyOrder("id", "ownerId", "name", "itemIds", "createdAt", "source", "weather", "occasion", "preferredStyle", "explanation")
+        val aiCapsules = "$.paths['/api/me/capsules/ai'].post"
+        assertThat(spec.read<Map<String, Any?>>("$aiCapsules.responses").keys)
+            .contains("201", "400", "403", "404", "409", "422", "502", "503", "504").doesNotContain("200")
+        assertThat(spec.read<List<String>>("$aiCapsules.responses['201'].content.*.schema['\$ref']"))
+            .containsExactly("#/components/schemas/CapsuleResponse")
+        assertThat(spec.read<String>("$aiCapsules.responses['201'].headers.Location.schema.format")).isEqualTo("uri")
+        assertThat(spec.read<List<Map<String, Any?>>>("$aiCapsules.parameters[?(@.name == 'Idempotency-Key')]").single())
+            .containsEntry("required", false)
+        assertThat(spec.read<Map<String, Any?>>("$.components.schemas.CreateAiCapsuleRequest.properties.candidateItemIds"))
+            .containsEntry("minItems", 1).containsEntry("uniqueItems", true)
+        assertThat(spec.read<List<String>>("$.components.schemas.CreateAiCapsuleRequest.required")).contains("name", "weather")
 
         val calendar = "$.paths['/api/me/calendar']"
         val calendarEntry = "$.paths['/api/me/calendar/{id}']"

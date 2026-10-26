@@ -3,6 +3,7 @@ package ru.itmo.clothesadvisor.service.capsule
 import jakarta.validation.ConstraintViolationException
 import jakarta.validation.Validation
 import java.time.Instant
+import java.math.BigDecimal
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.catchThrowable
 import org.junit.jupiter.api.AfterEach
@@ -23,24 +24,30 @@ import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.SimpleTransactionStatus
 import ru.itmo.clothesadvisor.config.idempotencyService
 import ru.itmo.clothesadvisor.dto.capsule.CreateCapsuleRequest
+import ru.itmo.clothesadvisor.dto.ai.CreateAiCapsuleRequest
+import ru.itmo.clothesadvisor.dto.outfit.OutfitWeatherDto
 import ru.itmo.clothesadvisor.dto.user.CurrentUser
 import ru.itmo.clothesadvisor.model.AccessDeniedException
 import ru.itmo.clothesadvisor.model.EntityNotFoundException
 import ru.itmo.clothesadvisor.model.capsule.Capsule
 import ru.itmo.clothesadvisor.model.capsule.CapsuleItem
 import ru.itmo.clothesadvisor.model.capsule.CapsuleItemId
+import ru.itmo.clothesadvisor.model.capsule.CapsuleSource
+import ru.itmo.clothesadvisor.model.capsule.CapsuleWeather
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.repository.capsule.CapsuleItemRepository
 import ru.itmo.clothesadvisor.repository.capsule.CapsuleRepository
+import ru.itmo.clothesadvisor.repository.capsule.CapsuleWeatherRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 
 class CapsuleServiceTests {
     private val capsules = mock(CapsuleRepository::class.java)
     private val composition = mock(CapsuleItemRepository::class.java)
+    private val weather = mock(CapsuleWeatherRepository::class.java)
     private val wardrobe = mock(WardrobeItemRepository::class.java)
     private val transactions = mock(PlatformTransactionManager::class.java)
     private val validation = Validation.buildDefaultValidatorFactory()
-    private val service = CapsuleService(capsules, composition, wardrobe, validation.validator,
+    private val service = CapsuleService(capsules, composition, weather, wardrobe, validation.validator,
         idempotencyService(transactions), transactions)
     private val owner = CurrentUser(7, "owner", UserRole.USER)
     private val row = Capsule(9, 7, "Daily", Instant.parse("2026-01-01T00:00:00Z"))
@@ -86,6 +93,8 @@ class CapsuleServiceTests {
         assertThat(result.ownerId).isEqualTo(7)
         assertThat(result.name).isEqualTo(row.name)
         assertThat(result.createdAt).isEqualTo(row.createdAt)
+        assertThat(result.source).isEqualTo(CapsuleSource.USER)
+        assertThat(result.weather).isNull()
         assertThat(result.itemIds).containsExactly(12, 11)
         assertThat(inserted.map { it.id }).containsExactly(CapsuleItemId(9, 12), CapsuleItemId(9, 11))
         assertThat(inserted.map { it.position }).containsExactly(0, 1)
@@ -94,6 +103,39 @@ class CapsuleServiceTests {
             verify(capsules).create(7, "Daily")
             verify(composition).insertAll(inserted)
         }
+    }
+
+    @Test
+    fun `AI creation saves weather and ordered items with persisted source context and date`() {
+        // given
+        val input = CreateAiCapsuleRequest("Daily", OutfitWeatherDto(BigDecimal.ONE, 1, BigDecimal.TEN),
+            occasion = "Work", preferredStyle = "Classic")
+        val aiRow = row.copy(source = CapsuleSource.AI, occasion = "Work", preferredStyle = "Classic", explanation = "Fits.")
+        `when`(capsules.createAi(7, "Daily", "Work", "Classic", "Fits.")).thenReturn(aiRow)
+        var savedWeather: CapsuleWeather? = null
+        doAnswer { savedWeather = it.getArgument(0); null }
+            .`when`(weather).insert(any(CapsuleWeather::class.java) ?: CapsuleWeather(9, BigDecimal.ONE, 1, BigDecimal.TEN))
+        var inserted = emptyList<CapsuleItem>()
+        doAnswer { inserted = it.getArgument<Iterable<CapsuleItem>>(0).toList(); null }
+            .`when`(composition).insertAll(any<Iterable<CapsuleItem>>() ?: emptyList())
+
+        // when
+        val result = service.createAi(7, input, listOf(12, 11), "Fits.")
+
+        // then
+        assertThat(result.source).isEqualTo(CapsuleSource.AI)
+        assertThat(result.weather).isEqualTo(input.weather)
+        assertThat(result.occasion).isEqualTo(aiRow.occasion)
+        assertThat(result.preferredStyle).isEqualTo(aiRow.preferredStyle)
+        assertThat(result.explanation).isEqualTo(aiRow.explanation)
+        assertThat(result.createdAt).isEqualTo(row.createdAt)
+        assertThat(savedWeather!!.id).isEqualTo(row.id)
+        assertThat(savedWeather!!.temperatureC).isEqualByComparingTo(BigDecimal.ONE)
+        assertThat(savedWeather!!.precipitationTypeId).isEqualTo(1)
+        assertThat(savedWeather!!.windSpeedMps).isEqualByComparingTo(BigDecimal.TEN)
+        assertThat(inserted.map { it.id }).containsExactly(CapsuleItemId(9, 12), CapsuleItemId(9, 11))
+        assertThat(inserted.map { it.position }).containsExactly(0, 1)
+        verifyNoInteractions(wardrobe)
     }
 
     @Test
@@ -133,11 +175,12 @@ class CapsuleServiceTests {
     @Test
     fun `list passes page and count and loads all compositions in one batch`() {
         // given
-        `when`(capsules.findPage(7, 2, 2)).thenReturn(listOf(row, row.copy(id = 8)))
+        `when`(capsules.findPage(7, 2, 2)).thenReturn(listOf(row, row.copy(id = 8, source = CapsuleSource.AI, explanation = "Fits.")))
         `when`(capsules.countByOwnerId(7)).thenReturn(4)
         `when`(composition.findRows(listOf(9, 8))).thenReturn(listOf(
             CapsuleItem(CapsuleItemId(9, 12), 0), CapsuleItem(CapsuleItemId(8, 11), 0),
             CapsuleItem(CapsuleItemId(9, 11), 1)))
+        `when`(weather.findAllByIdIn(listOf(9, 8))).thenReturn(listOf(CapsuleWeather(8, BigDecimal.ONE, 1, BigDecimal.TEN)))
 
         // when
         val result = service.list(owner, PageRequest.of(1, 2))
@@ -146,6 +189,13 @@ class CapsuleServiceTests {
         assertThat(result.totalElements).isEqualTo(4)
         assertThat(result.content.map { it.id }).containsExactly(9, 8)
         assertThat(result.content.map { it.itemIds }).containsExactly(listOf(12L, 11L), listOf(11L))
+        assertThat(result.content[0].source).isEqualTo(CapsuleSource.USER)
+        assertThat(result.content[0].weather).isNull()
+        assertThat(result.content[1].source).isEqualTo(CapsuleSource.AI)
+        assertThat(result.content[1].weather!!.windSpeedMps).isEqualByComparingTo(BigDecimal.TEN)
+        assertThat(result.content[1].explanation).isEqualTo("Fits.")
+        verify(weather).findAllByIdIn(listOf(9, 8))
+        verifyNoMoreInteractions(weather)
         verify(composition).findRows(listOf(9, 8))
         verifyNoMoreInteractions(composition)
     }
@@ -161,7 +211,7 @@ class CapsuleServiceTests {
         // then
         assertThat(result.content).isEmpty()
         assertThat(result.totalElements).isZero()
-        verifyNoInteractions(composition)
+        verifyNoInteractions(composition, weather)
     }
 
     @Test
