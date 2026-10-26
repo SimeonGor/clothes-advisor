@@ -63,6 +63,11 @@ export type Outfit = {
   explanation?: string | null;
 };
 
+export type CalendarEntry = {
+  id: number; ownerId: number; date: string; outfitId: number;
+  status: "PLANNED" | "WORN"; version: number; createdAt: string; modifiedAt: string;
+};
+
 export function outfitsPath(context: WorkspaceContext): string {
   if (context.kind === "own") return "/api/outfits";
   if (context.kind === "client") return `/api/stylist/clients/${context.ownerId}/outfits`;
