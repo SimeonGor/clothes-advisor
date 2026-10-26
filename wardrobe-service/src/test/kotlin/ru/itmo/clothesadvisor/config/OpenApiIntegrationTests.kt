@@ -80,6 +80,31 @@ class OpenApiIntegrationTests : PostgresIntegrationTest() {
         }
         assertThat(schemas).doesNotContainKeys("CurrentUser", "InternalUserResponse")
 
+        val requests = "$.paths['/api/me/stylist-requests']"
+        assertThat(spec.read<Map<String, Any?>>("$requests.post.responses").keys)
+            .contains("201", "400", "403", "404", "409", "503").doesNotContain("200")
+        assertThat(spec.read<String>("$requests.post.responses['201'].headers.Location.schema.format"))
+            .isEqualTo("uri")
+        assertThat(spec.read<List<String>>("$requests.post.responses['201'].content.*.schema['\$ref']"))
+            .containsExactly("#/components/schemas/StylistRequestResponse")
+        assertThat(spec.read<String>("$requests.post.responses['409'].content['application/json'].schema['\$ref']"))
+            .isEqualTo("#/components/schemas/ApiErrorResponse")
+        listOf("/api/me/stylist-requests", "/api/stylist/clients/{ownerId}/requests").forEach { path ->
+            assertThat(spec.read<String>("$.paths['$path'].get.responses['200'].headers['X-Total-Count'].schema.format"))
+                .isEqualTo("int64")
+        }
+        assertThat(spec.read<Map<String, Any?>>(
+            "$.paths['/api/me/stylist-requests/{id}/cancellation'].put.responses",
+        ).keys).contains("200", "409", "503")
+        listOf(
+            "['/api/me/stylist-requests/{id}'].get",
+            "['/api/stylist/clients/{ownerId}/requests/{id}'].get",
+            "['/api/me/stylist-requests/{id}/cancellation'].put",
+        ).forEach { operation ->
+            assertThat(spec.read<List<String>>("$.paths$operation.responses['200'].content.*.schema['\$ref']"))
+                .containsExactly("#/components/schemas/StylistRequestResponse")
+        }
+
         val preferences = "$.paths['/api/me/style-preferences']"
         assertThat(paths.getValue("/api/me/style-preferences").keys)
             .containsExactlyInAnyOrder("get", "put")
