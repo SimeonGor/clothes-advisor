@@ -26,7 +26,9 @@ import org.mockito.ArgumentMatchers.anyLong
 import org.mockito.ArgumentMatchers.anyString
 import org.mockito.Mockito.doAnswer
 import org.mockito.Mockito.mockingDetails
+import org.mockito.Mockito.times
 import org.mockito.Mockito.verify
+import org.mockito.Mockito.verifyNoMoreInteractions
 import org.mockito.Mockito.verifyNoInteractions
 import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.test.context.SpringBootTest
@@ -49,6 +51,7 @@ import ru.itmo.clothesadvisor.config.updateUserRoleAndStatus
 import ru.itmo.clothesadvisor.dto.account.AccountUserResponse
 import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionRequest
 import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionResponse
+import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionStylePreferences
 import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionWeather
 import ru.itmo.clothesadvisor.dto.wardrobe.CreateWardrobeItemRequest
 import ru.itmo.clothesadvisor.dto.wardrobe.UpdateWardrobeItemRequest
@@ -58,6 +61,7 @@ import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
 import ru.itmo.clothesadvisor.repository.outfit.OutfitItemRepository
 import ru.itmo.clothesadvisor.repository.outfit.OutfitRepository
+import ru.itmo.clothesadvisor.repository.preferences.StylePreferencesRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemPhotoRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.service.user.CurrentUserService
@@ -82,6 +86,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
     @MockitoSpyBean private lateinit var composition: OutfitItemRepository
     @MockitoSpyBean private lateinit var outfits: OutfitRepository
     @MockitoSpyBean private lateinit var currentUsers: CurrentUserService
+    @MockitoSpyBean private lateinit var preferences: StylePreferencesRepository
     private val http = HttpClient.newHttpClient()
     private val providerCalls = AtomicInteger()
     private val downloaded = mutableListOf<String>()
@@ -92,6 +97,13 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
 
     @BeforeEach
     fun externalCallsOutsideTransactions() {
+        doAnswer { call ->
+                assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isTrue()
+                assertThat(meters.get("wardrobe.ai.active").gauge().value()).isEqualTo(1.0)
+                mockingDetails(preferences).mockCreationSettings.defaultAnswer.answer(call)
+            }
+            .`when`(preferences)
+            .findByOwnerId(anyLong())
         doAnswer { call ->
                 assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
                 mockingDetails(currentUsers).mockCreationSettings.defaultAnswer.answer(call)
@@ -180,6 +192,8 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
                 assertThat(creation.isDone).isFalse()
                 verify(wardrobe).findOwnedItemsWithPhotos(owner.id, 21)
                 verify(photos).findFirstByItemIdOrderByIdAsc(itemId)
+                verify(preferences).findByOwnerId(owner.id)
+                verifyNoMoreInteractions(preferences)
                 assertThat(downloaded).containsExactly("photo-$itemId")
                 assertThat(providerCalls).hasValue(if (duringDownload) 0 else 1)
                 assertThat(meters.get("wardrobe.ai.active").gauge().value()).isEqualTo(1.0)
@@ -239,6 +253,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         item(user())
         select = { request ->
             assertThat(request.candidates.map { it.itemId }).containsExactly(first, second)
+            assertThat(request.stylePreferences).isNull()
             assertThat(downloaded.takeLast(2)).containsExactly("photo-$first", "photo-$second")
             OutfitSelectionResponse(listOf(second, first))
         }
@@ -307,6 +322,58 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
 
         // then
         assertThat(listedOutfits).hasSize(3)
+    }
+
+    @Test
+    fun `owner profile is frozen before downloads while replay keeps its result and a new key reads the update`() {
+        // given
+        val owner = connectedUser()
+        val itemId = item(owner)
+        val foreign = user()
+        jdbc.update("""INSERT INTO style_preferences
+            (owner_id, preferred_colors_and_materials, avoidances, additional_wishes, version)
+            VALUES (?, 'Foreign colors', 'Foreign avoidances', 'Foreign wishes', 1)""", foreign.id)
+        jdbc.update("""INSERT INTO style_preferences
+            (owner_id, preferred_colors_and_materials, avoidances, additional_wishes, version)
+            VALUES (?, '  Blue  ', 'Wool', 'Loose fit', 1)""", owner.id)
+        val received = mutableListOf<OutfitSelectionStylePreferences?>()
+        select = { selection ->
+            received += selection.stylePreferences
+            OutfitSelectionResponse(listOf(itemId), "Подходит.")
+        }
+        onDownload = {
+            jdbc.update("""UPDATE style_preferences SET preferred_colors_and_materials = 'Red',
+                version = version + 1, modified_at = CURRENT_TIMESTAMP WHERE owner_id = ?""", owner.id)
+        }
+
+        // when
+        val created = request("POST", actorId = actorId(owner), body = body(), key = "profile-first")
+        onDownload = {}
+        val replay = request("POST", actorId = actorId(owner), body = body(), key = "profile-first")
+
+        // then
+        assertThat(created.statusCode()).isEqualTo(201)
+        assertThat(replay.statusCode()).isEqualTo(201)
+        assertThat(replay.body()).isEqualTo(created.body())
+        assertThat(received).containsExactly(OutfitSelectionStylePreferences("  Blue  ", "Wool", "Loose fit"))
+        assertThat(downloaded).containsExactly("photo-$itemId")
+        assertThat(providerCalls).hasValue(1)
+        verify(preferences).findByOwnerId(owner.id)
+        verifyNoMoreInteractions(preferences)
+
+        // when
+        val next = request("POST", actorId = actorId(owner), body = body(), key = "profile-next")
+
+        // then
+        assertThat(next.statusCode()).isEqualTo(201)
+        assertThat(number(dto(next), "id")).isNotEqualTo(number(dto(created), "id"))
+        assertThat(received).containsExactly(
+            OutfitSelectionStylePreferences("  Blue  ", "Wool", "Loose fit"),
+            OutfitSelectionStylePreferences("Red", "Wool", "Loose fit"),
+        )
+        assertThat(providerCalls).hasValue(2)
+        verify(preferences, times(2)).findByOwnerId(owner.id)
+        verifyNoMoreInteractions(preferences)
     }
 
     @Test
@@ -915,6 +982,9 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
     fun `replacement copies source context without changing source or ratings and replays after source deletion`(sourceType: String) {
         // given
         val owner = connectedUser()
+        jdbc.update("""INSERT INTO style_preferences
+            (owner_id, preferred_colors_and_materials, avoidances, additional_wishes, version)
+            VALUES (?, 'Blue', '', 'Loose fit', 1)""", owner.id)
         val retained = item(owner)
         val removed = item(owner)
         val added = item(owner)
@@ -930,6 +1000,8 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
             assertThat(selection.requiredItemIds).containsExactly(retained)
             assertThat(selection.occasion).isEqualTo("  Work  ")
             assertThat(selection.preferredStyle).isEqualTo("Classic")
+            assertThat(selection.stylePreferences)
+                .isEqualTo(OutfitSelectionStylePreferences("Blue", "", "Loose fit"))
             OutfitSelectionResponse(listOf(retained, added), "Подходит для работы.")
         }
         val path = "/api/outfits/$source/ai-replacements"
@@ -953,6 +1025,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         // when
         val changedBody = request("POST", path, actorId(owner), input.replace("New", "Other"), "replacement")
         val changedSource = request("POST", "/api/outfits/$newId/ai-replacements", actorId(owner), input, "replacement")
+        jdbc.update("UPDATE style_preferences SET additional_wishes = 'Updated', version = 2 WHERE owner_id = ?", owner.id)
         request("DELETE", "/api/outfits/$source", actorId(owner))
         val replay = request("POST", path, actorId(owner), input, "replacement")
 
@@ -965,6 +1038,8 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         assertThat(replay.body()).isEqualTo(created.body())
         assertThat(providerCalls).hasValue(1)
         assertThat(downloaded).containsExactly("photo-$added", "photo-$retained")
+        verify(preferences).findByOwnerId(owner.id)
+        verifyNoMoreInteractions(preferences)
     }
 
     @Test

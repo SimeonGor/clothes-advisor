@@ -341,7 +341,9 @@ class RecommendationClientTests {
         `when`(outfits.createAi(eq(7L), refEq(outfitRequest) ?: outfitRequest, org.mockito.Mockito.isNull(), org.mockito.Mockito.isNull(), org.mockito.Mockito.isNull(), org.mockito.Mockito.isNull()))
             .thenReturn(saved)
         val service = AiOutfitService(
-            users, items, photos, precipitation, content, client, outfits, idempotencyService(transactions), transactions, meters, "user",
+            users, items, photos, precipitation,
+            mock(ru.itmo.clothesadvisor.repository.preferences.StylePreferencesRepository::class.java),
+            content, client, outfits, idempotencyService(transactions), transactions, meters, "user",
         )
         val release = CountDownLatch(1)
         val exited = CountDownLatch(1)

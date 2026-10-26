@@ -17,6 +17,8 @@ import org.mockito.Mockito.doReturn
 import org.mockito.Mockito.doThrow
 import org.mockito.Mockito.eq
 import org.mockito.Mockito.isNull
+import org.mockito.Mockito.times
+import org.mockito.Mockito.verifyNoMoreInteractions
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.never
 import org.mockito.Mockito.refEq
@@ -34,6 +36,7 @@ import ru.itmo.clothesadvisor.dto.outfit.OutfitWeatherDto
 import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionCandidate
 import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionRequest
 import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionResponse
+import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionStylePreferences
 import ru.itmo.clothesadvisor.dto.user.CurrentUser
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemPhotoContent
 import ru.itmo.clothesadvisor.model.AccessDeniedException
@@ -41,6 +44,8 @@ import ru.itmo.clothesadvisor.model.EntityNotFoundException
 import ru.itmo.clothesadvisor.model.ai.AiOutfitException
 import ru.itmo.clothesadvisor.model.ai.AiOutfitFailure
 import ru.itmo.clothesadvisor.model.outfit.OutfitSource
+import ru.itmo.clothesadvisor.model.preferences.StylePreferences
+import ru.itmo.clothesadvisor.repository.preferences.StylePreferencesRepository
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeCategory
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItem
@@ -59,6 +64,7 @@ class AiOutfitServiceTests {
     private val items = mock(WardrobeItemRepository::class.java)
     private val photos = mock(WardrobeItemPhotoRepository::class.java)
     private val precipitation = mock(PrecipitationTypeRepository::class.java)
+    private val preferences = mock(StylePreferencesRepository::class.java)
     private val content = mock(WardrobeItemPhotoService::class.java)
     private var selected = listOf(11L)
     private var explanation: String? = null
@@ -102,6 +108,7 @@ class AiOutfitServiceTests {
             items,
             photos,
             precipitation,
+            preferences,
             content,
             provider,
             outfits,
@@ -145,6 +152,8 @@ class AiOutfitServiceTests {
         assertThat(savedRequest!!.weather).isSameAs(weather)
         assertThat(savedExplanation).isNull()
         assertThat(receivedSelection!!.requiredItemIds).isNull()
+        assertThat(receivedSelection!!.stylePreferences).isNull()
+        verify(preferences).findByOwnerId(7)
         assertThat(savedSourceId).isNull()
         assertThat(receivedSelection!!.candidates.single())
             .isEqualTo(
@@ -174,6 +183,9 @@ class AiOutfitServiceTests {
     fun `context reaches recommendation and persistence without trimming`() {
         // given
         val request = CreateAiOutfitRequest("Daily", weather, occasion = "  Work  ", preferredStyle = "")
+        `when`(preferences.findByOwnerId(7)).thenReturn(
+            StylePreferences(7, "  Blue, cotton  ", "", "Loose fit", 1, storedAt, storedAt),
+        )
         explanation = "  Тёплая рубашка для прохладного дня.  "
 
         // when
@@ -182,9 +194,41 @@ class AiOutfitServiceTests {
         // then
         assertThat(receivedSelection!!.occasion).isEqualTo("  Work  ")
         assertThat(receivedSelection!!.preferredStyle).isEmpty()
+        assertThat(receivedSelection!!.stylePreferences)
+            .isEqualTo(OutfitSelectionStylePreferences("  Blue, cotton  ", "", "Loose fit"))
         assertThat(savedOccasion).isEqualTo("  Work  ")
         assertThat(savedStyle).isEmpty()
         assertThat(savedExplanation).isEqualTo(explanation)
+    }
+
+    @Test
+    fun `profile change during image read affects only the next selection`() {
+        // given
+        val original = StylePreferences(7, "Blue", "Wool", "Loose fit", 1, storedAt, storedAt)
+        val updated = original.copy(preferredColorsAndMaterials = "Red", version = 2)
+        `when`(preferences.findByOwnerId(7)).thenReturn(original)
+        doAnswer {
+            doReturn(updated).`when`(preferences).findByOwnerId(7)
+            WardrobeItemPhotoContent("image/png", byteArrayOf(1, 2, 3))
+        }.`when`(content).getContent(7, 11, 21)
+
+        // when
+        service.create(7, request())
+
+        // then
+        assertThat(receivedSelection!!.stylePreferences)
+            .isEqualTo(OutfitSelectionStylePreferences("Blue", "Wool", "Loose fit"))
+        verify(preferences).findByOwnerId(7)
+        verifyNoMoreInteractions(preferences)
+
+        // when
+        service.create(7, request())
+
+        // then
+        assertThat(receivedSelection!!.stylePreferences)
+            .isEqualTo(OutfitSelectionStylePreferences("Red", "Wool", "Loose fit"))
+        verify(preferences, times(2)).findByOwnerId(7)
+        verifyNoMoreInteractions(preferences)
     }
 
     @Test
@@ -236,7 +280,7 @@ class AiOutfitServiceTests {
         // given
         val unconfigured =
             AiOutfitService(
-                users, items, photos, precipitation, content, provider, outfits, idempotencyService(transactions), transactions,
+                users, items, photos, precipitation, preferences, content, provider, outfits, idempotencyService(transactions), transactions,
                 SimpleMeterRegistry(), " ",
             )
 
@@ -531,6 +575,9 @@ class AiOutfitServiceTests {
         // given
         prepareReplacement()
         selected = listOf(12, 11)
+        `when`(preferences.findByOwnerId(7)).thenReturn(
+            StylePreferences(7, "Blue", "Wool", "Loose fit", 1, storedAt, storedAt),
+        )
 
         // when
         service.replace(7, 80, CreateAiOutfitReplacementRequest("Replacement", listOf(13), listOf(12, 13)))
@@ -540,6 +587,9 @@ class AiOutfitServiceTests {
         assertThat(receivedSelection!!.requiredItemIds).containsExactly(11)
         assertThat(receivedSelection!!.occasion).isEqualTo("  Dinner  ")
         assertThat(receivedSelection!!.preferredStyle).isEqualTo("Classic")
+        assertThat(receivedSelection!!.stylePreferences)
+            .isEqualTo(OutfitSelectionStylePreferences("Blue", "Wool", "Loose fit"))
+        verify(preferences).findByOwnerId(7)
         assertThat(savedRequest!!.name).isEqualTo("Replacement")
         assertThat(savedRequest!!.weather).isSameAs(weather)
         assertThat(savedRequest!!.itemIds).containsExactly(12, 11)

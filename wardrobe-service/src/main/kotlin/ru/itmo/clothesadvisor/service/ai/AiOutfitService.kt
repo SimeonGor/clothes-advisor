@@ -17,6 +17,7 @@ import ru.itmo.clothesadvisor.dto.outfit.OutfitResponse
 import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionCandidate
 import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionRequest
 import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionResponse
+import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionStylePreferences
 import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionWeather
 import ru.itmo.clothesadvisor.model.AccessDeniedException
 import ru.itmo.clothesadvisor.model.EntityNotFoundException
@@ -25,6 +26,7 @@ import ru.itmo.clothesadvisor.model.ai.AiOutfitFailure
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItem
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemPhotoRepository
+import ru.itmo.clothesadvisor.repository.preferences.StylePreferencesRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.repository.weather.PrecipitationTypeRepository
 import ru.itmo.clothesadvisor.service.outfit.OutfitService
@@ -41,6 +43,7 @@ internal class AiOutfitService(
     private val items: WardrobeItemRepository,
     private val photos: WardrobeItemPhotoRepository,
     private val precipitation: PrecipitationTypeRepository,
+    private val preferences: StylePreferencesRepository,
     private val photoContent: WardrobeItemPhotoService,
     private val recommendation: RecommendationClient,
     private val outfits: OutfitService,
@@ -119,6 +122,7 @@ internal class AiOutfitService(
                     request.occasion,
                     request.preferredStyle,
                     prepared.requiredItemIds?.toList(),
+                    prepared.stylePreferences,
                 )
             requireAiAccess(ownerId)
             val response = recommendation.select(selection)
@@ -198,6 +202,13 @@ internal class AiOutfitService(
             candidates,
             request,
             requiredItemIds,
+            preferences.findByOwnerId(ownerId)?.let {
+                OutfitSelectionStylePreferences(
+                    it.preferredColorsAndMaterials,
+                    it.avoidances,
+                    it.additionalWishes,
+                )
+            },
         )
     }
 
@@ -303,6 +314,7 @@ internal class AiOutfitService(
         val candidates: List<PreparedCandidate>,
         val request: CreateAiOutfitRequest,
         val requiredItemIds: Set<Long>?,
+        val stylePreferences: OutfitSelectionStylePreferences?,
     )
 
     companion object {
