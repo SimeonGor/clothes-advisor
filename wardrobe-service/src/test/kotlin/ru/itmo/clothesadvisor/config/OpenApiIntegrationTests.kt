@@ -80,6 +80,27 @@ class OpenApiIntegrationTests : PostgresIntegrationTest() {
         }
         assertThat(schemas).doesNotContainKeys("CurrentUser", "InternalUserResponse")
 
+        val calendar = "$.paths['/api/me/calendar']"
+        val calendarEntry = "$.paths['/api/me/calendar/{id}']"
+        assertThat(spec.read<Map<String, Any?>>("$calendar.post.responses").keys)
+            .contains("201", "400", "403", "404", "409", "503").doesNotContain("200")
+        assertThat(spec.read<String>("$calendar.post.responses['201'].headers.Location.schema.format")).isEqualTo("uri")
+        assertThat(spec.read<List<String>>("$calendar.post.responses['201'].content.*.schema['\$ref']"))
+            .containsExactly("#/components/schemas/CalendarEntryResponse")
+        assertThat(spec.read<String>("$calendar.get.responses['200'].headers['X-Total-Count'].schema.format")).isEqualTo("int64")
+        listOf("from", "to").forEach { name ->
+            val parameter = spec.read<List<Map<String, Any?>>>("$calendar.get.parameters[?(@.name == '$name')]").single()
+            assertThat(parameter).containsEntry("required", true)
+            assertThat(spec.read<List<String>>("$calendar.get.parameters[?(@.name == '$name')].schema.format"))
+                .containsExactly("date")
+        }
+        assertThat(spec.read<Map<String, Any?>>("$calendarEntry.put.responses").keys).contains("200", "409", "503")
+        assertThat(spec.read<Map<String, Any?>>("$calendarEntry.delete.responses").keys)
+            .contains("204", "400", "403", "404", "409", "503").doesNotContain("200")
+        assertThat(spec.read<List<String>>("$.components.schemas.CreateCalendarEntryRequest.properties.status.enum"))
+            .containsExactly("PLANNED", "WORN")
+        assertThat(spec.read<String>("$.components.schemas.CreateCalendarEntryRequest.properties.date.format")).isEqualTo("date")
+
         val requests = "$.paths['/api/me/stylist-requests']"
         assertThat(spec.read<Map<String, Any?>>("$requests.post.responses").keys)
             .contains("201", "400", "403", "404", "409", "503").doesNotContain("200")
