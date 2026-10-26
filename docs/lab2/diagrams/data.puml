@@ -44,6 +44,30 @@ package "account_db · account-service" as account #FFF8E9 {
 }
 
 package "wardrobe_db · wardrobe-service" as wardrobe #F2F8F5 {
+  entity "calendar_entry" as calendar_entry #F2EDFB {
+    * id : bigint <<PK>>
+    --
+    * owner_id : bigint
+    * calendar_date : date
+    * outfit_id : bigint <<FK>>
+    * status : PLANNED / WORN
+    * version : bigint
+    * created_at : timestamptz
+    * modified_at : timestamptz
+    UNIQUE(owner_id, calendar_date, outfit_id)
+  }
+  entity "calendar_entry_history" as calendar_history #F2EDFB {
+    * entry_id : bigint <<PK>>
+    * version : bigint <<PK>>
+    --
+    * owner_id : bigint
+    * calendar_date : date
+    * outfit_id : bigint
+    * status : PLANNED / WORN
+    * created_at : timestamptz
+    * modified_at : timestamptz
+    * archived_at : timestamptz
+  }
   entity "stylist_request" as stylist_request #F2EDFB {
     * id: bigint <<PK>>
     --
@@ -220,6 +244,8 @@ package "wardrobe_db · wardrobe-service" as wardrobe #F2F8F5 {
   stylist_request ||--o| request_answer : request_id
   outfit ||--o| request_answer : outfit_id
   outfit -[hidden]right-> stylist_request
+  outfit ||--o{ calendar_entry : outfit_id
+  calendar_entry -[hidden]right-> calendar_history
   precipitation ||--o{ request_weather : precipitation_type_id
   outfit ||--o{ rating : outfit_id
   rating -[hidden]down-> rating_history
