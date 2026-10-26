@@ -5,6 +5,7 @@ import { AccountPicker, SiteShell, Today } from "./site";
 import { Wardrobe, WardrobeEditor } from "./wardrobe";
 import { OutfitDetail, OutfitEditor, Outfits } from "./outfits";
 import { Access, Accounts, Clients, OwnerWorkspace } from "./people";
+import { Preferences } from "./preferences";
 import type { Actor } from "./api";
 import styles from "./site.module.css";
 
@@ -32,7 +33,7 @@ export function AppRoutes({ account, onChoose, onSwitch, onPending, pending }: {
   const identity = `${account.id}:${path}`;
   const props = { actor: account, onPending, pending };
   const active = path.startsWith("/clients") ? "clients" : path.startsWith("/accounts") ? "accounts"
-    : path.startsWith("/access") ? "access" : path.startsWith("/outfits") ? "outfits" : "wardrobe";
+    : path.startsWith("/preferences") ? "preferences" : path.startsWith("/access") ? "access" : path.startsWith("/outfits") ? "outfits" : "wardrobe";
   if (path === "/today" && account.role === "USER") {
     return <Today key={identity} account={account} onSwitch={switchAccount} onPending={onPending} pending={pending} />;
   }
@@ -45,6 +46,7 @@ export function AppRoutes({ account, onChoose, onSwitch, onPending, pending }: {
       <Route path="/outfits/new" element={<OutfitEditor key={identity} {...props} />} />
       <Route path="/outfits/:outfitId" element={<OutfitDetail key={identity} {...props} />} />
       {account.role === "USER" && <Route path="/access" element={<Access key={identity} {...props} />} />}
+      {account.role === "USER" && <Route path="/preferences" element={<Preferences key={identity} {...props} />} />}
       {account.role === "STYLIST" && <>
         <Route path="/clients" element={<Clients {...props} />} />
         <Route path="/clients/:ownerId/*" element={<OwnerWorkspace key={identity} kind="client" {...props} />} />

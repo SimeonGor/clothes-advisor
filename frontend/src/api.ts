@@ -18,6 +18,14 @@ export type Photo = {
 };
 export type Category = { id: number; code: string; name: string };
 export type Actor = Pick<Account, "id" | "login" | "role">;
+export type StylePreferences = {
+  preferredColorsAndMaterials: string;
+  avoidances: string;
+  additionalWishes: string;
+  version: number;
+  createdAt: string;
+  modifiedAt: string;
+};
 export type WorkspaceContext =
   | { kind: "own" }
   | { kind: "client"; ownerId: number }

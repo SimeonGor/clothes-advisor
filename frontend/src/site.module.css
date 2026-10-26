@@ -86,6 +86,11 @@ a.card { color: inherit; text-decoration: none; }
 .itemForm select, .itemForm input:not([type="file"]), .itemForm input[type="file"], .photoSection input[type="file"] { min-height: 43px; border: 1px solid #dcdacf; padding: 10px 12px; background: #f8f7f2; color: #292d25; font-size: 13px; font-weight: 400; letter-spacing: 0; }
 .itemForm label:nth-child(5), .itemForm .submitRow { grid-column: 1 / -1; }
 .itemForm label small { color: #898a7e; font-size: 11px; letter-spacing: 0; font-weight: 400; }
+.preferencesForm { grid-template-columns: 1fr; }
+.preferencesForm textarea { width: 100%; resize: vertical; min-height: 100px; border: 1px solid #dcdacf; padding: 12px; background: #f8f7f2; color: #292d25; font: inherit; font-size: 14px; font-weight: 400; line-height: 1.5; letter-spacing: 0; }
+.preferencesReadOnly { max-width: 760px; }
+.preferencesReadOnly dt { color: #7e8075; font-size: 13px; font-weight: 700; }
+.preferencesReadOnly dd { margin: 8px 0 28px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
 .photoCaption { padding: 8px 10px; color: #898a7e; font-size: 10px; }
 .photoSection { max-width: 900px; border-top: 1px solid #dedcd2; padding: 30px 0; }
 .photoSection .muted { margin: 6px 0 20px; font-size: 12px; }

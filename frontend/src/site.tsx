@@ -239,7 +239,7 @@ export function SiteShell({ account, onSwitch, pending, active, children }: {
   account: Actor;
   onSwitch: () => void;
   pending: boolean;
-  active: "today" | "wardrobe" | "outfits" | "access" | "clients" | "accounts";
+  active: "today" | "wardrobe" | "outfits" | "access" | "clients" | "accounts" | "preferences";
   context?: WorkspaceContext;
   children: React.ReactNode;
 }) {
@@ -279,7 +279,8 @@ export function SiteShell({ account, onSwitch, pending, active, children }: {
           onClick={guard}
         >Гардероб <span>↗</span></Link>
         <Link className={active === "outfits" ? styles.activeNav : styles.navLink} to={outfitsPath} aria-current={active === "outfits" ? "page" : undefined} aria-disabled={pending} onClick={guard}>Образы <span>↗</span></Link>
-        {([{ role: "USER", path: "access", label: "Доступ стилистам" },
+        {([{ role: "USER", path: "preferences", label: "Предпочтения" },
+          { role: "USER", path: "access", label: "Доступ стилистам" },
           { role: "STYLIST", path: "clients", label: "Клиенты" },
           { role: "ADMIN", path: "accounts", label: "Аккаунты" }]).filter((entry) => entry.role === account.role).map((entry) => (
           <Link key={entry.path} className={active === entry.path ? styles.activeNav : styles.navLink}
