@@ -35,8 +35,8 @@ alt Слот уже занят
   wardrobe --> client : 503 · без S3 и AI
 else Слот занят этим запросом
   group Короткая транзакция чтения
-    wardrobe -> db : Кандидаты, первое фото, погода\nПри замене: исходный образ и обязательные ID
-    db --> wardrobe : 1–20 кандидатов + исходные photoId
+    wardrobe -> db : Кандидаты, первое фото, погода, профиль\nПри замене: исходный образ и обязательные ID
+    db --> wardrobe : 1–20 кандидатов + photoId + снимок предпочтений
   end
 
   group Сетевые вызовы — вне JDBC-транзакций
@@ -58,7 +58,7 @@ else Слот занят этим запросом
     end
     wardrobe -> account : Проверить активность перед AI
     account --> wardrobe : Разрешено
-    wardrobe -> recommendation : POST /api/outfit-selections\nПогода + пожелания + кандидаты + фото\nПри замене: requiredItemIds
+    wardrobe -> recommendation : POST /api/outfit-selections\nПогода + разовые пожелания + профиль\nКандидаты + фото; при замене: requiredItemIds
     recommendation -> ai : Подбор · таймаут 60 с · без повторов
     ai --> recommendation : Успешно завершённый ответ
     recommendation --> wardrobe : 200 · itemIds + explanation
