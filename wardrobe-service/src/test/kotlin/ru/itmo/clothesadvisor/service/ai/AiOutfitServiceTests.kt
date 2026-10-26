@@ -9,6 +9,8 @@ import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.catchThrowable
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.EnumSource
 import org.mockito.Mockito.RETURNS_DEFAULTS
 import org.mockito.Mockito.any
 import org.mockito.Mockito.anyLong
@@ -49,6 +51,7 @@ import ru.itmo.clothesadvisor.repository.preferences.StylePreferencesRepository
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeCategory
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItem
+import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItemAvailability
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItemPhoto
 import ru.itmo.clothesadvisor.model.weather.PrecipitationType
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemPhotoRepository
@@ -59,7 +62,7 @@ import ru.itmo.clothesadvisor.service.user.CurrentUserService
 import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemPhotoService
 import ru.itmo.clothesadvisor.storage.wardrobe.PhotoStorageUnavailableException
 
-class AiOutfitServiceTests {
+internal class AiOutfitServiceTests {
     private val users = mock(CurrentUserService::class.java)
     private val items = mock(WardrobeItemRepository::class.java)
     private val photos = mock(WardrobeItemPhotoRepository::class.java)
@@ -130,7 +133,7 @@ class AiOutfitServiceTests {
         `when`(transactions.getTransaction(any())).thenAnswer { SimpleTransactionStatus() }
         `when`(users.requireActive(7)).thenReturn(owner)
         `when`(precipitation.findById(1)).thenReturn(PrecipitationType("NONE", "None"))
-        `when`(items.findOwnedItemsWithPhotos(7, 21)).thenReturn(listOf(item))
+        `when`(items.findAvailableOwnedItemsWithPhotos(7, 21)).thenReturn(listOf(item))
         `when`(items.lockOwnedItemsForShare(7, listOf(11))).thenReturn(listOf(item))
         `when`(photos.findFirstByItemIdOrderByIdAsc(11)).thenReturn(photo)
         `when`(photos.findByIdAndItemIdAndItemOwnerId(21, 11, 7)).thenReturn(photo)
@@ -335,18 +338,18 @@ class AiOutfitServiceTests {
     fun `candidate limit stops after bounded query before photo and external reads`() {
 
         // given
-        `when`(items.findOwnedItemsWithPhotos(7, 21)).thenReturn(List(21) { item })
+        `when`(items.findAvailableOwnedItemsWithPhotos(7, 21)).thenReturn(List(21) { item })
 
         // when
         val failure = catchThrowable { service.create(7, request()) }
 
         // then
         assertFailure(AiOutfitFailure.INVALID_REQUEST, failure)
-        verify(items).findOwnedItemsWithPhotos(7, 21)
+        verify(items).findAvailableOwnedItemsWithPhotos(7, 21)
         verifyNoInteractions(photos, content, outfits)
 
         // when
-        doReturn(listOf(item)).`when`(items).findOwnedItemsWithPhotos(7, 21)
+        doReturn(listOf(item)).`when`(items).findAvailableOwnedItemsWithPhotos(7, 21)
         val recovered = service.create(7, request())
 
         // then
@@ -651,7 +654,7 @@ class AiOutfitServiceTests {
     fun `replacement needs at least one candidate besides retained items`() {
         // given
         prepareReplacement()
-        doReturn(listOf(item)).`when`(items).findOwnedItemsWithPhotosExcluding(7, setOf(13L), 21)
+        doReturn(listOf(item)).`when`(items).findAvailableOwnedItemsWithPhotosExcluding(7, setOf(13L), 21)
 
         // when
         val failure = catchThrowable { service.replace(7, 80, CreateAiOutfitReplacementRequest("New", listOf(13))) }
@@ -678,6 +681,101 @@ class AiOutfitServiceTests {
         }
         assertThat(savedRequest).isNull()
         verify(items, never()).lockOwnedItemsForShare(7, listOf(12, 11))
+    }
+
+    @ParameterizedTest
+    @EnumSource(WardrobeItemAvailability::class, names = ["IN_LAUNDRY", "STORED"])
+    fun `explicit unavailable candidates are filtered before photo reads`(availability: WardrobeItemAvailability) {
+        // given
+        val unavailable = WardrobeItem(7, item.category, "Unavailable", "Grey", "Wool", storedAt,
+            availability = availability).apply { id = 12 }
+        `when`(items.findAllByOwnerIdAndIdInOrderByIdAsc(7, listOf(11, 12))).thenReturn(listOf(item, unavailable))
+
+        // when
+        service.create(7, request(listOf(11, 12)))
+
+        // then
+        assertThat(receivedSelection!!.candidates.map { it.itemId }).containsExactly(11)
+        verify(photos, never()).findFirstByItemIdOrderByIdAsc(12)
+        verify(content, never()).getContent(eq(7L), eq(12L), anyLong())
+    }
+
+    @Test
+    fun `foreign IDs fail before filtering unavailable explicit candidates`() {
+        // given
+        item.availability = WardrobeItemAvailability.STORED
+        `when`(items.findAllByOwnerIdAndIdInOrderByIdAsc(7, listOf(11, 99))).thenReturn(listOf(item))
+
+        // when
+        val failure = catchThrowable { service.create(7, request(listOf(11, 99))) }
+
+        // then
+        assertThat(failure).isInstanceOf(EntityNotFoundException::class.java)
+        verifyNoInteractions(photos, content, provider, outfits)
+    }
+
+    @Test
+    fun `all unavailable explicit candidates fail before external calls`() {
+        // given
+        item.availability = WardrobeItemAvailability.IN_LAUNDRY
+        `when`(items.findAllByOwnerIdAndIdInOrderByIdAsc(7, listOf(11))).thenReturn(listOf(item))
+
+        // when
+        val failure = catchThrowable { service.create(7, request(listOf(11))) }
+
+        // then
+        assertFailure(AiOutfitFailure.INVALID_REQUEST, failure)
+        verifyNoInteractions(photos, content, provider, outfits)
+    }
+
+    @ParameterizedTest
+    @EnumSource(WardrobeItemAvailability::class, names = ["IN_LAUNDRY", "STORED"])
+    fun `unavailable retained item rejects replacement before external calls`(availability: WardrobeItemAvailability) {
+        // given
+        prepareReplacement()
+        item.availability = availability
+
+        // when
+        val failure = catchThrowable {
+            service.replace(7, 80, CreateAiOutfitReplacementRequest("New", listOf(13), listOf(12, 13)))
+        }
+
+        // then
+        assertFailure(AiOutfitFailure.INVALID_REQUEST, failure)
+        verifyNoInteractions(content, provider)
+        assertThat(savedRequest).isNull()
+    }
+
+    @ParameterizedTest
+    @EnumSource(WardrobeItemAvailability::class, names = ["IN_LAUNDRY", "STORED"])
+    fun `current unavailable state at final lock prevents saving`(availability: WardrobeItemAvailability) {
+        // given
+        val current = WardrobeItem(7, item.category, item.name, item.color, item.material, storedAt,
+            availability = availability).apply { id = 11 }
+        `when`(items.lockOwnedItemsForShare(7, listOf(11))).thenReturn(listOf(current))
+
+        // when
+        val failure = catchThrowable { service.create(7, request()) }
+
+        // then
+        assertFailure(AiOutfitFailure.SOURCE_CHANGED, failure)
+        assertThat(receivedSelection!!.candidates.map { it.itemId }).containsExactly(11)
+        verifyNoInteractions(outfits)
+    }
+
+    @Test
+    fun `current available item with newer metadata version is still accepted`() {
+        // given
+        val current = WardrobeItem(7, item.category, "Renamed", item.color, item.material, storedAt)
+            .apply { id = 11; version = 3 }
+        `when`(items.lockOwnedItemsForShare(7, listOf(11))).thenReturn(listOf(current))
+
+        // when
+        val response = service.create(7, request())
+
+        // then
+        assertThat(response).isSameAs(saved)
+        assertThat(savedRequest!!.itemIds).containsExactly(11)
     }
 
     private fun prepareReplacement() {

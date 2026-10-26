@@ -216,6 +216,7 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
         val actorId = actorId(stylist)
         val path = stylistPath(owner)
         val item = item(owner)
+        jdbc.update("UPDATE wardrobe_item SET availability = 'STORED' WHERE id = ?", item)
 
         // when
         val created =

@@ -61,6 +61,7 @@ class WardrobeItemIntegrationTests : AccountBackedIntegrationTest() {
         val path = "/api/wardrobe/items/$id"
         assertThat(created.headers().firstValue("Location")).hasValue(path)
         assertThat(number(original, "version")).isEqualTo(1)
+        assertThat(original["availability"]).isEqualTo("AVAILABLE")
         assertThat(original["createdAt"])
             .isEqualTo(
                 jdbc
@@ -606,6 +607,66 @@ class WardrobeItemIntegrationTests : AccountBackedIntegrationTest() {
         assertThat(invalidPageStatus).isEqualTo(400)
     }
 
+    @Test
+    fun `availability transitions preserve legacy updates and archive exact previous and deleted states`() {
+        // given
+        val actor = actorId(createUser())
+        val original = dto(request("POST", actorId = actor, body = body()))
+        val id = number(original, "id")
+        val path = "/api/wardrobe/items/$id"
+        var previous = original
+
+        for (state in listOf("IN_LAUNDRY", "STORED", "AVAILABLE", "STORED")) {
+            // when
+            val changed = request("PUT", path, actor,
+                body(number(previous, "version")).dropLast(1) + """, "availability":"$state"}""")
+
+            // then
+            assertThat(changed.statusCode()).isEqualTo(200)
+            val current = dto(changed)
+            assertThat(current["availability"]).isEqualTo(state)
+            assertThat(number(current, "version")).isEqualTo(number(previous, "version") + 1)
+            assertThat(jdbc.queryForObject(
+                "SELECT availability::text FROM wardrobe_item_history WHERE wardrobe_item_id = ? AND version = ?",
+                String::class.java, id, number(previous, "version"),
+            )).isEqualTo(previous["availability"])
+            assertThat(history(id).last()[5].toString()).isEqualTo(previous["modifiedAt"])
+            assertThat(history(id).last()[6].toString()).isEqualTo(current["modifiedAt"])
+            previous = current
+        }
+
+        // when
+        val omitted = request("PUT", path, actor, body(5))
+        val explicitNull = request("PUT", path, actor, body(5).dropLast(1) + """, "availability":null}""")
+        val same = request("PUT", path, actor, body(5).dropLast(1) + """, "availability":"STORED"}""")
+        val stale = request("PUT", path, actor, body(4).dropLast(1) + """, "availability":"STORED"}""")
+        val unknown = request("PUT", path, actor, body(5).dropLast(1) + """, "availability":"UNKNOWN"}""")
+
+        // then
+        for (response in listOf(omitted, explicitNull, same)) {
+            assertThat(response.statusCode()).isEqualTo(200)
+            assertThat(dto(response)).isEqualTo(previous)
+        }
+        assertThat(stale.statusCode()).isEqualTo(409)
+        assertThat(unknown.statusCode()).isEqualTo(400)
+        assertThat(history(id)).hasSize(4)
+        assertThat(rows(request("GET", actorId = actor))).containsExactly(previous)
+
+        // when
+        val renamed = request("PUT", path, actor, body(5, "Renamed"))
+        val deleted = request("DELETE", "$path?version=6", actor)
+
+        // then
+        assertThat(renamed.statusCode()).isEqualTo(200)
+        assertThat(dto(renamed)["availability"]).isEqualTo("STORED")
+        assertThat(deleted.statusCode()).isEqualTo(204)
+        assertThat(jdbc.queryForList(
+            "SELECT availability::text FROM wardrobe_item_history WHERE wardrobe_item_id = ? ORDER BY version",
+            String::class.java, id,
+        )).containsExactly("AVAILABLE", "IN_LAUNDRY", "STORED", "AVAILABLE", "STORED", "STORED")
+        assertThat(history(id).last()[5].toString()).isEqualTo(dto(renamed)["modifiedAt"])
+    }
+
     private fun createUser(role: UserRole = UserRole.USER): AccountUserResponse =
         jdbc.insertUser(UUID.randomUUID().toString(), "!", role)
 
@@ -659,6 +720,7 @@ class WardrobeItemIntegrationTests : AccountBackedIntegrationTest() {
                 "version",
                 "createdAt",
                 "modifiedAt",
+                "availability",
             )
     }
 

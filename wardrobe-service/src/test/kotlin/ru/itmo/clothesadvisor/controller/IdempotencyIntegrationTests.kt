@@ -344,6 +344,45 @@ class IdempotencyIntegrationTests : AccountBackedIntegrationTest() {
         assertThat(count("wardrobe_item")).isEqualTo(1)
     }
 
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `legacy item fingerprints replay response without availability or repeated writes`(multipart: Boolean) {
+        // given
+        val owner = jdbc.insertUser("user", "hash", UserRole.USER).id
+        val id = jdbc.insertItem(owner, CreateWardrobeItemRequest("Shirt", 1, "White", "Cotton")).id
+        jdbc.update("UPDATE wardrobe_item SET availability = 'STORED' WHERE id = ?", id)
+        val saved = """{"id":$id,"name":"Shirt","categoryId":1,"color":"White","material":"Cotton","version":1,"createdAt":"2026-01-01T00:00:00Z","modifiedAt":"2026-01-01T00:00:00Z"}"""
+        val legacy = """[$owner,$itemBody]"""
+        assertThat(mapper.writeValueAsString(listOf(owner, CreateWardrobeItemRequest("Shirt", 1, "White", "Cotton"))))
+            .isEqualTo(legacy)
+        val digest = MessageDigest.getInstance("SHA-256")
+        val parts = listOf(legacy.toByteArray()) + if (multipart) listOf(png) else emptyList()
+        parts.forEach { bytes ->
+            digest.update(ByteBuffer.allocate(Long.SIZE_BYTES).putLong(bytes.size.toLong()).array())
+            digest.update(bytes)
+        }
+        val fingerprint = digest.digest().joinToString("") { "%02x".format(it) }
+        jdbc.update(
+            """INSERT INTO idempotency_command
+                (actor_id, operation, command_key, fingerprint, state, response_json, response_status)
+                VALUES (?, 'CREATE_WARDROBE_ITEM', 'legacy', ?, 'SUCCEEDED', ?, 201)""",
+            owner, fingerprint, saved,
+        )
+
+        // when
+        val replay = if (multipart) multipart(owner, "/api/wardrobe/items", "legacy", itemBody)
+            else post(owner, "/api/wardrobe/items", "legacy", itemBody)
+
+        // then
+        assertThat(replay.statusCode()).isEqualTo(201)
+        assertThat(replay.body()).isEqualTo(saved)
+        assertThat(replay.headers().firstValue("Location")).hasValue("/api/wardrobe/items/$id")
+        assertThat(count("wardrobe_item")).isEqualTo(1)
+        assertThat(count("wardrobe_item_photo")).isZero()
+        assertThat(uploads).hasValue(0)
+        assertThat(selections).hasValue(0)
+    }
+
     private fun count(table: String) = jdbc.queryForObject("SELECT count(*) FROM $table", Long::class.java)!!
 
     private fun post(actor: Long, path: String, key: String, body: String) = send(actor, path, key, "application/json", body.toByteArray())

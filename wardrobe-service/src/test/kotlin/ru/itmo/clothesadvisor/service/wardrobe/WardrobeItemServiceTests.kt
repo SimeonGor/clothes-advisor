@@ -7,6 +7,9 @@ import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.catchThrowable
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.EnumSource
+import org.mockito.ArgumentCaptor
 import org.mockito.ArgumentMatchers.any
 import org.mockito.Mockito.doAnswer
 import org.mockito.Mockito.doThrow
@@ -20,11 +23,12 @@ import ru.itmo.clothesadvisor.dto.wardrobe.CreateWardrobeItemRequest
 import ru.itmo.clothesadvisor.dto.wardrobe.UpdateWardrobeItemRequest
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeCategory
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItem
+import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItemAvailability
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItemHistory
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemHistoryRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 
-class WardrobeItemServiceTests {
+internal class WardrobeItemServiceTests {
     private val items = mock(WardrobeItemRepository::class.java)
     private val history = mock(WardrobeItemHistoryRepository::class.java)
     private val categories = mock(WardrobeCategoryService::class.java)
@@ -64,7 +68,7 @@ class WardrobeItemServiceTests {
     fun `unchanged update skips write but checks expected version first`() {
 
         // given
-        val row = item()
+        val row = item().apply { availability = WardrobeItemAvailability.STORED }
         `when`(items.findByIdAndOwnerId(9, 1)).thenReturn(row)
         `when`(categories.getById(1)).thenReturn(category)
         val request = UpdateWardrobeItemRequest(1, "Shirt", 1, "White", "Cotton")
@@ -74,6 +78,7 @@ class WardrobeItemServiceTests {
 
         // then
         assertThat(unchanged.version).isEqualTo(1)
+        assertThat(unchanged.availability).isEqualTo(WardrobeItemAvailability.STORED)
 
         // when
         val stale = catchThrowable {
@@ -90,12 +95,13 @@ class WardrobeItemServiceTests {
     fun `update uses stored timestamps and archives exact previous contents`() {
 
         // given
-        val row = item()
+        val row = item().apply { availability = WardrobeItemAvailability.IN_LAUNDRY }
         val saved =
             item().apply {
                 replace(category, "Jacket", "Blue", "Wool")
                 version = 2
                 modifiedAt = storedAt.plusSeconds(10)
+                availability = WardrobeItemAvailability.IN_LAUNDRY
             }
         `when`(items.findByIdAndOwnerId(9, 1)).thenReturn(row)
         `when`(categories.getById(1)).thenReturn(category)
@@ -118,6 +124,60 @@ class WardrobeItemServiceTests {
         assertThat(archived!!.name).isEqualTo("Shirt")
         assertThat(archived!!.modifiedAt).isEqualTo(storedAt)
         assertThat(archived!!.id.version).isEqualTo(1)
+        assertThat(archived!!.availability).isEqualTo(WardrobeItemAvailability.IN_LAUNDRY)
+        assertThat(row.availability).isEqualTo(WardrobeItemAvailability.IN_LAUNDRY)
+        assertThat(response.availability).isEqualTo(WardrobeItemAvailability.IN_LAUNDRY)
+    }
+
+    @ParameterizedTest
+    @EnumSource(WardrobeItemAvailability::class)
+    fun `availability update archives previous state and same state is a no-op`(availability: WardrobeItemAvailability) {
+        // given
+        val row = item().apply {
+            this.availability = if (availability == WardrobeItemAvailability.AVAILABLE)
+                WardrobeItemAvailability.STORED else WardrobeItemAvailability.AVAILABLE
+        }
+        val previousAvailability = row.availability
+        `when`(items.findByIdAndOwnerId(9, 1)).thenReturn(row)
+        `when`(categories.getById(1)).thenReturn(category)
+        `when`(items.update(row)).thenAnswer { row.apply { version = 2; modifiedAt = storedAt.plusSeconds(10) } }
+
+        // when
+        val response = service.update(1, 9, UpdateWardrobeItemRequest(1, "Shirt", 1, "White", "Cotton", availability))
+        val unchanged = service.update(1, 9, UpdateWardrobeItemRequest(2, "Shirt", 1, "White", "Cotton", availability))
+        val stale = catchThrowable {
+            service.update(1, 9, UpdateWardrobeItemRequest(1, "Shirt", 1, "White", "Cotton", availability))
+        }
+
+        // then
+        assertThat(response.version).isEqualTo(2)
+        assertThat(response.availability).isEqualTo(availability)
+        assertThat(response.modifiedAt).isEqualTo(storedAt.plusSeconds(10))
+        assertThat(unchanged).isEqualTo(response)
+        assertThat(stale).isInstanceOf(OptimisticLockingFailureException::class.java)
+        verify(items).update(row)
+        val archived = ArgumentCaptor.forClass(WardrobeItemHistory::class.java)
+        verify(history).insert(archived.capture() ?: WardrobeItemHistory(row))
+        assertThat(archived.value.availability).isEqualTo(previousAvailability)
+        assertThat(archived.value.id.version).isEqualTo(1)
+        assertThat(archived.value.modifiedAt).isEqualTo(storedAt)
+    }
+
+    @Test
+    fun `delete archives final unavailable state`() {
+        // given
+        val row = item().apply { availability = WardrobeItemAvailability.STORED }
+        `when`(items.findByIdAndOwnerId(9, 1)).thenReturn(row)
+
+        // when
+        service.delete(1, 9, 1)
+
+        // then
+        val archived = ArgumentCaptor.forClass(WardrobeItemHistory::class.java)
+        verify(history).insert(archived.capture() ?: WardrobeItemHistory(row))
+        assertThat(archived.value.availability).isEqualTo(WardrobeItemAvailability.STORED)
+        assertThat(archived.value.modifiedAt).isEqualTo(storedAt)
+        verify(items).delete(row)
     }
 
     @Test

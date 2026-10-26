@@ -80,6 +80,7 @@ class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
         val photo = photo(item)
         grant(ownerActorId, stylist)
         val base = wardrobe(owner.id)
+        jdbc.update("UPDATE wardrobe_item SET availability = 'IN_LAUNDRY' WHERE id = ?", item)
         for (suffix in listOf("", "/$item", "/$item/photos")) {
 
             // when
@@ -91,6 +92,9 @@ class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
             // then
             assertThat(shared.statusCode()).isEqualTo(200)
             assertThat(shared.body()).isEqualTo(own.body())
+            if (!suffix.endsWith("/photos")) {
+                assertThat(String(shared.body())).contains("\"availability\":\"IN_LAUNDRY\"")
+            }
         }
 
         // when
