@@ -20,4 +20,5 @@ internal data class IdempotencyCommand(
 
 internal enum class IdempotencyOperation {
     CREATE_WARDROBE_ITEM, ADD_WARDROBE_PHOTOS, CREATE_OUTFIT, CREATE_AI_OUTFIT,
+    CREATE_AI_OUTFIT_REPLACEMENT,
 }

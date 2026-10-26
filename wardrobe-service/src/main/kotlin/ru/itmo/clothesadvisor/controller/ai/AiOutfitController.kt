@@ -12,10 +12,12 @@ import jakarta.validation.Valid
 import java.net.URI
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.PostMapping
+import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestHeader
 import org.springframework.web.bind.annotation.RestController
 import ru.itmo.clothesadvisor.dto.ai.CreateAiOutfitRequest
+import ru.itmo.clothesadvisor.dto.ai.CreateAiOutfitReplacementRequest
 import ru.itmo.clothesadvisor.dto.user.CurrentUser
 import ru.itmo.clothesadvisor.service.ai.ReactiveAiOutfitService
 
@@ -25,6 +27,20 @@ import ru.itmo.clothesadvisor.service.ai.ReactiveAiOutfitService
 )
 @RestController
 internal class AiOutfitController(private val outfits: ReactiveAiOutfitService) {
+    @PostMapping("/api/outfits/{id}/ai-replacements")
+    @Operation(summary = "Заменить выбранные вещи через AI",
+        description = "Создаёт новый образ, сохраняя остальные вещи, погоду, повод и стиль исходного. Исходный образ и оценки не меняются. Лимиты и ошибки подбора совпадают с POST /api/outfits/ai.")
+    @ApiResponse(responseCode = "201", description = "Создан новый образ", useReturnTypeSchema = true,
+        headers = [Header(name = "Location", schema = Schema(type = "string", format = "uri"))])
+    fun replace(
+        @Parameter(hidden = true) user: CurrentUser,
+        @PathVariable id: Long,
+        @Valid @RequestBody request: CreateAiOutfitReplacementRequest,
+        @RequestHeader("Idempotency-Key", required = false) key: String?,
+    ) = outfits.replace(user.id, id, request, key).map {
+        ResponseEntity.created(URI("/api/outfits/${it.id}")).body(it)
+    }
+
     @PostMapping("/api/outfits/ai")
     @Operation(
         summary = "Подобрать образ через AI",

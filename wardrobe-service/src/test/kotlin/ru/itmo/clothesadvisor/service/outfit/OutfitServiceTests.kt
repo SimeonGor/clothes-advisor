@@ -27,6 +27,8 @@ import ru.itmo.clothesadvisor.client.account.BlockingAccountClient
 import ru.itmo.clothesadvisor.dto.outfit.CreateOutfitRequest
 import ru.itmo.clothesadvisor.dto.outfit.OutfitWeatherDto
 import ru.itmo.clothesadvisor.model.EntityNotFoundException
+import ru.itmo.clothesadvisor.model.ai.AiOutfitException
+import ru.itmo.clothesadvisor.model.ai.AiOutfitFailure
 import ru.itmo.clothesadvisor.model.access.AccountUnavailableException
 import ru.itmo.clothesadvisor.model.outfit.Outfit
 import ru.itmo.clothesadvisor.model.outfit.OutfitItem
@@ -176,6 +178,21 @@ class OutfitServiceTests {
         assertThat(savedItems.map { it.id.wardrobeItemId to it.position })
             .containsExactly(2L to 0, 1L to 1)
         assertThat(response.itemIds).containsExactly(2, 1)
+    }
+
+    @Test
+    fun `missing replacement source prevents all new outfit writes`() {
+        // given: source no longer exists when final transaction starts
+
+        // when
+        val failure = catchThrowable { service.createAi(7, request(), sourceOutfitId = 10) }
+
+        // then
+        assertThat(failure).isInstanceOfSatisfying(AiOutfitException::class.java) {
+            assertThat(it.failure).isEqualTo(AiOutfitFailure.SOURCE_CHANGED)
+        }
+        verify(outfits).findLockedByIdAndOwnerId(10, 7)
+        verifyNoInteractions(composition, weather, wardrobe, precipitation)
     }
 
     @Test

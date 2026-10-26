@@ -25,6 +25,15 @@ internal interface WardrobeItemRepository : Repository<WardrobeItem, Long> {
     )
     fun findOwnedItemsWithPhotos(ownerId: Long, limit: Int): List<WardrobeItem>
 
+    @Query(
+        SELECT_ITEM + """
+        WHERE i.owner_id = :ownerId AND i.id NOT IN (:excludedIds)
+            AND EXISTS (SELECT 1 FROM wardrobe_item_photo p WHERE p.wardrobe_item_id = i.id)
+        ORDER BY i.id LIMIT :limit
+        """,
+    )
+    fun findOwnedItemsWithPhotosExcluding(ownerId: Long, excludedIds: Collection<Long>, limit: Int): List<WardrobeItem>
+
     fun findAllByOwnerIdAndIdInOrderByIdAsc(
         ownerId: Long,
         ids: Collection<Long>,
