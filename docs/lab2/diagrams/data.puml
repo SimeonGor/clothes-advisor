@@ -44,6 +44,28 @@ package "account_db · account-service" as account #FFF8E9 {
 }
 
 package "wardrobe_db · wardrobe-service" as wardrobe #F2F8F5 {
+  entity "style_preferences" as preferences #E8F5EF {
+    * owner_id: bigint <<PK, account ID>>
+    --
+    * preferred_colors_and_materials: varchar(2000)
+    * avoidances: varchar(2000)
+    * additional_wishes: varchar(2000)
+    * version: bigint
+    * created_at: timestamptz
+    * modified_at: timestamptz
+  }
+  entity "style_preferences_history" as preferences_history #E8F5EF {
+    * owner_id: bigint <<PK, account ID>>
+    * version: bigint <<PK>>
+    --
+    * preferred_colors_and_materials: varchar(2000)
+    * avoidances: varchar(2000)
+    * additional_wishes: varchar(2000)
+    * created_at: timestamptz
+    * modified_at: timestamptz
+    * archived_at: timestamptz
+  }
+  preferences -[hidden]down-> preferences_history
   entity "idempotency_command" as command #FFF5DF {
     * id: bigint <<PK>>
     --

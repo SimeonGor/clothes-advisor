@@ -9,7 +9,7 @@
 | Компонент | Ответственность | Технологии и данные |
 |---|---|---|
 | account-service | Пользователи, их история, роли, статусы, разрешения стилистам | Kotlin, WebFlux/Reactor, Spring Data R2DBC, account_db |
-| wardrobe-service | Вещи, фото, образы, погода, оценки и история; подготовка и сохранение AI-образа | Kotlin, WebFlux/Reactor, Spring Data JDBC, wardrobe_db, Yandex Object Storage |
+| wardrobe-service | Вещи, фото, образы, погода, оценки, предпочтения и история; подготовка и сохранение AI-образа | Kotlin, WebFlux/Reactor, Spring Data JDBC, wardrobe_db, Yandex Object Storage |
 | recommendation-service | Выбор вещей из переданных кандидатов и изображений | Kotlin, WebFlux/Reactor, текущий AI-клиент; без собственной БД |
 | frontend | Текущий интерфейс USER/STYLIST/ADMIN | HTML/CSS/JS, отдельная сборка и образ со статическим web-сервером |
 | api-gateway | Единственный внешний HTTP-вход, маршрутизация UI/API, общий Swagger | Spring Cloud Gateway |
@@ -73,10 +73,12 @@ Spring-аннотации и маппинг Spring Data допустимы. От
 | wardrobe_db | outfit_rating | Текущий голос стилиста |
 | wardrobe_db | outfit_rating_history | История изменений, отмены и удаления текущих голосов |
 | wardrobe_db | idempotency_command | Ключ, отпечаток, состояние и сохранённый ответ операции создания |
+| wardrobe_db | style_preferences | Предпочтения владельца: цвета и материалы, ограничения, пожелания |
+| wardrobe_db | style_preferences_history | Предыдущие версии предпочтений с исходными датами |
 
 Таблица и ER-схема показывают активное владение данными. В wardrobe_db физически сохраняются старые `app_user`, `app_user_history`, `access_grant` и последовательность ID: V11 снимает только пять межсервисных FK, не удаляя данные. Рабочий код wardrobe больше не читает и не изменяет эти таблицы. Служебная история Flyway ведётся отдельно в каждой БД. Роли/статусы, источник образа и голос остаются строковыми PostgreSQL enum. Файлы живут в S3, а не в PostgreSQL.
 
-Межсервисные ссылки — `wardrobe_item.owner_id`, `outfit.owner_id/author_id`, `outfit_rating.stylist_id` и `outfit_rating_history.stylist_id`. Значения ID сохраняются, но FK на app_user в wardrobe_db нет. Существование и доступ проверяются через account; локальные FK внутри каждой БД остаются. Удаление аккаунтов не добавляется, роли и статусы могут меняться без переписывания авторства и истории.
+Межсервисные ссылки — `wardrobe_item.owner_id`, `outfit.owner_id/author_id`, `outfit_rating.stylist_id`, `outfit_rating_history.stylist_id` и `owner_id` в таблицах предпочтений. Значения ID сохраняются, но FK на app_user в wardrobe_db нет. Существование и доступ проверяются через account; локальные FK внутри каждой БД остаются. Удаление аккаунтов не добавляется, роли и статусы могут меняться без переписывания авторства и истории.
 
 У истории вещи нет FK на удаляемую вещь; у истории оценки нет FK на удаляемый образ. Эти особенности сохраняются. Категория в истории вещи и пользователь в истории аккаунта имеют локальные FK. Создание истории и изменение основной записи остаются атомарными.
 
