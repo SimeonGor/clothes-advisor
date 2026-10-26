@@ -104,5 +104,5 @@ internal class ChatGptCredentials(
             unavailable()
         }
 
-    private fun unavailable(): Nothing = throw AiOutfitException(AiOutfitFailure.UNAVAILABLE)
+    private fun unavailable(): Nothing = throw AiSelectionException(AiSelectionFailure.UNAVAILABLE)
 }

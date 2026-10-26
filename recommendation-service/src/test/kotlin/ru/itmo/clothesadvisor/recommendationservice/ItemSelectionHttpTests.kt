@@ -22,6 +22,8 @@ import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.AfterEach
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import org.mockito.Mockito.doAnswer
 import org.slf4j.MDC
 import org.springframework.beans.factory.annotation.Autowired
@@ -37,16 +39,17 @@ import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
 import ru.itmo.clothesadvisor.client.ai.ChatGptCredentialFixture
-import ru.itmo.clothesadvisor.client.ai.OpenAiOutfitClient
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionCandidate
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionRequest
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionWeather
+import ru.itmo.clothesadvisor.client.ai.OpenAiSelectionClient
+import ru.itmo.clothesadvisor.client.ai.SelectionGoal
+import ru.itmo.clothesadvisor.dto.ai.ItemSelectionCandidate
+import ru.itmo.clothesadvisor.dto.ai.ItemSelectionRequest
+import ru.itmo.clothesadvisor.dto.ai.ItemSelectionWeather
 import tools.jackson.databind.node.ObjectNode
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
-@Import(OutfitSelectionHttpTests.FixedClock::class)
-class OutfitSelectionHttpTests {
+@Import(ItemSelectionHttpTests.FixedClock::class)
+class ItemSelectionHttpTests {
     @TestConfiguration
     class FixedClock {
         @Bean @Primary
@@ -56,7 +59,7 @@ class OutfitSelectionHttpTests {
     @LocalServerPort private var port = 0
     @Autowired private lateinit var tracer: Tracer
     @Autowired private lateinit var context: ApplicationContext
-    @MockitoSpyBean private lateinit var outfitClient: OpenAiOutfitClient
+    @MockitoSpyBean private lateinit var outfitClient: OpenAiSelectionClient
     private val http = HttpClient.newHttpClient()
     private val valid = """
         {
@@ -107,6 +110,55 @@ class OutfitSelectionHttpTests {
         assertThat(selection.path("preferredStyle").isNull).isTrue()
         assertThat(selection.has("requiredItemIds")).isFalse()
         assertThat(selection.has("stylePreferences")).isFalse()
+    }
+
+    @Test
+    fun `capsule endpoint uses capsule instructions and schema with the same images and context`() {
+        // given
+        val mapper = credentials.mapper
+        val input = mapper.readTree(valid) as ObjectNode
+        input.put("occasion", "Отпуск").put("preferredStyle", "Городской")
+        input.putObject("stylePreferences").put("preferredColorsAndMaterials", "Хлопок")
+            .put("avoidances", "Шерсть").put("additionalWishes", "Свободный крой")
+        input.putNull("requiredItemIds")
+
+        // when
+        val response = http.send(request(mapper.writeValueAsString(input), scenario = "capsule"), HttpResponse.BodyHandlers.ofString())
+
+        // then
+        assertThat(response.statusCode()).isEqualTo(200)
+        assertThat(response.body()).isEqualTo("""{"itemIds":[7],"explanation":"Подходит для погоды."}""")
+        assertThat(calls).hasValue(1)
+        val payload = mapper.readTree(providerRequests.single())
+        assertThat(payload.path("instructions").asString()).contains("capsule for several outfit combinations")
+        assertThat(payload.path("store").asBoolean()).isFalse()
+        assertThat(payload.path("stream").asBoolean()).isTrue()
+        assertThat(payload.path("text").path("format").path("name").asString()).isEqualTo("capsule")
+        assertThat(payload.path("text").path("format").path("strict").asBoolean()).isTrue()
+        val content = payload.path("input")[0].path("content")
+        val data = mapper.readTree(content[0].path("text").asString())
+        assertThat(data.path("weather")).isEqualTo(input.path("weather"))
+        assertThat(data.path("occasion").asString()).isEqualTo("Отпуск")
+        assertThat(data.path("preferredStyle").asString()).isEqualTo("Городской")
+        assertThat(data.path("stylePreferences")).isEqualTo(input.path("stylePreferences"))
+        assertThat(data.has("requiredItemIds")).isFalse()
+        assertThat(content[2].path("image_url").asString()).isEqualTo("data:image/png;base64,AQID")
+    }
+
+    @Test
+    fun `capsule endpoint rejects supplied required IDs even when empty`() {
+        // given
+        for (ids in listOf("[]", "[7]")) {
+            val body = valid.dropLast(1) + """, "requiredItemIds":$ids}"""
+
+            // when
+            val response = http.send(request(body, scenario = "capsule"), HttpResponse.BodyHandlers.ofString())
+
+            // then
+            assertThat(response.statusCode()).isEqualTo(400)
+            assertThat(response.body()).isEqualTo("""{"code":"invalid_request"}""")
+        }
+        assertThat(calls).hasValue(0)
     }
 
     @Test
@@ -276,9 +328,9 @@ class OutfitSelectionHttpTests {
             val thread: String,
         )
         val workers = CopyOnWriteArrayList<WorkerTrace>()
-        val selection = OutfitSelectionRequest(
-            OutfitSelectionWeather(BigDecimal("-1.23456789"), BigDecimal.ZERO, "NONE", "None"),
-            listOf(OutfitSelectionCandidate(
+        val selection = ItemSelectionRequest(
+            ItemSelectionWeather(BigDecimal("-1.23456789"), BigDecimal.ZERO, "NONE", "None"),
+            listOf(ItemSelectionCandidate(
                 7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", "AQID",
             )),
         )
@@ -287,7 +339,7 @@ class OutfitSelectionHttpTests {
             workers += WorkerTrace(span?.traceId(), span?.spanId(), MDC.get("traceId"),
                 MDC.get("spanId"), Thread.currentThread().name)
             call.callRealMethod()
-        }.`when`(outfitClient).select(selection)
+        }.`when`(outfitClient).select(SelectionGoal.OUTFIT, selection)
 
         // when
         val correlated = http.send(
@@ -312,8 +364,9 @@ class OutfitSelectionHttpTests {
         assertThat(context.getBeansOfType(SpanExporter::class.java)).isEmpty()
     }
 
-    @Test
-    fun `malformed null and coerced input fails before provider`() {
+    @ParameterizedTest
+    @ValueSource(strings = ["outfit", "capsule"])
+    fun `malformed null and coerced input fails before provider`(scenario: String) {
         // given
         val malformed = listOf(
             "", "{", "null", "{}", valid.replace("\"itemId\":7", "\"itemId\":7.1"),
@@ -336,7 +389,7 @@ class OutfitSelectionHttpTests {
 
         malformed.forEach { body ->
             // when
-            val response = http.send(request(body), HttpResponse.BodyHandlers.ofString())
+            val response = http.send(request(body, scenario = scenario), HttpResponse.BodyHandlers.ofString())
 
             // then
             assertThat(response.statusCode()).describedAs(body.take(80)).isEqualTo(400)
@@ -345,12 +398,13 @@ class OutfitSelectionHttpTests {
         assertThat(calls).hasValue(0)
     }
 
-    @Test
-    fun `refusal invalid completed response unfinished stream and unavailability map to codes`() {
+    @ParameterizedTest
+    @ValueSource(strings = ["outfit", "capsule"])
+    fun `refusal invalid completed response unfinished stream and unavailability map to codes`(scenario: String) {
         // given
         val cases = listOf(
-            Triple(200, completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[]}"), 422 to "no_outfit"),
-            Triple(200, "data: {\"type\":\"response.refusal.delta\",\"delta\":\"private\"}\n\n", 422 to "no_outfit"),
+            Triple(200, completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[]}"), 422 to "no_$scenario"),
+            Triple(200, "data: {\"type\":\"response.refusal.delta\",\"delta\":\"private\"}\n\n", 422 to "no_$scenario"),
             Triple(200, completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[9]}"), 502 to "invalid_response"),
             Triple(200, completed("""{"itemIds":[7]}"""), 502 to "invalid_response"),
             Triple(200, completed("""{"itemIds":[7],"explanation":null}"""), 502 to "invalid_response"),
@@ -364,7 +418,7 @@ class OutfitSelectionHttpTests {
             providerBody = upstreamBody
 
             // when
-            val response = http.send(request(valid), HttpResponse.BodyHandlers.ofString())
+            val response = http.send(request(valid, scenario = scenario), HttpResponse.BodyHandlers.ofString())
 
             // then
             assertThat(response.statusCode()).isEqualTo(expected.first)
@@ -373,14 +427,15 @@ class OutfitSelectionHttpTests {
         assertThat(calls).hasValue(cases.size)
     }
 
-    @Test
-    fun `blocked provider leaves HTTP responsive and times out with a sanitized error`() {
+    @ParameterizedTest
+    @ValueSource(strings = ["outfit", "capsule"])
+    fun `blocked provider leaves HTTP responsive and times out with a sanitized error`(scenario: String) {
         // given
         val release = CountDownLatch(1)
         blocked = release
 
         // when
-        val pending = http.sendAsync(request(valid), HttpResponse.BodyHandlers.ofString())
+        val pending = http.sendAsync(request(valid, scenario = scenario), HttpResponse.BodyHandlers.ofString())
         assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue()
         val probes = listOf("liveness", "readiness").map { group ->
             http.send(
@@ -399,8 +454,8 @@ class OutfitSelectionHttpTests {
         assertThat(calls).hasValue(1)
     }
 
-    private fun request(body: String, traceparent: String? = null) =
-        HttpRequest.newBuilder(URI("http://127.0.0.1:$port/api/outfit-selections"))
+    private fun request(body: String, traceparent: String? = null, scenario: String = "outfit") =
+        HttpRequest.newBuilder(URI("http://127.0.0.1:$port/api/$scenario-selections"))
             .header("Content-Type", "application/json")
             .apply { traceparent?.let { header("traceparent", it) } }
             .POST(HttpRequest.BodyPublishers.ofString(body)).build()

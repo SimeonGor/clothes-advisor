@@ -227,7 +227,7 @@ class ChatGptCredentialsTests {
     }
 
     private fun assertUnavailable(failure: Throwable?) {
-        assertThat(failure).isInstanceOfSatisfying(AiOutfitException::class.java) {
+        assertThat(failure).isInstanceOfSatisfying(AiSelectionException::class.java) {
             assertThat(it.status).isEqualTo(503)
             assertThat(it.message).isNull()
             assertThat(it.cause).isNull()

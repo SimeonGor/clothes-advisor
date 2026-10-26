@@ -8,18 +8,22 @@ import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.server.ServerWebInputException
 import reactor.core.publisher.Mono
 import reactor.core.scheduler.Schedulers
-import ru.itmo.clothesadvisor.client.ai.AiOutfitException
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionRequest
-import ru.itmo.clothesadvisor.recommendationservice.service.OutfitSelectionService
+import ru.itmo.clothesadvisor.client.ai.AiSelectionException
+import ru.itmo.clothesadvisor.dto.ai.ItemSelectionRequest
+import ru.itmo.clothesadvisor.recommendationservice.service.ItemSelectionService
 
 @RestController
-class OutfitSelectionController(private val service: OutfitSelectionService) {
+class ItemSelectionController(private val service: ItemSelectionService) {
     @PostMapping("/api/outfit-selections", consumes = ["application/json"])
-    fun select(@RequestBody body: OutfitSelectionRequest) =
-        Mono.fromCallable { service.select(body) }.subscribeOn(Schedulers.boundedElastic())
+    fun selectOutfit(@RequestBody body: ItemSelectionRequest) =
+        Mono.fromCallable { service.selectOutfit(body) }.subscribeOn(Schedulers.boundedElastic())
 
-    @ExceptionHandler(AiOutfitException::class)
-    fun selectionFailure(error: AiOutfitException): ResponseEntity<Map<String, String>> =
+    @PostMapping("/api/capsule-selections", consumes = ["application/json"])
+    fun selectCapsule(@RequestBody body: ItemSelectionRequest) =
+        Mono.fromCallable { service.selectCapsule(body) }.subscribeOn(Schedulers.boundedElastic())
+
+    @ExceptionHandler(AiSelectionException::class)
+    fun selectionFailure(error: AiSelectionException): ResponseEntity<Map<String, String>> =
         ResponseEntity.status(error.status).body(mapOf("code" to error.failure.name.lowercase()))
 
     @ExceptionHandler(ServerWebInputException::class)

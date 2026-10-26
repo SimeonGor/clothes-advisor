@@ -5,21 +5,21 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import tools.jackson.databind.json.JsonMapper
 
-class OutfitSelectionDtosTests {
+class ItemSelectionDtosTests {
     private val mapper = JsonMapper.builder().findAndAddModules().build()
 
     @Test
     fun `optional preferences round trip with only three texts`() {
         // given
-        val request = OutfitSelectionRequest(
-            OutfitSelectionWeather(BigDecimal.ZERO, BigDecimal.ZERO, "NONE", "None"),
+        val request = ItemSelectionRequest(
+            ItemSelectionWeather(BigDecimal.ZERO, BigDecimal.ZERO, "NONE", "None"),
             emptyList(),
-            stylePreferences = OutfitSelectionStylePreferences("  Blue  ", "", "Loose fit"),
+            stylePreferences = ItemSelectionStylePreferences("  Blue  ", "", "Loose fit"),
         )
 
         // when
         val json = mapper.writeValueAsString(request)
-        val decoded = mapper.readValue(json, OutfitSelectionRequest::class.java)
+        val decoded = mapper.readValue(json, ItemSelectionRequest::class.java)
 
         // then
         assertThat(decoded).isEqualTo(request)
@@ -33,15 +33,15 @@ class OutfitSelectionDtosTests {
 
         // given
         val request =
-            OutfitSelectionRequest(
-                OutfitSelectionWeather(
+            ItemSelectionRequest(
+                ItemSelectionWeather(
                     BigDecimal("-1.23456789"),
                     BigDecimal("2.30"),
                     "RAIN",
                     "Rain",
                 ),
                 listOf(
-                    OutfitSelectionCandidate(
+                    ItemSelectionCandidate(
                         12,
                         "Jacket",
                         "OUTERWEAR",
@@ -55,13 +55,13 @@ class OutfitSelectionDtosTests {
                 occasion = "Work",
                 preferredStyle = "Casual",
             )
-        val response = OutfitSelectionResponse(listOf(12, 7), "Подходит для погоды.")
+        val response = ItemSelectionResponse(listOf(12, 7), "Подходит для погоды.")
 
         // when
         val requestJson = mapper.writeValueAsString(request)
         val responseJson = mapper.writeValueAsString(response)
-        val decodedRequest = mapper.readValue(requestJson, OutfitSelectionRequest::class.java)
-        val decodedResponse = mapper.readValue(responseJson, OutfitSelectionResponse::class.java)
+        val decodedRequest = mapper.readValue(requestJson, ItemSelectionRequest::class.java)
+        val decodedResponse = mapper.readValue(responseJson, ItemSelectionResponse::class.java)
 
         // then
         assertThat(decodedRequest).isEqualTo(request)

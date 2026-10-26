@@ -14,43 +14,52 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.TimeoutException
 import java.util.concurrent.atomic.AtomicReference
-import ru.itmo.clothesadvisor.config.OutfitPromptSettings
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionRequest
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionResponse
+import ru.itmo.clothesadvisor.config.SelectionPromptSettings
+import ru.itmo.clothesadvisor.dto.ai.ItemSelectionRequest
+import ru.itmo.clothesadvisor.dto.ai.ItemSelectionResponse
 import tools.jackson.core.JacksonException
 import tools.jackson.databind.DeserializationFeature
 import tools.jackson.databind.json.JsonMapper
 
-enum class AiOutfitFailure(val status: Int) {
+enum class AiSelectionFailure(val status: Int) {
     INVALID_REQUEST(400),
+    NO_SELECTION(422),
     NO_OUTFIT(422),
+    NO_CAPSULE(422),
     INVALID_RESPONSE(502),
     UNAVAILABLE(503),
     TIMEOUT(504),
 }
 
-class AiOutfitException(val failure: AiOutfitFailure) : RuntimeException() {
+class AiSelectionException(val failure: AiSelectionFailure) : RuntimeException() {
     val status: Int
         get() = failure.status
 }
 
-class OpenAiOutfitClient internal constructor(
+enum class SelectionGoal { OUTFIT, CAPSULE }
+
+class OpenAiSelectionClient internal constructor(
     private val http: HttpClient?,
     private val mapper: JsonMapper,
     private val credentials: ChatGptCredentials,
     private val model: String,
     private val endpoint: URI,
     private val timeout: Duration,
-    private val promptSettings: OutfitPromptSettings,
+    private val outfitPromptSettings: SelectionPromptSettings,
+    private val capsulePromptSettings: SelectionPromptSettings,
 ) : AutoCloseable {
-    fun select(selection: OutfitSelectionRequest): OutfitSelectionResponse {
-        val prompt = promptSettings.snapshot() ?: throw AiOutfitException(AiOutfitFailure.UNAVAILABLE)
+    fun select(goal: SelectionGoal, selection: ItemSelectionRequest): ItemSelectionResponse {
+        val promptSettings = when (goal) {
+            SelectionGoal.OUTFIT -> outfitPromptSettings
+            SelectionGoal.CAPSULE -> capsulePromptSettings
+        }
+        val prompt = promptSettings.snapshot() ?: throw AiSelectionException(AiSelectionFailure.UNAVAILABLE)
         if (http == null || model.isBlank()) {
-            throw AiOutfitException(AiOutfitFailure.UNAVAILABLE)
+            throw AiSelectionException(AiSelectionFailure.UNAVAILABLE)
         }
         val accessToken = credentials.accessToken()
         val allowed = selection.candidates.map { it.itemId }.toSet()
-        val body = requestBody(selection, allowed, prompt.text)
+        val body = requestBody(selection, allowed, prompt.text, goal)
 
         val request =
             try {
@@ -62,7 +71,7 @@ class OpenAiOutfitClient internal constructor(
                     .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)))
                     .build()
             } catch (_: IllegalArgumentException) {
-                throw AiOutfitException(AiOutfitFailure.UNAVAILABLE)
+                throw AiSelectionException(AiSelectionFailure.UNAVAILABLE)
             }
 
         val openBody = AtomicReference<InputStream?>()
@@ -75,10 +84,10 @@ class OpenAiOutfitClient internal constructor(
                     response.body().use { stream ->
                         openBody.set(stream)
                         if (Thread.currentThread().isInterrupted) {
-                            throw AiOutfitException(AiOutfitFailure.TIMEOUT)
+                            throw AiSelectionException(AiSelectionFailure.TIMEOUT)
                         }
                         if (response.statusCode() !in 200..299) {
-                            throw AiOutfitException(AiOutfitFailure.UNAVAILABLE)
+                            throw AiSelectionException(AiSelectionFailure.UNAVAILABLE)
                         }
                         val contentType = response.headers().firstValue("Content-Type").orElse(null)
                         if (
@@ -88,7 +97,7 @@ class OpenAiOutfitClient internal constructor(
                                     .trim()
                                     .equals("text/event-stream", true)
                         ) {
-                            throw AiOutfitException(AiOutfitFailure.INVALID_RESPONSE)
+                            throw AiSelectionException(AiSelectionFailure.INVALID_RESPONSE)
                         }
                         parse(OpenAiResponseStream(mapper).read(stream), allowed, selection.requiredItemIds)
                     }
@@ -98,18 +107,18 @@ class OpenAiOutfitClient internal constructor(
         return try {
             pending.get(timeout.toMillis(), TimeUnit.MILLISECONDS)
         } catch (_: TimeoutException) {
-            throw AiOutfitException(AiOutfitFailure.TIMEOUT)
+            throw AiSelectionException(AiSelectionFailure.TIMEOUT)
         } catch (error: ExecutionException) {
             when (val cause = error.cause) {
-                is AiOutfitException -> throw cause
-                is HttpTimeoutException -> throw AiOutfitException(AiOutfitFailure.TIMEOUT)
+                is AiSelectionException -> throw cause
+                is HttpTimeoutException -> throw AiSelectionException(AiSelectionFailure.TIMEOUT)
                 is CharacterCodingException ->
-                    throw AiOutfitException(AiOutfitFailure.INVALID_RESPONSE)
-                else -> throw AiOutfitException(AiOutfitFailure.UNAVAILABLE)
+                    throw AiSelectionException(AiSelectionFailure.INVALID_RESPONSE)
+                else -> throw AiSelectionException(AiSelectionFailure.UNAVAILABLE)
             }
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
-            throw AiOutfitException(AiOutfitFailure.UNAVAILABLE)
+            throw AiSelectionException(AiSelectionFailure.UNAVAILABLE)
         } finally {
             pending.cancel(true)
             // Closing a network stream must not hold up the caller after its deadline.
@@ -124,17 +133,17 @@ class OpenAiOutfitClient internal constructor(
         http?.close()
     }
 
-    private fun requestBody(selection: OutfitSelectionRequest, allowed: Set<Long>, prompt: String): Map<String, Any> =
+    private fun requestBody(selection: ItemSelectionRequest, allowed: Set<Long>, prompt: String, goal: SelectionGoal): Map<String, Any> =
         mapOf(
             "model" to model,
             "store" to false,
             "stream" to true,
             "instructions" to prompt,
             "input" to listOf(mapOf("role" to "user", "content" to inputContent(selection))),
-            "text" to mapOf("format" to outputFormat(allowed)),
+            "text" to mapOf("format" to outputFormat(allowed, goal)),
         )
 
-    private fun inputContent(selection: OutfitSelectionRequest): List<Map<String, Any>> {
+    private fun inputContent(selection: ItemSelectionRequest): List<Map<String, Any>> {
         val content = mutableListOf<Map<String, Any>>(
             mapOf(
                 "type" to "input_text",
@@ -166,7 +175,7 @@ class OpenAiOutfitClient internal constructor(
         return content
     }
 
-    private fun outputFormat(allowed: Set<Long>): Map<String, Any> {
+    private fun outputFormat(allowed: Set<Long>, goal: SelectionGoal): Map<String, Any> {
         val itemIds = mapOf(
             "type" to "array",
             "items" to mapOf("type" to "integer", "enum" to allowed.toList()),
@@ -179,13 +188,13 @@ class OpenAiOutfitClient internal constructor(
         )
         return mapOf(
             "type" to "json_schema",
-            "name" to "outfit",
+            "name" to goal.name.lowercase(),
             "strict" to true,
             "schema" to schema,
         )
     }
 
-    private fun parse(body: String, allowed: Set<Long>, requiredIds: List<Long?>?): OutfitSelectionResponse {
+    private fun parse(body: String, allowed: Set<Long>, requiredIds: List<Long?>?): ItemSelectionResponse {
         try {
             val reader =
                 mapper
@@ -196,14 +205,14 @@ class OpenAiOutfitClient internal constructor(
                     )
 
             val result =
-                reader.readTree(body) ?: throw AiOutfitException(AiOutfitFailure.INVALID_RESPONSE)
+                reader.readTree(body) ?: throw AiSelectionException(AiSelectionFailure.INVALID_RESPONSE)
             val ids = result.path("itemIds")
             val explanation = result.path("explanation")
 
             if (!result.isObject || result.size() != 2 || !ids.isArray || !explanation.isString ||
                 explanation.asString().isBlank() || explanation.asString().length > 2000
             ) {
-                throw AiOutfitException(AiOutfitFailure.INVALID_RESPONSE)
+                throw AiSelectionException(AiSelectionFailure.INVALID_RESPONSE)
             }
 
             val selected =
@@ -211,23 +220,23 @@ class OpenAiOutfitClient internal constructor(
                     if (
                         !it.isIntegralNumber || !it.canConvertToLong() || it.longValue() !in allowed
                     ) {
-                        throw AiOutfitException(AiOutfitFailure.INVALID_RESPONSE)
+                        throw AiSelectionException(AiSelectionFailure.INVALID_RESPONSE)
                     }
                     it.longValue()
                 }
             if (selected.distinct().size != selected.size) {
-                throw AiOutfitException(AiOutfitFailure.INVALID_RESPONSE)
+                throw AiSelectionException(AiSelectionFailure.INVALID_RESPONSE)
             }
             if (selected.isEmpty()) {
-                throw AiOutfitException(AiOutfitFailure.NO_OUTFIT)
+                throw AiSelectionException(AiSelectionFailure.NO_SELECTION)
             }
             if (requiredIds != null && (!selected.containsAll(requiredIds) || selected.none { it !in requiredIds })) {
-                throw AiOutfitException(AiOutfitFailure.INVALID_RESPONSE)
+                throw AiSelectionException(AiSelectionFailure.INVALID_RESPONSE)
             }
 
-            return OutfitSelectionResponse(selected, explanation.asString())
+            return ItemSelectionResponse(selected, explanation.asString())
         } catch (_: JacksonException) {
-            throw AiOutfitException(AiOutfitFailure.INVALID_RESPONSE)
+            throw AiSelectionException(AiSelectionFailure.INVALID_RESPONSE)
         }
     }
 }
