@@ -35,16 +35,16 @@ import ru.itmo.clothesadvisor.dto.ai.CreateAiOutfitReplacementRequest
 import ru.itmo.clothesadvisor.dto.outfit.CreateOutfitRequest
 import ru.itmo.clothesadvisor.dto.outfit.OutfitResponse
 import ru.itmo.clothesadvisor.dto.outfit.OutfitWeatherDto
-import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionCandidate
-import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionRequest
-import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionResponse
-import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionStylePreferences
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionCandidate
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionRequest
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionResponse
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionStylePreferences
 import ru.itmo.clothesadvisor.dto.user.CurrentUser
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemPhotoContent
 import ru.itmo.clothesadvisor.model.AccessDeniedException
 import ru.itmo.clothesadvisor.model.EntityNotFoundException
-import ru.itmo.clothesadvisor.model.ai.AiOutfitException
-import ru.itmo.clothesadvisor.model.ai.AiOutfitFailure
+import ru.itmo.clothesadvisor.model.ai.AiSelectionException
+import ru.itmo.clothesadvisor.model.ai.AiSelectionFailure
 import ru.itmo.clothesadvisor.model.outfit.OutfitSource
 import ru.itmo.clothesadvisor.model.preferences.StylePreferences
 import ru.itmo.clothesadvisor.repository.preferences.StylePreferencesRepository
@@ -71,16 +71,16 @@ internal class AiOutfitServiceTests {
     private val content = mock(WardrobeItemPhotoService::class.java)
     private var selected = listOf(11L)
     private var explanation: String? = null
-    private var providerFailure: AiOutfitFailure? = null
+    private var providerFailure: AiSelectionFailure? = null
     private var onSelection: () -> Unit = {}
-    private var receivedSelection: OutfitSelectionRequest? = null
+    private var receivedSelection: ItemSelectionRequest? = null
     private val provider =
         mock(RecommendationClient::class.java) { call ->
             if (call.method.name == "select") {
                 receivedSelection = call.getArgument(0)
-                providerFailure?.let { throw AiOutfitException(it) }
+                providerFailure?.let { throw AiSelectionException(it) }
                 onSelection()
-                OutfitSelectionResponse(selected, explanation)
+                ItemSelectionResponse(selected, explanation)
             } else RETURNS_DEFAULTS.answer(call)
         }
     private var savedRequest: CreateOutfitRequest? = null
@@ -161,7 +161,7 @@ internal class AiOutfitServiceTests {
         assertThat(savedSourceId).isNull()
         assertThat(receivedSelection!!.candidates.single())
             .isEqualTo(
-                OutfitSelectionCandidate(
+                ItemSelectionCandidate(
                     11,
                     "Shirt",
                     "TOP",
@@ -199,7 +199,7 @@ internal class AiOutfitServiceTests {
         assertThat(receivedSelection!!.occasion).isEqualTo("  Work  ")
         assertThat(receivedSelection!!.preferredStyle).isEmpty()
         assertThat(receivedSelection!!.stylePreferences)
-            .isEqualTo(OutfitSelectionStylePreferences("  Blue, cotton  ", "", "Loose fit"))
+            .isEqualTo(ItemSelectionStylePreferences("  Blue, cotton  ", "", "Loose fit"))
         assertThat(savedOccasion).isEqualTo("  Work  ")
         assertThat(savedStyle).isEmpty()
         assertThat(savedExplanation).isEqualTo(explanation)
@@ -221,7 +221,7 @@ internal class AiOutfitServiceTests {
 
         // then
         assertThat(receivedSelection!!.stylePreferences)
-            .isEqualTo(OutfitSelectionStylePreferences("Blue", "Wool", "Loose fit"))
+            .isEqualTo(ItemSelectionStylePreferences("Blue", "Wool", "Loose fit"))
         verify(preferences).findByOwnerId(7)
         verifyNoMoreInteractions(preferences)
 
@@ -230,7 +230,7 @@ internal class AiOutfitServiceTests {
 
         // then
         assertThat(receivedSelection!!.stylePreferences)
-            .isEqualTo(OutfitSelectionStylePreferences("Red", "Wool", "Loose fit"))
+            .isEqualTo(ItemSelectionStylePreferences("Red", "Wool", "Loose fit"))
         verify(preferences, times(2)).findByOwnerId(7)
         verifyNoMoreInteractions(preferences)
     }
@@ -275,7 +275,7 @@ internal class AiOutfitServiceTests {
         val unavailable = catchThrowable { service.create(7, request()) }
 
         // then
-        assertFailure(AiOutfitFailure.UNAVAILABLE, unavailable)
+        assertFailure(AiSelectionFailure.UNAVAILABLE, unavailable)
         verifyNoInteractions(transactions, provider, content, outfits)
     }
 
@@ -296,7 +296,7 @@ internal class AiOutfitServiceTests {
         val failure = catchThrowable { unconfigured.create(7, request()) }
 
         // then
-        assertFailure(AiOutfitFailure.UNAVAILABLE, failure)
+        assertFailure(AiSelectionFailure.UNAVAILABLE, failure)
         verifyNoInteractions(transactions, provider, content, outfits)
     }
 
@@ -317,7 +317,7 @@ internal class AiOutfitServiceTests {
     @Test
     fun `invalid explicit IDs and foreign items stop before image reads`() {
         // given
-        providerFailure = AiOutfitFailure.UNAVAILABLE
+        providerFailure = AiSelectionFailure.UNAVAILABLE
 
         for (ids in listOf(emptyList(), listOf(null), listOf(0L), listOf(11L, 11L))) {
 
@@ -327,7 +327,7 @@ internal class AiOutfitServiceTests {
             val failure = catchThrowable { service.create(7, request(ids)) }
 
             // then
-            assertFailure(AiOutfitFailure.INVALID_REQUEST, failure)
+            assertFailure(AiSelectionFailure.INVALID_REQUEST, failure)
         }
 
         // when
@@ -349,7 +349,7 @@ internal class AiOutfitServiceTests {
         val failure = catchThrowable { service.create(7, request()) }
 
         // then
-        assertFailure(AiOutfitFailure.INVALID_REQUEST, failure)
+        assertFailure(AiSelectionFailure.INVALID_REQUEST, failure)
         verify(items).findAvailableOwnedItemsWithPhotos(7, 21)
         verifyNoInteractions(photos, content, outfits)
 
@@ -389,7 +389,7 @@ internal class AiOutfitServiceTests {
         val failure = catchThrowable { service.create(7, request()) }
 
         // then
-        assertFailure(AiOutfitFailure.INVALID_REQUEST, failure)
+        assertFailure(AiSelectionFailure.INVALID_REQUEST, failure)
         verifyNoInteractions(content, outfits)
         assertThat(receivedSelection).isNull()
     }
@@ -404,7 +404,7 @@ internal class AiOutfitServiceTests {
         val failure = catchThrowable { service.create(7, request()) }
 
         // then
-        assertFailure(AiOutfitFailure.SOURCE_CHANGED, failure)
+        assertFailure(AiSelectionFailure.SOURCE_CHANGED, failure)
         verifyNoInteractions(outfits)
         assertThat(receivedSelection).isNull()
     }
@@ -413,13 +413,13 @@ internal class AiOutfitServiceTests {
     fun `provider failure never reaches save or final locks`() {
 
         // given
-        providerFailure = AiOutfitFailure.TIMEOUT
+        providerFailure = AiSelectionFailure.TIMEOUT
 
         // when
         val failure = catchThrowable { service.create(7, request()) }
 
         // then
-        assertFailure(AiOutfitFailure.TIMEOUT, failure)
+        assertFailure(AiSelectionFailure.TIMEOUT, failure)
         verify(items, never()).lockOwnedItemsForShare(7, listOf(11))
         verifyNoInteractions(outfits)
 
@@ -434,13 +434,13 @@ internal class AiOutfitServiceTests {
     @Test
     fun `unavailable recommendation is reported after image reads without final locks or save`() {
         // given
-        providerFailure = AiOutfitFailure.UNAVAILABLE
+        providerFailure = AiSelectionFailure.UNAVAILABLE
 
         // when
         val failure = catchThrowable { service.create(7, request()) }
 
         // then
-        assertFailure(AiOutfitFailure.UNAVAILABLE, failure)
+        assertFailure(AiSelectionFailure.UNAVAILABLE, failure)
         verify(content).getContent(7, 11, 21)
         assertThat(receivedSelection).isNotNull()
         verify(items, never()).lockOwnedItemsForShare(7, listOf(11))
@@ -450,7 +450,7 @@ internal class AiOutfitServiceTests {
     @Test
     fun `storage failure precedes unavailable recommendation without remote call or save`() {
         // given
-        providerFailure = AiOutfitFailure.UNAVAILABLE
+        providerFailure = AiSelectionFailure.UNAVAILABLE
         `when`(content.getContent(7, 11, 21)).thenThrow(PhotoStorageUnavailableException())
 
         // when
@@ -511,7 +511,7 @@ internal class AiOutfitServiceTests {
 
         // then
         assertThat(response).isSameAs(saved)
-        assertFailure(AiOutfitFailure.UNAVAILABLE, rejected)
+        assertFailure(AiSelectionFailure.UNAVAILABLE, rejected)
         verify(items, never()).findAvailableOwnedItemsWithPhotos(7, 21)
         assertThat(meters.get("wardrobe.ai.active").gauge().value()).isZero()
         assertThat(meters.get("wardrobe.ai.rejected").counter().count()).isEqualTo(1.0)
@@ -540,7 +540,7 @@ internal class AiOutfitServiceTests {
         // then
         assertThat(response).isSameAs(saved)
         assertThat(activeDuringSave).isEqualTo(1.0)
-        assertFailure(AiOutfitFailure.UNAVAILABLE, rejected)
+        assertFailure(AiSelectionFailure.UNAVAILABLE, rejected)
         verify(outfits, never()).get(7, 80)
         assertThat(meters.get("wardrobe.ai.active").gauge().value()).isZero()
         assertThat(meters.get("wardrobe.ai.rejected").counter().count()).isEqualTo(1.0)
@@ -570,7 +570,7 @@ internal class AiOutfitServiceTests {
             val failure = catchThrowable { service.create(7, request(listOf(11))) }
 
             // then
-            assertFailure(AiOutfitFailure.INVALID_RESPONSE, failure)
+            assertFailure(AiSelectionFailure.INVALID_RESPONSE, failure)
         }
         verify(items, never()).lockOwnedItemsForShare(7, listOf(11))
         verifyNoInteractions(outfits)
@@ -600,7 +600,7 @@ internal class AiOutfitServiceTests {
         val failure = catchThrowable { service.create(7, request()) }
 
         // then
-        assertFailure(AiOutfitFailure.UNAVAILABLE, failure)
+        assertFailure(AiSelectionFailure.UNAVAILABLE, failure)
         verify(items, never()).lockOwnedItemsForShare(7, listOf(11))
         verifyNoInteractions(outfits)
     }
@@ -619,7 +619,7 @@ internal class AiOutfitServiceTests {
         val failure = catchThrowable { service.create(7, request()) }
 
         // then
-        assertFailure(AiOutfitFailure.UNAVAILABLE, failure)
+        assertFailure(AiSelectionFailure.UNAVAILABLE, failure)
         verifyNoInteractions(provider, outfits)
     }
 
@@ -632,7 +632,7 @@ internal class AiOutfitServiceTests {
         val failure = catchThrowable { service.create(7, request()) }
 
         // then
-        assertFailure(AiOutfitFailure.SOURCE_CHANGED, failure)
+        assertFailure(AiSelectionFailure.SOURCE_CHANGED, failure)
         verifyNoInteractions(outfits)
     }
 
@@ -654,7 +654,7 @@ internal class AiOutfitServiceTests {
         assertThat(receivedSelection!!.occasion).isEqualTo("  Dinner  ")
         assertThat(receivedSelection!!.preferredStyle).isEqualTo("Classic")
         assertThat(receivedSelection!!.stylePreferences)
-            .isEqualTo(OutfitSelectionStylePreferences("Blue", "Wool", "Loose fit"))
+            .isEqualTo(ItemSelectionStylePreferences("Blue", "Wool", "Loose fit"))
         verify(preferences).findByOwnerId(7)
         assertThat(savedRequest!!.name).isEqualTo("Replacement")
         assertThat(savedRequest!!.weather).isSameAs(weather)
@@ -677,7 +677,7 @@ internal class AiOutfitServiceTests {
             val failure = catchThrowable { service.replace(7, 80, CreateAiOutfitReplacementRequest("New", ids)) }
 
             // then
-            assertFailure(AiOutfitFailure.INVALID_REQUEST, failure)
+            assertFailure(AiSelectionFailure.INVALID_REQUEST, failure)
         }
         verifyNoInteractions(content, provider)
     }
@@ -709,7 +709,7 @@ internal class AiOutfitServiceTests {
         }
 
         // then
-        assertFailure(AiOutfitFailure.INVALID_REQUEST, failure)
+        assertFailure(AiSelectionFailure.INVALID_REQUEST, failure)
         verifyNoInteractions(content, provider)
     }
 
@@ -723,7 +723,7 @@ internal class AiOutfitServiceTests {
         val failure = catchThrowable { service.replace(7, 80, CreateAiOutfitReplacementRequest("New", listOf(13))) }
 
         // then
-        assertFailure(AiOutfitFailure.INVALID_REQUEST, failure)
+        assertFailure(AiSelectionFailure.INVALID_REQUEST, failure)
         verifyNoInteractions(content, provider)
     }
 
@@ -740,7 +740,7 @@ internal class AiOutfitServiceTests {
             }
 
             // then
-            assertFailure(AiOutfitFailure.INVALID_RESPONSE, failure)
+            assertFailure(AiSelectionFailure.INVALID_RESPONSE, failure)
         }
         assertThat(savedRequest).isNull()
         verify(items, never()).lockOwnedItemsForShare(7, listOf(12, 11))
@@ -787,7 +787,7 @@ internal class AiOutfitServiceTests {
         val failure = catchThrowable { service.create(7, request(listOf(11))) }
 
         // then
-        assertFailure(AiOutfitFailure.INVALID_REQUEST, failure)
+        assertFailure(AiSelectionFailure.INVALID_REQUEST, failure)
         verifyNoInteractions(photos, content, provider, outfits)
     }
 
@@ -804,7 +804,7 @@ internal class AiOutfitServiceTests {
         }
 
         // then
-        assertFailure(AiOutfitFailure.INVALID_REQUEST, failure)
+        assertFailure(AiSelectionFailure.INVALID_REQUEST, failure)
         verifyNoInteractions(content, provider)
         assertThat(savedRequest).isNull()
     }
@@ -821,7 +821,7 @@ internal class AiOutfitServiceTests {
         val failure = catchThrowable { service.create(7, request()) }
 
         // then
-        assertFailure(AiOutfitFailure.SOURCE_CHANGED, failure)
+        assertFailure(AiSelectionFailure.SOURCE_CHANGED, failure)
         assertThat(receivedSelection!!.candidates.map { it.itemId }).containsExactly(11)
         verifyNoInteractions(outfits)
     }
@@ -865,8 +865,8 @@ internal class AiOutfitServiceTests {
             .isEqualTo(1)
     }
 
-    private fun assertFailure(expected: AiOutfitFailure, failure: Throwable?) {
-        assertThat(failure).isInstanceOfSatisfying(AiOutfitException::class.java) {
+    private fun assertFailure(expected: AiSelectionFailure, failure: Throwable?) {
+        assertThat(failure).isInstanceOfSatisfying(AiSelectionException::class.java) {
             assertThat(it.failure).isEqualTo(expected)
         }
     }

@@ -37,10 +37,10 @@ import ru.itmo.clothesadvisor.config.AccountBackedIntegrationTest
 import ru.itmo.clothesadvisor.config.insertAccessGrant
 import ru.itmo.clothesadvisor.config.insertItem
 import ru.itmo.clothesadvisor.config.insertUser
-import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionRequest
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionRequest
 import ru.itmo.clothesadvisor.dto.ai.CreateAiOutfitRequest
 import ru.itmo.clothesadvisor.dto.outfit.OutfitWeatherDto
-import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionResponse
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionResponse
 import ru.itmo.clothesadvisor.dto.wardrobe.CreateWardrobeItemRequest
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.repository.idempotency.IdempotencyCommandRepository
@@ -81,8 +81,8 @@ class IdempotencyIntegrationTests : AccountBackedIntegrationTest() {
         doAnswer { call ->
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
             selections.incrementAndGet()
-            OutfitSelectionResponse(call.getArgument<OutfitSelectionRequest>(0).candidates.map { it.itemId })
-        }.`when`(provider).select(any(OutfitSelectionRequest::class.java) ?: errorPlaceholder())
+            ItemSelectionResponse(call.getArgument<ItemSelectionRequest>(0).candidates.map { it.itemId })
+        }.`when`(provider).select(any(ItemSelectionRequest::class.java) ?: errorPlaceholder())
     }
 
     @AfterEach fun close() = http.close()
@@ -202,8 +202,8 @@ class IdempotencyIntegrationTests : AccountBackedIntegrationTest() {
         doAnswer {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
             selections.incrementAndGet()
-            OutfitSelectionResponse(listOf(selected), explanation)
-        }.`when`(provider).select(any(OutfitSelectionRequest::class.java) ?: errorPlaceholder())
+            ItemSelectionResponse(listOf(selected), explanation)
+        }.`when`(provider).select(any(ItemSelectionRequest::class.java) ?: errorPlaceholder())
         val first = post(owner, "/api/outfits/ai", "same", body)
         val fingerprint = jdbc.queryForObject("SELECT fingerprint FROM idempotency_command", String::class.java)
 
@@ -402,8 +402,8 @@ class IdempotencyIntegrationTests : AccountBackedIntegrationTest() {
             .header("Content-Type", contentType).POST(HttpRequest.BodyPublishers.ofByteArray(body)).build(),
             HttpResponse.BodyHandlers.ofString())
 
-    private fun errorPlaceholder() = OutfitSelectionRequest(
-        ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionWeather(java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO, "", ""),
+    private fun errorPlaceholder() = ItemSelectionRequest(
+        ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionWeather(java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO, "", ""),
         emptyList(),
     )
 }

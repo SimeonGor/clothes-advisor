@@ -18,10 +18,15 @@ management:
 resilience4j:
   circuitbreaker:
     instances:
-      RecommendationClientselectOutfitSelectionRequest:
+      RecommendationClientselectItemSelectionRequest:
+        minimum-number-of-calls: 2
+        sliding-window-size: 2
+      RecommendationClientselectCapsuleItemSelectionRequest:
         minimum-number-of-calls: 2
         sliding-window-size: 2
   timelimiter:
     instances:
-      RecommendationClientselectOutfitSelectionRequest:
+      RecommendationClientselectItemSelectionRequest:
+        timeout-duration: 1ms
+      RecommendationClientselectCapsuleItemSelectionRequest:
         timeout-duration: 1ms

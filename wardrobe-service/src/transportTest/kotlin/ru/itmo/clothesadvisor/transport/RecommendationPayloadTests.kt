@@ -27,14 +27,15 @@ import org.springframework.context.annotation.Primary
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.SimpleTransactionStatus
-import ru.itmo.clothesadvisor.client.ai.OpenAiOutfitClient
+import ru.itmo.clothesadvisor.client.ai.OpenAiSelectionClient
+import ru.itmo.clothesadvisor.client.ai.SelectionGoal
 import ru.itmo.clothesadvisor.client.recommendation.RecommendationClient
 import ru.itmo.clothesadvisor.config.ExternalClientsConfiguration
 import ru.itmo.clothesadvisor.dto.ai.CreateAiOutfitRequest
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionRequest as ServerSelectionRequest
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionResponse as ServerSelectionResponse
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionWeather as ServerSelectionWeather
-import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionStylePreferences as ServerStylePreferences
+import ru.itmo.clothesadvisor.dto.ai.ItemSelectionRequest as ServerSelectionRequest
+import ru.itmo.clothesadvisor.dto.ai.ItemSelectionResponse as ServerSelectionResponse
+import ru.itmo.clothesadvisor.dto.ai.ItemSelectionWeather as ServerSelectionWeather
+import ru.itmo.clothesadvisor.dto.ai.ItemSelectionStylePreferences as ServerStylePreferences
 import ru.itmo.clothesadvisor.dto.outfit.CreateOutfitRequest
 import ru.itmo.clothesadvisor.dto.outfit.OutfitResponse
 import ru.itmo.clothesadvisor.dto.outfit.OutfitWeatherDto
@@ -53,6 +54,7 @@ import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemPhotoRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.repository.weather.PrecipitationTypeRepository
 import ru.itmo.clothesadvisor.service.ai.AiOutfitService
+import ru.itmo.clothesadvisor.service.ai.AiSelectionService
 import ru.itmo.clothesadvisor.service.outfit.OutfitService
 import ru.itmo.clothesadvisor.service.user.CurrentUserService
 import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemPhotoService
@@ -67,7 +69,7 @@ class RecommendationPayloadTests {
     @TestConfiguration
     class Provider {
         @Bean @Primary
-        fun transportProvider(): OpenAiOutfitClient = mock(OpenAiOutfitClient::class.java)
+        fun transportProvider(): OpenAiSelectionClient = mock(OpenAiSelectionClient::class.java)
     }
 
     @SpringBootConfiguration
@@ -76,7 +78,7 @@ class RecommendationPayloadTests {
     class ClientApplication
 
     @LocalServerPort private var port = 0
-    @Autowired private lateinit var provider: OpenAiOutfitClient
+    @Autowired private lateinit var provider: OpenAiSelectionClient
 
     @Test
     fun `twenty maximum images are loaded encoded and sent through production Feign and decoder`() {
@@ -125,7 +127,7 @@ class RecommendationPayloadTests {
             emptyList(),
         )
         doAnswer { call ->
-                val actual = call.getArgument<ServerSelectionRequest>(0)
+                val actual = call.getArgument<ServerSelectionRequest>(1)
                 assertThat(actual.weather).isEqualTo(serverRequest.weather)
                 assertThat(actual.occasion).isEqualTo("Work")
                 assertThat(actual.preferredStyle).isEqualTo("Casual")
@@ -146,7 +148,7 @@ class RecommendationPayloadTests {
                 }
                 ServerSelectionResponse(selectedIds, "Подходит для погоды.")
             }
-            .`when`(provider).select(any(ServerSelectionRequest::class.java) ?: serverRequest)
+            .`when`(provider).select(eq(SelectionGoal.OUTFIT) ?: SelectionGoal.OUTFIT, any(ServerSelectionRequest::class.java) ?: serverRequest)
         val expectedSave = CreateOutfitRequest(request.name, selectedIds, weather)
         val saved = OutfitResponse(
             80, 7, 7, OutfitSource.AI, request.name, selectedIds, weather, storedAt,
@@ -160,13 +162,14 @@ class RecommendationPayloadTests {
             "--spring.cloud.discovery.client.simple.instances.recommendation-service[0].uri=http://127.0.0.1:$port",
         ).use { context ->
             val service = AiOutfitService(
-                users, items, photos, precipitation, preferences, content,
-                context.getBean(RecommendationClient::class.java), outfits,
+                AiSelectionService(
+                    users, items, photos, precipitation, preferences, content,
+                    context.getBean(RecommendationClient::class.java), transactions, SimpleMeterRegistry(), "user",
+                ), outfits,
                 ru.itmo.clothesadvisor.service.idempotency.IdempotencyService(
                     mock(ru.itmo.clothesadvisor.repository.idempotency.IdempotencyCommandRepository::class.java),
                     tools.jackson.databind.json.JsonMapper.builder().findAndAddModules().build(), transactions,
-                ), transactions,
-                SimpleMeterRegistry(), "user",
+                ),
             )
             val pools = ManagementFactory.getMemoryPoolMXBeans()
             pools.forEach { it.resetPeakUsage() }
@@ -178,7 +181,7 @@ class RecommendationPayloadTests {
             assertThat(response).isSameAs(saved)
             assertThat(response.itemIds).containsExactlyElementsOf(selectedIds)
             candidateIds.forEach { id -> verify(content).getContent(7, id, id + 100) }
-            verify(provider).select(any(ServerSelectionRequest::class.java) ?: serverRequest)
+            verify(provider).select(eq(SelectionGoal.OUTFIT) ?: SelectionGoal.OUTFIT, any(ServerSelectionRequest::class.java) ?: serverRequest)
             verify(outfits).createAi(
                 eq(7L), refEq(expectedSave) ?: expectedSave, eq("Work"), eq("Casual"), eq("Подходит для погоды."), org.mockito.Mockito.isNull(),
             )

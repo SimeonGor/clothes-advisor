@@ -19,11 +19,11 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
-import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionCandidate
-import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionRequest
-import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionWeather
-import ru.itmo.clothesadvisor.model.ai.AiOutfitException
-import ru.itmo.clothesadvisor.model.ai.AiOutfitFailure
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionCandidate
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionRequest
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionWeather
+import ru.itmo.clothesadvisor.model.ai.AiSelectionException
+import ru.itmo.clothesadvisor.model.ai.AiSelectionFailure
 
 @SpringBootTest(
     classes = [RecommendationClientTests.ClientApplication::class],
@@ -33,9 +33,9 @@ import ru.itmo.clothesadvisor.model.ai.AiOutfitFailure
 class RecommendationClientTimeoutTests {
     @Autowired private lateinit var client: RecommendationClient
     @Autowired private lateinit var breakers: CircuitBreakerRegistry
-    private val selection = OutfitSelectionRequest(
-        OutfitSelectionWeather(BigDecimal.ZERO, BigDecimal.ZERO, "NONE", "None"),
-        listOf(OutfitSelectionCandidate(
+    private val selection = ItemSelectionRequest(
+        ItemSelectionWeather(BigDecimal.ZERO, BigDecimal.ZERO, "NONE", "None"),
+        listOf(ItemSelectionCandidate(
             7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", "AQID",
         )),
     )
@@ -46,7 +46,7 @@ class RecommendationClientTimeoutTests {
         release = CountDownLatch(1)
         bodyStarted = CountDownLatch(1)
         finished = CountDownLatch(1)
-        breakers.circuitBreaker("RecommendationClientselectOutfitSelectionRequest").reset()
+        breakers.circuitBreaker("RecommendationClientselectItemSelectionRequest").reset()
     }
 
     @ParameterizedTest
@@ -61,7 +61,7 @@ class RecommendationClientTimeoutTests {
             val failure = pending.get(5, TimeUnit.SECONDS)
 
             // then
-            assertFailure(AiOutfitFailure.TIMEOUT, failure)
+            assertFailure(AiSelectionFailure.TIMEOUT, failure)
             if (status != 0) assertThat(bodyStarted.count).isZero()
             assertThat(calls).hasValue(1)
         } finally {
@@ -82,7 +82,7 @@ class RecommendationClientTimeoutTests {
             val failure = catchThrowable { client.select(selection) }
 
             // then
-            assertFailure(AiOutfitFailure.INVALID_RESPONSE, failure)
+            assertFailure(AiSelectionFailure.INVALID_RESPONSE, failure)
             assertThat(bodyStarted.count).isZero()
             assertThat(calls).hasValue(1)
         } finally {
@@ -90,8 +90,8 @@ class RecommendationClientTimeoutTests {
         }
     }
 
-    private fun assertFailure(expected: AiOutfitFailure, failure: Throwable?) {
-        assertThat(failure).isInstanceOfSatisfying(AiOutfitException::class.java) {
+    private fun assertFailure(expected: AiSelectionFailure, failure: Throwable?) {
+        assertThat(failure).isInstanceOfSatisfying(AiSelectionException::class.java) {
             assertThat(it.failure).isEqualTo(expected)
             assertThat(it.message).isNull()
             assertThat(it.cause).isNull()

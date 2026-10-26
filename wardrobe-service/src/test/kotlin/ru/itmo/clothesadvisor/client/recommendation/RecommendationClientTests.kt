@@ -19,6 +19,8 @@ import org.assertj.core.api.Assertions.catchThrowable
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.BeforeEach
 import org.junit.jupiter.api.Test
+import org.junit.jupiter.params.ParameterizedTest
+import org.junit.jupiter.params.provider.ValueSource
 import org.mockito.Mockito.any
 import org.mockito.Mockito.eq
 import org.mockito.Mockito.mock
@@ -44,17 +46,20 @@ import org.springframework.transaction.support.SimpleTransactionStatus
 import reactor.core.publisher.Mono
 import reactor.core.scheduler.Schedulers
 import ru.itmo.clothesadvisor.config.ExternalClientsConfiguration
+import ru.itmo.clothesadvisor.config.LiveClientSettings
+import ru.itmo.clothesadvisor.config.LiveClientSettingsTests
 import ru.itmo.clothesadvisor.dto.ai.CreateAiOutfitRequest
 import ru.itmo.clothesadvisor.dto.outfit.CreateOutfitRequest
 import ru.itmo.clothesadvisor.dto.outfit.OutfitResponse
 import ru.itmo.clothesadvisor.dto.outfit.OutfitWeatherDto
-import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionCandidate
-import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionRequest
-import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionWeather
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionCandidate
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionRequest
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionStylePreferences
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionWeather
 import ru.itmo.clothesadvisor.dto.user.CurrentUser
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemPhotoContent
-import ru.itmo.clothesadvisor.model.ai.AiOutfitException
-import ru.itmo.clothesadvisor.model.ai.AiOutfitFailure
+import ru.itmo.clothesadvisor.model.ai.AiSelectionException
+import ru.itmo.clothesadvisor.model.ai.AiSelectionFailure
 import ru.itmo.clothesadvisor.model.outfit.OutfitSource
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeCategory
@@ -85,10 +90,11 @@ class RecommendationClientTests {
     @Autowired private lateinit var client: RecommendationClient
     @Autowired private lateinit var factory: FeignClientFactory
     @Autowired private lateinit var breakers: CircuitBreakerRegistry
+    @Autowired private lateinit var settings: LiveClientSettings
     @Autowired private lateinit var discovery: SimpleReactiveDiscoveryProperties
-    private val selection = OutfitSelectionRequest(
-        OutfitSelectionWeather(BigDecimal("-1.23456789"), BigDecimal.ZERO, "NONE", "None"),
-        listOf(OutfitSelectionCandidate(7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", "AQID")),
+    private val selection = ItemSelectionRequest(
+        ItemSelectionWeather(BigDecimal("-1.23456789"), BigDecimal.ZERO, "NONE", "None"),
+        listOf(ItemSelectionCandidate(7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", "AQID")),
     )
 
     @BeforeEach
@@ -99,7 +105,13 @@ class RecommendationClientTests {
         disconnect = false
         gate = null
         entered = CountDownLatch(1)
-        breakers.circuitBreaker(BREAKER_NAME).reset()
+        settings.apply(LiveClientSettingsTests.source(listOf(BREAKER_NAME, CAPSULE_BREAKER_NAME).flatMap {
+            listOf(
+                "resilience4j.circuitbreaker.instances.$it.minimum-number-of-calls" to "2",
+                "resilience4j.circuitbreaker.instances.$it.sliding-window-size" to "2",
+            )
+        }.toMap()))
+        breakers.allCircuitBreakers.forEach { it.reset() }
     }
 
     @Test
@@ -122,16 +134,52 @@ class RecommendationClientTests {
         assertThat(options.readTimeoutMillis()).isEqualTo(90_000)
         assertThat(options.isFollowRedirects).isFalse()
         assertThat(received).contains("-1.23456789", "AQID")
+        assertThat(receivedPath).isEqualTo("/api/outfit-selections")
         assertThat(breakers.allCircuitBreakers.map { it.name }).containsExactlyInAnyOrder(
             BREAKER_NAME,
+            CAPSULE_BREAKER_NAME,
             "AccountClientgetUserlong",
             "AccountClientrequireStylistAccesslonglong",
             "AccountClientrequireAdminAccesslonglong",
         )
+        assertThat(breakers.circuitBreaker(BREAKER_NAME).metrics.numberOfSuccessfulCalls).isEqualTo(1)
     }
 
     @Test
-    fun `empty discovery registry is unavailable without HTTP and restored registry recovers`() {
+    fun `capsule uses its own POST path and preserves the shared JSON contract`() {
+        // given
+        body = """{"itemIds":[7],"explanation":"Несколько сочетаний."}"""
+        val request = selection.copy(
+            occasion = "Работа", preferredStyle = "Классика",
+            stylePreferences = ItemSelectionStylePreferences("Белый", "Шерсть", "Удобно"),
+        )
+
+        // when
+        val result = client.selectCapsule(request)
+
+        // then
+        assertThat(result.itemIds).containsExactly(7)
+        assertThat(result.explanation).isEqualTo("Несколько сочетаний.")
+        assertThat(calls).hasValue(1)
+        assertThat(receivedPath).isEqualTo("/api/capsule-selections")
+        assertThat(receivedMethod).isEqualTo("POST")
+        val mapper = tools.jackson.databind.json.JsonMapper()
+        assertThat(mapper.readTree(received)).isEqualTo(mapper.readTree("""
+            {"weather":{"temperatureC":-1.23456789,"windSpeedMps":0,"precipitationCode":"NONE","precipitationName":"None"},
+             "candidates":[{"itemId":7,"name":"Shirt","categoryCode":"TOP","categoryName":"Top","color":"White","material":"Cotton","contentType":"image/png","imageBase64":"AQID"}],
+             "occasion":"Работа","preferredStyle":"Классика",
+             "stylePreferences":{"preferredColorsAndMaterials":"Белый","avoidances":"Шерсть","additionalWishes":"Удобно"}}
+        """))
+        assertThat(breakers.circuitBreaker(CAPSULE_BREAKER_NAME).metrics.numberOfSuccessfulCalls).isEqualTo(1)
+        assertThat(breakers.circuitBreaker(BREAKER_NAME).metrics.numberOfBufferedCalls).isZero()
+        assertThat(breakers.allCircuitBreakers.map { it.name }).containsExactlyInAnyOrderElementsOf(
+            LiveClientSettings.BREAKER_NAMES,
+        )
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `empty discovery registry is unavailable without HTTP and restored registry recovers`(capsule: Boolean) {
         // given
         val instances = discovery.getInstances("recommendation-service")
         val registered = instances.toList()
@@ -139,62 +187,85 @@ class RecommendationClientTests {
 
         try {
             // when
-            val failure = catchThrowable { client.select(selection) }
+            val failure = catchThrowable { select(capsule) }
 
             // then
-            assertFailure(AiOutfitFailure.UNAVAILABLE, failure)
+            assertFailure(AiSelectionFailure.UNAVAILABLE, failure)
             assertThat(calls).hasValue(0)
         } finally {
             instances.addAll(registered)
         }
 
         // when
-        val recovered = client.select(selection)
+        val recovered = select(capsule)
 
         // then
         assertThat(recovered.itemIds).containsExactly(7)
         assertThat(calls).hasValue(1)
     }
 
-    @Test
-    fun `agreed error codes map once and malformed status pairs fail closed`() {
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `agreed error codes map once and malformed status pairs fail closed`(capsule: Boolean) {
         // given
-        val failures = mapOf(400 to "invalid_request", 422 to "no_outfit", 502 to "invalid_response",
-            503 to "unavailable", 504 to "timeout")
+        val breaker = breakers.circuitBreaker(if (capsule) CAPSULE_BREAKER_NAME else BREAKER_NAME)
+        val failures = mapOf(
+            400 to "invalid_request", 422 to (if (capsule) "no_capsule" else "no_outfit"),
+            502 to "invalid_response", 503 to "unavailable", 504 to "timeout",
+        )
 
         failures.forEach { (code, name) ->
-            breakers.circuitBreaker(BREAKER_NAME).reset()
+            breaker.reset()
             status = code
             body = """{"code":"$name"}"""
 
             // when
-            val failure = catchThrowable { client.select(selection) }
+            val failure = catchThrowable { select(capsule) }
 
             // then
             assertFailure(
-                if (code == 400) AiOutfitFailure.INVALID_RESPONSE
-                else AiOutfitFailure.valueOf(name.uppercase()),
+                if (code == 400) AiSelectionFailure.INVALID_RESPONSE
+                else AiSelectionFailure.valueOf(name.uppercase()),
                 failure,
             )
         }
         status = 503
         listOf("{}", "secret provider body", """{"code":"timeout"}""", """{"code":"unavailable","detail":"secret"}""").forEach {
-            breakers.circuitBreaker(BREAKER_NAME).reset()
+            breaker.reset()
             body = it
 
             // when
-            val failure = catchThrowable { client.select(selection) }
+            val failure = catchThrowable { select(capsule) }
 
             // then
-            assertFailure(AiOutfitFailure.INVALID_RESPONSE, failure)
+            assertFailure(AiSelectionFailure.INVALID_RESPONSE, failure)
         }
         status = 302
-        assertFailure(AiOutfitFailure.INVALID_RESPONSE, catchThrowable { client.select(selection) })
+        assertFailure(AiSelectionFailure.INVALID_RESPONSE, catchThrowable { select(capsule) })
         assertThat(calls).hasValue(10)
     }
 
-    @Test
-    fun `new response preserves explanation and rejects invalid or additional fields`() {
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `other selection refusal fails closed`(capsule: Boolean) {
+        // given
+        status = 422
+        body = if (capsule) """{"code":"no_outfit"}""" else """{"code":"no_capsule"}"""
+
+        // when
+        val failure = catchThrowable { select(capsule) }
+
+        // then
+        assertFailure(AiSelectionFailure.INVALID_RESPONSE, failure)
+        assertThat(calls).hasValue(1)
+        assertThat(receivedPath).isEqualTo(if (capsule) "/api/capsule-selections" else "/api/outfit-selections")
+        assertThat(breakers.circuitBreaker(if (capsule) CAPSULE_BREAKER_NAME else BREAKER_NAME)
+            .metrics.numberOfFailedCalls).isEqualTo(1)
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `new response preserves explanation and rejects invalid or additional fields`(capsule: Boolean) {
         for (explanation in listOf("  Подходит для дождя.\nТёплый слой.  ", "я".repeat(2000))) {
             // given
             body = tools.jackson.databind.json.JsonMapper().writeValueAsString(
@@ -202,7 +273,7 @@ class RecommendationClientTests {
             )
 
             // when
-            val result = client.select(selection)
+            val result = select(capsule)
 
             // then
             assertThat(result.itemIds).containsExactly(7)
@@ -217,49 +288,51 @@ class RecommendationClientTests {
             )
         invalid.forEach { json ->
             // given
-            breakers.circuitBreaker(BREAKER_NAME).reset()
+            breakers.circuitBreaker(if (capsule) CAPSULE_BREAKER_NAME else BREAKER_NAME).reset()
             body = json
 
             // when
-            val failure = catchThrowable { client.select(selection) }
+            val failure = catchThrowable { select(capsule) }
 
             // then
-            assertFailure(AiOutfitFailure.INVALID_RESPONSE, failure)
+            assertFailure(AiSelectionFailure.INVALID_RESPONSE, failure)
         }
     }
 
-    @Test
-    fun `malformed success never coerces IDs or accepts empty duplicate or missing lists`() {
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `malformed success never coerces IDs or accepts empty duplicate or missing lists`(capsule: Boolean) {
         // given
         val invalid = listOf("{}", "null", "not-json", """{"itemIds":[]}""",
             """{"itemIds":[7.1]}""", """{"itemIds":["7"]}""", """{"itemIds":[null]}""",
             """{"itemIds":[7,7]}""", """{"itemIds":[0]}""", """{"itemIds":[7]} {}""")
 
         invalid.forEach {
-            breakers.circuitBreaker(BREAKER_NAME).reset()
+            breakers.circuitBreaker(if (capsule) CAPSULE_BREAKER_NAME else BREAKER_NAME).reset()
             body = it
 
             // when
-            val failure = catchThrowable { client.select(selection) }
+            val failure = catchThrowable { select(capsule) }
 
             // then
-            assertFailure(AiOutfitFailure.INVALID_RESPONSE, failure)
+            assertFailure(AiSelectionFailure.INVALID_RESPONSE, failure)
         }
         assertThat(calls).hasValue(invalid.size)
     }
 
-    @Test
-    fun `no outfit is ignored but technical errors open breaker without another request`() {
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `domain refusal is ignored but technical errors open breaker without another request`(capsule: Boolean) {
         // given
         status = 422
-        body = """{"code":"no_outfit"}"""
-        val breaker = breakers.circuitBreaker(BREAKER_NAME)
+        body = if (capsule) """{"code":"no_capsule"}""" else """{"code":"no_outfit"}"""
+        val breaker = breakers.circuitBreaker(if (capsule) CAPSULE_BREAKER_NAME else BREAKER_NAME)
 
         // when
-        val refusals = (1..3).map { catchThrowable { client.select(selection) } }
+        val refusals = (1..3).map { catchThrowable { select(capsule) } }
 
         // then
-        refusals.forEach { assertFailure(AiOutfitFailure.NO_OUTFIT, it) }
+        refusals.forEach { assertFailure(if (capsule) AiSelectionFailure.NO_CAPSULE else AiSelectionFailure.NO_OUTFIT, it) }
         assertThat(breaker.metrics.numberOfBufferedCalls).isZero()
 
         // given
@@ -267,36 +340,38 @@ class RecommendationClientTests {
         body = """{"code":"unavailable"}"""
 
         // when
-        val failures = (1..3).map { catchThrowable { client.select(selection) } }
+        val failures = (1..3).map { catchThrowable { select(capsule) } }
 
         // then
-        failures.forEach { assertFailure(AiOutfitFailure.UNAVAILABLE, it) }
+        failures.forEach { assertFailure(AiSelectionFailure.UNAVAILABLE, it) }
         assertThat(calls).hasValue(5)
         assertThat(breaker.state.name).isEqualTo("OPEN")
     }
 
-    @Test
-    fun `connection failure is not replayed by transport`() {
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `connection failure is not replayed by transport`(capsule: Boolean) {
         // given
         disconnect = true
 
         // when
-        val failure = catchThrowable { client.select(selection) }
+        val failure = catchThrowable { select(capsule) }
 
         // then
-        assertFailure(AiOutfitFailure.UNAVAILABLE, failure)
+        assertFailure(AiSelectionFailure.UNAVAILABLE, failure)
         assertThat(calls).hasValue(1)
     }
 
-    @Test
-    fun `disabled hidden time limiter allows a delayed valid response`() {
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `disabled hidden time limiter allows a delayed valid response`(capsule: Boolean) {
         // given
         val release = CountDownLatch(1)
         gate = release
         val executor = Executors.newVirtualThreadPerTaskExecutor()
         try {
             // when
-            val pending = executor.submit<List<Long>> { client.select(selection).itemIds }
+            val pending = executor.submit<List<Long>> { select(capsule).itemIds }
             assertThat(entered.await(2, TimeUnit.SECONDS)).isTrue()
             assertThat(catchThrowable { pending.get(30, TimeUnit.MILLISECONDS) })
                 .isInstanceOf(java.util.concurrent.TimeoutException::class.java)
@@ -308,6 +383,67 @@ class RecommendationClientTests {
             release.countDown()
             executor.close()
         }
+    }
+
+    @Test
+    fun `live policy updates both real breakers and keeps individual overrides and refusal predicates`() {
+        // given
+        val originalOutfit = breakers.circuitBreaker(BREAKER_NAME)
+        val originalCapsule = breakers.circuitBreaker(CAPSULE_BREAKER_NAME)
+        val prefix = "resilience4j.circuitbreaker"
+
+        // when
+        settings.apply(LiveClientSettingsTests.source(mapOf(
+            "$prefix.configs.remote-service.sliding-window-size" to "4",
+            "$prefix.configs.remote-service.minimum-number-of-calls" to "4",
+            "$prefix.configs.remote-service.failure-rate-threshold" to "75",
+            "$prefix.instances.$BREAKER_NAME.minimum-number-of-calls" to "3",
+            "$prefix.instances.$CAPSULE_BREAKER_NAME.minimum-number-of-calls" to "2",
+        )))
+        val outfit = breakers.circuitBreaker(BREAKER_NAME)
+        val capsule = breakers.circuitBreaker(CAPSULE_BREAKER_NAME)
+
+        // then
+        assertThat(outfit).isNotSameAs(originalOutfit)
+        assertThat(capsule).isNotSameAs(originalCapsule)
+        listOf(outfit, capsule).forEach {
+            assertThat(it.circuitBreakerConfig.slidingWindowSize).isEqualTo(4)
+            assertThat(it.circuitBreakerConfig.failureRateThreshold).isEqualTo(75f)
+        }
+        assertThat(outfit.circuitBreakerConfig.minimumNumberOfCalls).isEqualTo(3)
+        assertThat(capsule.circuitBreakerConfig.minimumNumberOfCalls).isEqualTo(2)
+
+        // given
+        status = 422
+        body = """{"code":"no_outfit"}"""
+
+        // when
+        val outfitRefusal = catchThrowable { client.select(selection) }
+        body = """{"code":"no_capsule"}"""
+        val capsuleRefusal = catchThrowable { client.selectCapsule(selection) }
+
+        // then
+        assertFailure(AiSelectionFailure.NO_OUTFIT, outfitRefusal)
+        assertFailure(AiSelectionFailure.NO_CAPSULE, capsuleRefusal)
+        assertThat(outfit.metrics.numberOfBufferedCalls).isZero()
+        assertThat(capsule.metrics.numberOfBufferedCalls).isZero()
+
+        // given
+        status = 503
+        body = """{"code":"unavailable"}"""
+
+        // when
+        val failures = (1..2).flatMap {
+            listOf(catchThrowable { client.select(selection) }, catchThrowable { client.selectCapsule(selection) })
+        }
+        val rejected = catchThrowable { client.selectCapsule(selection) }
+
+        // then
+        (failures + rejected).forEach { assertFailure(AiSelectionFailure.UNAVAILABLE, it) }
+        assertThat(outfit.state.name).isEqualTo("CLOSED")
+        assertThat(outfit.metrics.numberOfFailedCalls).isEqualTo(2)
+        assertThat(capsule.state.name).isEqualTo("OPEN")
+        assertThat(calls).hasValue(6)
     }
 
     @Test
@@ -375,7 +511,7 @@ class RecommendationClientTests {
             val busy = catchThrowable { service.create(7, request) }
 
             // then
-            assertFailure(AiOutfitFailure.UNAVAILABLE, busy)
+            assertFailure(AiSelectionFailure.UNAVAILABLE, busy)
             assertThat(exited.count).isEqualTo(1)
             assertThat(calls).hasValue(1)
             verify(items).findAvailableOwnedItemsWithPhotos(7, 21)
@@ -409,25 +545,29 @@ class RecommendationClientTests {
         }
     }
 
-    @Test
-    fun `fallback unwraps timeout transport and no outfit failures without details`() {
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `fallback unwraps timeout transport and domain failures without details`(capsule: Boolean) {
         // given
         val request = Request.create(
             Request.HttpMethod.POST, "http://recommendation-service/api/outfit-selections",
             emptyMap(), null, Charsets.UTF_8, null,
         )
         val causes = listOf(
-            java.net.SocketTimeoutException("secret") to AiOutfitFailure.TIMEOUT,
-            AiOutfitException(AiOutfitFailure.NO_OUTFIT) to AiOutfitFailure.NO_OUTFIT,
+            java.net.SocketTimeoutException("secret") to AiSelectionFailure.TIMEOUT,
+            AiSelectionException(AiSelectionFailure.NO_OUTFIT) to AiSelectionFailure.NO_OUTFIT,
+            AiSelectionException(AiSelectionFailure.NO_CAPSULE) to AiSelectionFailure.NO_CAPSULE,
             feign.codec.DecodeException(200, "secret", request, java.io.IOException("secret")) to
-                AiOutfitFailure.UNAVAILABLE,
+                AiSelectionFailure.UNAVAILABLE,
         )
 
         causes.forEach { (cause, expected) ->
             val fallback = RecommendationFallbackFactory().create(java.util.concurrent.ExecutionException(cause))
 
             // when
-            val error = catchThrowable { fallback.select(selection) } as AiOutfitException
+            val error = catchThrowable {
+                if (capsule) fallback.selectCapsule(selection) else fallback.select(selection)
+            } as AiSelectionException
 
             // then
             assertThat(error.failure).isEqualTo(expected)
@@ -436,9 +576,11 @@ class RecommendationClientTests {
         }
     }
 
-    private fun assertFailure(expected: AiOutfitFailure, error: Throwable?) {
+    private fun select(capsule: Boolean) = if (capsule) client.selectCapsule(selection) else client.select(selection)
+
+    private fun assertFailure(expected: AiSelectionFailure, error: Throwable?) {
         assertThat(error)
-            .isInstanceOfSatisfying(AiOutfitException::class.java) {
+            .isInstanceOfSatisfying(AiSelectionException::class.java) {
                 assertThat(it.failure).isEqualTo(expected)
                 assertThat(it.message).isNull()
                 assertThat(it.cause).isNull()
@@ -446,19 +588,24 @@ class RecommendationClientTests {
     }
 
     companion object {
-        private const val BREAKER_NAME = "RecommendationClientselectOutfitSelectionRequest"
+        private const val BREAKER_NAME = "RecommendationClientselectItemSelectionRequest"
+        private const val CAPSULE_BREAKER_NAME = "RecommendationClientselectCapsuleItemSelectionRequest"
         private val calls = AtomicInteger()
         @Volatile private var status = 200
         @Volatile private var body = ""
         @Volatile private var received = ""
+        @Volatile private var receivedPath = ""
+        @Volatile private var receivedMethod = ""
         @Volatile private var disconnect = false
         @Volatile private var gate: CountDownLatch? = null
         @Volatile private var entered = CountDownLatch(1)
         private val executor = Executors.newVirtualThreadPerTaskExecutor()
         private val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
             this.executor = Companion.executor
-            createContext("/api/outfit-selections") { exchange ->
+            createContext("/api/") { exchange ->
                 calls.incrementAndGet()
+                receivedPath = exchange.requestURI.path
+                receivedMethod = exchange.requestMethod
                 received = exchange.requestBody.bufferedReader().readText()
                 if (disconnect) {
                     exchange.close()

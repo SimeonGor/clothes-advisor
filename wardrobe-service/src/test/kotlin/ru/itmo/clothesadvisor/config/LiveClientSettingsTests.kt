@@ -94,8 +94,10 @@ class LiveClientSettingsTests {
         "resilience4j.circuitbreaker.configs.remote-service.failure-rate-threshold,101",
         "resilience4j.circuitbreaker.configs.remote-service.wait-duration-in-open-state,0s",
         "resilience4j.circuitbreaker.configs.remote-service.permitted-number-of-calls-in-half-open-state,0",
-        "resilience4j.circuitbreaker.instances.RecommendationClientselectOutfitSelectionRequest.sliding-window-size,0",
-        "resilience4j.circuitbreaker.instances.RecommendationClientselectOutfitSelectionRequest.wait-duration-in-open-state,''",
+        "resilience4j.circuitbreaker.instances.RecommendationClientselectItemSelectionRequest.sliding-window-size,0",
+        "resilience4j.circuitbreaker.instances.RecommendationClientselectItemSelectionRequest.wait-duration-in-open-state,''",
+        "resilience4j.circuitbreaker.instances.RecommendationClientselectCapsuleItemSelectionRequest.sliding-window-size,0",
+        "resilience4j.circuitbreaker.instances.RecommendationClientselectCapsuleItemSelectionRequest.wait-duration-in-open-state,''",
     )
     fun `invalid candidate changes neither clients nor breakers`(key: String, value: String) {
         // given
@@ -156,6 +158,7 @@ class LiveClientSettingsTests {
         verifyNoInteractions(original)
         assertThat(captured.readTimeoutMillis()).isEqualTo(90_000)
         assertThat(options.getMethodOptions("select").readTimeoutMillis()).isEqualTo(4_000)
+        assertThat(options.getMethodOptions("selectCapsule").readTimeoutMillis()).isEqualTo(4_000)
         assertThat(options.connectTimeoutMillis()).isEqualTo(5_000)
         assertThat(options.readTimeoutMillis()).isEqualTo(90_000)
         assertThat(options.getMethodOptions("select").isFollowRedirects).isFalse()

@@ -48,9 +48,9 @@ import reactor.core.scheduler.Schedulers
 import ru.itmo.clothesadvisor.client.recommendation.RecommendationClient
 import ru.itmo.clothesadvisor.config.ExternalClientsConfiguration
 import ru.itmo.clothesadvisor.controller.ApiExceptionHandler
-import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionCandidate
-import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionRequest
-import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionWeather
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionCandidate
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionRequest
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionWeather
 import ru.itmo.clothesadvisor.model.AccessDeniedException
 import ru.itmo.clothesadvisor.model.EntityNotFoundException
 import ru.itmo.clothesadvisor.model.access.AccountUnavailableException
@@ -89,9 +89,9 @@ class AccountClientTests {
                 "user" -> client.getUser(7)
                 "stylist" -> client.requireStylistAccess(3, 7)
                 "admin" -> client.requireAdminAccess(5, 7)
-                "recommendation" -> recommendation.select(OutfitSelectionRequest(
-                    OutfitSelectionWeather(BigDecimal.ZERO, BigDecimal.ZERO, "NONE", "None"),
-                    listOf(OutfitSelectionCandidate(
+                "recommendation" -> recommendation.select(ItemSelectionRequest(
+                    ItemSelectionWeather(BigDecimal.ZERO, BigDecimal.ZERO, "NONE", "None"),
+                    listOf(ItemSelectionCandidate(
                         7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", "AQID",
                     )),
                 ))
@@ -204,6 +204,7 @@ class AccountClientTests {
         assertThat(breakers.allCircuitBreakers.map { it.name }).containsExactlyInAnyOrder(
             "AccountClientgetUserlong", "AccountClientrequireStylistAccesslonglong",
             "AccountClientrequireAdminAccesslonglong", RECOMMENDATION_BREAKER,
+            "RecommendationClientselectCapsuleItemSelectionRequest",
         )
     }
 
@@ -235,9 +236,9 @@ class AccountClientTests {
         val recommendationOptions = factory.getInstance(
             "recommendation-service", Request.Options::class.java,
         )!!
-        val selection = OutfitSelectionRequest(
-            OutfitSelectionWeather(BigDecimal.ZERO, BigDecimal.ZERO, "NONE", "None"),
-            listOf(OutfitSelectionCandidate(
+        val selection = ItemSelectionRequest(
+            ItemSelectionWeather(BigDecimal.ZERO, BigDecimal.ZERO, "NONE", "None"),
+            listOf(ItemSelectionCandidate(
                 7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", "AQID",
             )),
         )
@@ -675,7 +676,7 @@ class AccountClientTests {
     companion object {
         private const val VALID_USER =
             """{"id":7,"login":"user","role":"USER","status":"ACTIVE"}"""
-        private const val RECOMMENDATION_BREAKER = "RecommendationClientselectOutfitSelectionRequest"
+        private const val RECOMMENDATION_BREAKER = "RecommendationClientselectItemSelectionRequest"
         private val METHODS = listOf("user", "stylist", "admin")
         private val calls = AtomicInteger()
         private val secondCalls = AtomicInteger()
