@@ -80,6 +80,23 @@ class OpenApiIntegrationTests : PostgresIntegrationTest() {
         }
         assertThat(schemas).doesNotContainKeys("CurrentUser", "InternalUserResponse")
 
+        val capsules = "$.paths['/api/me/capsules']"
+        assertThat(paths.getValue("/api/me/capsules").keys).containsExactlyInAnyOrder("get", "post")
+        assertThat(paths.getValue("/api/me/capsules/{id}").keys).containsExactlyInAnyOrder("get", "delete")
+        assertThat(paths.keys.filter { "capsules" in it }).containsExactlyInAnyOrder("/api/me/capsules", "/api/me/capsules/{id}")
+        assertThat(spec.read<Map<String, Any?>>("$capsules.post.responses").keys)
+            .contains("201", "400", "403", "404", "409", "503").doesNotContain("200")
+        assertThat(spec.read<String>("$capsules.post.responses['201'].headers.Location.schema.format")).isEqualTo("uri")
+        assertThat(spec.read<List<String>>("$capsules.post.responses['201'].content.*.schema['\$ref']"))
+            .containsExactly("#/components/schemas/CapsuleResponse")
+        assertThat(spec.read<String>("$capsules.get.responses['200'].headers['X-Total-Count'].schema.format")).isEqualTo("int64")
+        val capsuleKey = spec.read<List<Map<String, Any?>>>("$capsules.post.parameters[?(@.name == 'Idempotency-Key')]").single()
+        assertThat(capsuleKey).containsEntry("required", false)
+        assertThat(spec.read<Map<String, Any?>>("$.components.schemas.CreateCapsuleRequest.properties.itemIds"))
+            .containsEntry("minItems", 1).containsEntry("maxItems", 20).containsEntry("uniqueItems", true)
+        assertThat(spec.read<Map<String, Any?>>("$.components.schemas.CapsuleResponse.properties").keys)
+            .containsExactlyInAnyOrder("id", "ownerId", "name", "itemIds", "createdAt")
+
         val calendar = "$.paths['/api/me/calendar']"
         val calendarEntry = "$.paths['/api/me/calendar/{id}']"
         assertThat(spec.read<Map<String, Any?>>("$calendar.post.responses").keys)
