@@ -190,6 +190,48 @@ describe("Экран «Сегодня»", () => {
     expect(await screen.findByText("Сохранено вещей: 2.")).toBeTruthy();
   });
 
+  it("сохраняет последнее состояние выбранной вещи после смены страницы и блокирует устаревший выбор", async () => {
+    const rows = Array.from({ length: 13 }, (_, index) => wardrobeItem(index + 1));
+    const fetchMock = apiFetch(rows);
+    vi.stubGlobal("fetch", fetchMock);
+    const { client } = mountToday();
+    await screen.findByLabelText("Выбрать: Вещь 1");
+    fireEvent.click(screen.getByLabelText("Выбрать: Вещь 1"));
+
+    // given: выбранная вещь со страницы 1 обновляется до состояния «убрана».
+
+    await act(async () => client.setQueryData(["items", 1, 0], [{ ...rows[0], availability: "STORED" }, ...rows.slice(1, 12)]));
+    await waitFor(() => expect(screen.getByText("Убрана")).toBeTruthy());
+    fireEvent.click(screen.getByRole("button", { name: "Далее →" }));
+    await screen.findByLabelText("Выбрать: Вещь 13");
+    fireEvent.change(screen.getByLabelText("НАЗВАНИЕ ОБРАЗА"), { target: { value: "Проверка выбора" } });
+    fireEvent.change(await readyPrecipitationSelect(), { target: { value: "7" } });
+
+    // when: отправка с сохранённым выбором выполняется со страницы 2.
+
+    fireEvent.submit(screen.getByLabelText("НАЗВАНИЕ ОБРАЗА").closest("form")!);
+
+    // then: выбранный ID не исчезает молча и POST ждёт явного снятия выбора.
+
+    expect((await screen.findByRole("alert")).textContent).toContain("Снимите выбор");
+    expect(fetchMock.mock.calls.some(([url]) => url === "/api/outfits/ai")).toBe(false);
+
+    // when: пользователь возвращается к вещи, снимает её и отправляет пустой выбор.
+
+    fireEvent.click(screen.getByRole("button", { name: "← Назад" }));
+    const unavailable = await screen.findByLabelText("Выбрать: Вещь 1") as HTMLInputElement;
+    expect(unavailable.checked).toBe(true);
+    expect(unavailable.disabled).toBe(false);
+    fireEvent.click(unavailable);
+    fireEvent.submit(screen.getByLabelText("НАЗВАНИЕ ОБРАЗА").closest("form")!);
+
+    // then: явное снятие возвращает прежнее поведение «весь гардероб».
+
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => url === "/api/outfits/ai")).toBe(true));
+    const sent = fetchMock.mock.calls.find(([url]) => url === "/api/outfits/ai");
+    expect(JSON.parse(String(sent?.[1]?.body))).not.toHaveProperty("candidateItemIds");
+  });
+
   it("передаёт очищенный контекст, показывает сохранённые значения и сбрасывает поля", async () => {
     // given
     const saved: Outfit = {
@@ -426,8 +468,9 @@ describe("Экран «Сегодня»", () => {
 
     expect(screen.getByText("Образ для повтора")).toBeTruthy();
 
-    await act(async () => finishRetry(json(wardrobeItem(1))));
+    await act(async () => finishRetry(json({ ...wardrobeItem(1), availability: "IN_LAUNDRY" })));
     await waitFor(() => expect((reset as HTMLButtonElement).disabled).toBe(false));
+    expect(screen.getByText("В стирке").closest("article")?.textContent).toContain("Вещь 1");
     fireEvent.click(reset);
     expect(screen.queryByText("Образ для повтора")).toBeNull();
   });

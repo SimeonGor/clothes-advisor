@@ -8,7 +8,15 @@ export type WardrobeItem = {
   version: number;
   createdAt: string;
   modifiedAt: string;
+  availability?: "AVAILABLE" | "IN_LAUNDRY" | "STORED";
 };
+export type WardrobeItemAvailability = NonNullable<WardrobeItem["availability"]>;
+export function itemAvailability(item: WardrobeItem): WardrobeItemAvailability {
+  return item.availability ?? "AVAILABLE";
+}
+export function availabilityLabel(item: WardrobeItem): string {
+  return ({ AVAILABLE: "Доступна", IN_LAUNDRY: "В стирке", STORED: "Убрана" })[itemAvailability(item)];
+}
 export type Photo = {
   id: number;
   itemId: number;

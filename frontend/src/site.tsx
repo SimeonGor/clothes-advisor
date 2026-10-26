@@ -13,6 +13,8 @@ import {
   type Photo,
   type Precipitation,
   type WardrobeItem,
+  availabilityLabel,
+  itemAvailability,
   type WorkspaceContext,
 } from "./api";
 import styles from "./site.module.css";
@@ -199,6 +201,7 @@ function ItemCard({ actor, item, categories, selected, onToggle, disabled }: {
       <span className={styles.cardInfo}>
         <span className={styles.itemName}>{item.name}</span>
         <small>{categories.get(item.categoryId) ?? "Вещь"} · {item.color}</small>
+        <small>{availabilityLabel(item)}</small>
       </span>
       <input
         type="checkbox"
@@ -356,9 +359,30 @@ function TodayForUser({ account, onSwitch, onPending, pending }: {
       { signal },
     ),
   });
+  React.useEffect(() => {
+    const pageItems = itemsQuery.data;
+    if (!pageItems) return;
+    setSelected((old) => {
+      let changed = false;
+      const next = new Map(old);
+      for (const item of pageItems) {
+        if (next.has(item.id) && next.get(item.id) !== item) {
+          next.set(item.id, item);
+          changed = true;
+        }
+      }
+      return changed ? next : old;
+    });
+  }, [itemsQuery.data]);
   const categories = new Map(
     (categoryQuery.data ?? []).map((category) => [category.id, category.name]),
   );
+  const knownItems = new Map(selected);
+  for (const item of itemsQuery.data ?? []) if (knownItems.has(item.id)) knownItems.set(item.id, item);
+  const unavailableSelected = [...selected.keys()].filter((id) => {
+    const item = knownItems.get(id);
+    return item && itemAvailability(item) !== "AVAILABLE";
+  });
 
   async function loadResult(outfit: Outfit) {
     resultController.current?.abort();
@@ -400,6 +424,10 @@ function TodayForUser({ account, onSwitch, onPending, pending }: {
   async function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (sending.current) return;
+    if (unavailableSelected.length) {
+      setFailure("Снимите выбор с вещей, которые сейчас в стирке или убраны.");
+      return;
+    }
 
     const cleanName = name.trim();
     const cleanOccasion = occasion.trim();
@@ -590,7 +618,7 @@ function TodayForUser({ account, onSwitch, onPending, pending }: {
                   item={item}
                   categories={categories}
                   selected={selected.has(item.id)}
-                  disabled={pending || savedOutfit}
+                  disabled={pending || savedOutfit || (!selected.has(item.id) && itemAvailability(item) !== "AVAILABLE")}
                   onToggle={() => setSelected((old) => {
                     const next = new Map(old);
                     if (next.has(item.id)) next.delete(item.id);
@@ -633,7 +661,7 @@ function TodayForUser({ account, onSwitch, onPending, pending }: {
             </button>
           </div>
           <p className={styles.notice}>
-            При подборе фотографии вещей передаются OpenAI. После фильтрации вещей без фото
+            При подборе фотографии вещей передаются OpenAI. После исключения вещей в стирке, убранных и без фото
             должно остаться от 1 до 20 кандидатов. Доступность AI зависит от настроек сервера;
             запрос может занять до 60 секунд.
           </p>
@@ -716,6 +744,7 @@ function ResultCard({ actor, item }: { actor: Actor; item: WardrobeItem }) {
       <span className={styles.cardInfo}>
         <span className={styles.itemName}>{item.name}</span>
         <small>{item.color} · {item.material}</small>
+        <small>{availabilityLabel(item)}</small>
       </span>
     </article>
   );

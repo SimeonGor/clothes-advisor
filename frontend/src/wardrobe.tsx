@@ -14,6 +14,8 @@ import {
   type Category,
   type Photo,
   type WardrobeItem,
+  type WardrobeItemAvailability,
+  availabilityLabel,
   type WorkspaceContext,
 } from "./api";
 import { PhotoImage } from "./site";
@@ -154,7 +156,7 @@ function WardrobeCard({ actor, item, category, base, route, pending }: {
           : <span className={styles.photoEmpty}>{photos.data ? "Нет фото" : "Загружаем фото…"}</span>}
     </span>
     <span className={styles.cardInfo}><span className={styles.itemName}>{item.name}</span>
-      <small>{category} · {item.color}</small></span>
+      <small>{category} · {item.color}</small><small>{availabilityLabel(item)}</small></span>
   </Link>;
 }
 
@@ -203,7 +205,7 @@ export function WardrobeDetail({ actor, context, pending, onPending }: {
     {!valid ? <p role="alert">Некорректный номер вещи.</p> : item.isLoading ? <p className={styles.state}>Загружаем вещь…</p>
       : item.isError ? <ReadError error={item.error} retry={() => void item.refetch()} /> : item.data && <>
         <section className={styles.intro}><div><p className={styles.eyebrow}>ПРОСМОТР ВЕЩИ</p><h1>{item.data.name}</h1>
-          <p className={styles.muted}>{categories.data?.find((category) => category.id === item.data.categoryId)?.name ?? `Категория №${item.data.categoryId}`} · {item.data.color} · {item.data.material}</p>
+          <p className={styles.muted}>{categories.data?.find((category) => category.id === item.data.categoryId)?.name ?? `Категория №${item.data.categoryId}`} · {item.data.color} · {item.data.material} · {availabilityLabel(item.data)}</p>
         </div></section>
         {categories.isError && <ReadError error={categories.error} retry={() => void categories.refetch()} />}
         <section className={styles.photoSection}><h2>Фотографии</h2>
@@ -251,6 +253,7 @@ export function WardrobeEditor({ actor, onPending, pending }: {
   const [categoryId, setCategoryId] = React.useState("");
   const [color, setColor] = React.useState("");
   const [material, setMaterial] = React.useState("");
+  const [availability, setAvailability] = React.useState<WardrobeItemAvailability>("AVAILABLE");
   const [files, setFiles] = React.useState<File[]>([]);
   const [previews, setPreviews] = React.useState<string[]>([]);
   const [failure, setFailure] = React.useState("");
@@ -276,6 +279,7 @@ export function WardrobeEditor({ actor, onPending, pending }: {
     setCategoryId(String(snapshot.categoryId));
     setColor(snapshot.color);
     setMaterial(snapshot.material);
+    setAvailability(snapshot.availability ?? "AVAILABLE");
     draftVersion.current = snapshot.version;
   }, [itemQuery.data]);
 
@@ -298,6 +302,7 @@ export function WardrobeEditor({ actor, onPending, pending }: {
       setCategoryId(String(snapshot.categoryId));
       setColor(snapshot.color);
       setMaterial(snapshot.material);
+      setAvailability(snapshot.availability ?? "AVAILABLE");
       draftVersion.current = snapshot.version;
       setVersionConflict(false);
       setFailure("");
@@ -325,12 +330,13 @@ export function WardrobeEditor({ actor, onPending, pending }: {
           const version = draftVersion.current;
           if (version === null) return;
           const updated = await request<WardrobeItem>(`${base}/${id}`, actor.id, {
-            method: "PUT", body: JSON.stringify({ ...fields, version }),
+            method: "PUT", body: JSON.stringify({ ...fields, availability, version }),
           });
           setName(updated.name);
           setCategoryId(String(updated.categoryId));
           setColor(updated.color);
           setMaterial(updated.material);
+          setAvailability(updated.availability ?? "AVAILABLE");
           draftVersion.current = updated.version;
           queryClient.setQueryData(["wardrobe-item", actor.id, id], updated);
           setFailure("");
@@ -437,6 +443,11 @@ export function WardrobeEditor({ actor, onPending, pending }: {
       <label className={styles.nameField}>МАТЕРИАЛ
         <input required maxLength={100} value={fieldValues.material} onChange={(event) => { setMaterial(event.target.value); setSuccess(""); }} disabled={pending} />
       </label>
+      {editing && <label className={styles.nameField}>ДОСТУПНОСТЬ
+        <select value={availability} onChange={(event) => { setAvailability(event.target.value as WardrobeItemAvailability); setSuccess(""); }} disabled={pending}>
+          <option value="AVAILABLE">Доступна</option><option value="IN_LAUNDRY">В стирке</option><option value="STORED">Убрана</option>
+        </select>
+      </label>}
       {!editing && <label className={styles.nameField}>ФОТОГРАФИИ · JPEG ИЛИ PNG, ДО 10 МБ КАЖДАЯ
         <input type="file" accept="image/jpeg,image/png" multiple disabled={pending}
           onChange={(event) => { setFiles(Array.from(event.target.files ?? [])); setFailure(""); }} />
