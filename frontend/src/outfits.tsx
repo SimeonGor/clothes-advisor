@@ -15,10 +15,10 @@ import {
   type Photo,
   type Precipitation,
   type WardrobeItem,
-  availabilityLabel,
   type WorkspaceContext,
 } from "./api";
 import { PhotoImage } from "./site";
+import { WardrobeItemCard } from "./wardrobe-item-card";
 import { WardrobeItemPicker } from "./wardrobe-item-picker";
 import styles from "./site.module.css";
 
@@ -341,7 +341,7 @@ export function OutfitDetail({ actor, context = { kind: "own" }, onPending, pend
       {items.isError && <ReadError error={items.error} retry={() => void items.refetch()} />}
       {items.data?.length === 0 && <p className={styles.state}>В этом образе нет вещей.</p>}
       <div className={styles.grid}>
-        {items.data?.map((item) => <DetailItem key={item.id} actor={actor} item={item} base={itemsBase} context={context} />)}
+        {items.data?.map((item) => <WardrobeItemCard key={item.id} actor={actor} item={item} base={itemsBase} context={context} />)}
       </div>
       {context.kind === "own" && actor.role === "USER" && items.data && (
         <OutfitReplacement
@@ -387,9 +387,4 @@ export function OutfitDetail({ actor, context = { kind: "own" }, onPending, pend
       </section>}
     </main>
   );
-}
-
-function DetailItem({ actor, item, base, context }: { actor: Actor; item: WardrobeItem; base: string; context: WorkspaceContext }) {
-  const photos = useQuery({ queryKey: ["photos", actor.id, contextKey(context), item.id], queryFn: ({ signal }) => request<Photo[]>(`${base}/${item.id}/photos`, actor.id, { signal }) });
-  return <article className={styles.card}><span className={styles.image}>{photos.data?.[0] ? <PhotoImage actor={actor} item={item} photo={photos.data[0]} itemsBase={base} /> : <span className={styles.photoEmpty}>{photos.isError ? "Фото не загрузилось" : photos.data ? "Нет фото" : "Загружаем фото…"}</span>}</span><span className={styles.cardInfo}><span className={styles.itemName}>{item.name}</span><small>{item.color} · {item.material}</small><small>{availabilityLabel(item)}</small></span></article>;
 }
