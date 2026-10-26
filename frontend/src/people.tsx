@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { allPages, ApiError, request, resourceErrorMessage, type Account, type Actor, type WorkspaceContext } from "./api";
 import { Wardrobe, WardrobeDetail } from "./wardrobe";
 import { OutfitDetail, OutfitEditor, Outfits } from "./outfits";
+import { ClientPreferences } from "./preferences";
 import styles from "./site.module.css";
 
 type Person = { id: number; login: string };
@@ -60,7 +61,7 @@ export function Access({ actor, pending, onPending }: Props) {
   }
 
   return <main className={styles.main}>
-    <Intro title="Доступ стилистам" description="Стилист с доступом видит ваш гардероб, составляет и оценивает образы." />
+    <Intro title="Доступ стилистам" description="Стилист с доступом видит ваш гардероб и предпочтения, составляет и оценивает образы." />
     {grants.isLoading && <p className={styles.state}>Загружаем доступы…</p>}
     {grants.isError && <ReadError error={grants.error} retry={() => void grants.refetch()} />}
     {directory.isError && <ReadError error={directory.error} retry={() => void directory.refetch()} />}
@@ -99,7 +100,7 @@ export function Access({ actor, pending, onPending }: Props) {
 export function Clients({ actor, pending }: Props) {
   const query = useQuery({ queryKey: clientsKey(actor), queryFn: ({ signal }) => allPages<Person>("/api/stylist/clients", actor.id, signal) });
   return <main className={styles.main}>
-    <Intro title="Клиенты" description="Пользователи, которые предоставили вам доступ к своему гардеробу." />
+    <Intro title="Клиенты" description="Пользователи, которые предоставили вам доступ к своему гардеробу и предпочтениям." />
     {query.isLoading && <p className={styles.state}>Загружаем клиентов…</p>}
     {query.isError && <ReadError error={query.error} retry={() => void query.refetch()} />}
     {query.data?.length === 0 && <p className={styles.state}>Пока нет клиентов. Пользователь может предоставить доступ в разделе «Доступ стилистам».</p>}
@@ -152,6 +153,7 @@ export function OwnerWorkspace({ kind, actor, pending, onPending }: Props & { ki
         {kind === "admin" && <Link to={base} aria-disabled={pending}>Роль и статус</Link>}
         <Link to={`${base}/wardrobe`} aria-disabled={pending}>Гардероб владельца</Link>
         <Link to={`${base}/outfits`} aria-disabled={pending}>Образы владельца</Link>
+        {kind === "client" && <Link to={`${base}/preferences`} aria-disabled={pending}>Предпочтения клиента</Link>}
       </nav>
     </section>
     <Routes>
@@ -160,6 +162,9 @@ export function OwnerWorkspace({ kind, actor, pending, onPending }: Props & { ki
       <Route path="wardrobe/:itemId" element={<WardrobeDetail {...props} />} />
       <Route path="outfits" element={<Outfits {...props} />} />
       {kind === "client" && <Route path="outfits/new" element={<OutfitEditor {...props} />} />}
+      {kind === "client" && <Route path="preferences" element={query.isSuccess && !query.isFetching
+        ? <ClientPreferences actor={actor} ownerId={id} />
+        : <main className={styles.main}><p className={styles.state}>Предпочтения недоступны до успешной проверки доступа.</p></main>} />}
       <Route path="outfits/:outfitId" element={<OutfitDetail {...props} />} />
       <Route path="*" element={<Navigate to={base} replace />} />
     </Routes>
