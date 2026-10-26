@@ -10,15 +10,15 @@ import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.TransactionDefinition
 import org.springframework.transaction.support.TransactionTemplate
 import ru.itmo.clothesadvisor.client.recommendation.RecommendationClient
-import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionCandidate
-import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionRequest
-import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionResponse
-import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionStylePreferences
-import ru.itmo.clothesadvisor.dto.recommendation.OutfitSelectionWeather
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionCandidate
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionRequest
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionResponse
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionStylePreferences
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionWeather
 import ru.itmo.clothesadvisor.model.AccessDeniedException
 import ru.itmo.clothesadvisor.model.EntityNotFoundException
-import ru.itmo.clothesadvisor.model.ai.AiOutfitException
-import ru.itmo.clothesadvisor.model.ai.AiOutfitFailure
+import ru.itmo.clothesadvisor.model.ai.AiSelectionException
+import ru.itmo.clothesadvisor.model.ai.AiSelectionFailure
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItem
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItemAvailability
@@ -60,11 +60,11 @@ internal class AiSelectionService(
         ownerId: Long,
         completion: IdempotencyService.Completion,
         prepare: () -> AiSelectionCriteria,
-        save: (AiSelectionCriteria, OutfitSelectionResponse) -> T,
+        save: (AiSelectionCriteria, ItemSelectionResponse) -> T,
     ): T {
         if (!active.compareAndSet(false, true)) {
             rejected.increment()
-            throw AiOutfitException(AiOutfitFailure.UNAVAILABLE)
+            throw AiSelectionException(AiSelectionFailure.UNAVAILABLE)
         }
 
         val startedAt = System.nanoTime()
@@ -73,7 +73,7 @@ internal class AiSelectionService(
             val criteria = prepare()
             val prepared = prepareCandidates(ownerId, criteria)
             val selection =
-                OutfitSelectionRequest(
+                ItemSelectionRequest(
                     prepared.weather,
                     loadImages(ownerId, prepared.candidates),
                     criteria.occasion,
@@ -115,14 +115,14 @@ internal class AiSelectionService(
         if (ids != null) validateIds(ids)
         val precipitationType =
             precipitation.findById(criteria.weather.precipitationTypeId)
-                ?: throw AiOutfitException(AiOutfitFailure.INVALID_REQUEST)
+                ?: throw AiSelectionException(AiSelectionFailure.INVALID_REQUEST)
         val offeredItems =
             if (ids == null) {
                 val found = if (excludedIds.isEmpty()) items.findAvailableOwnedItemsWithPhotos(ownerId, MAX_AI_CANDIDATES + 1)
                     else items.findAvailableOwnedItemsWithPhotosExcluding(ownerId, excludedIds, MAX_AI_CANDIDATES + 1)
                 found.also {
                     if (it.size > MAX_AI_CANDIDATES) {
-                        throw AiOutfitException(AiOutfitFailure.INVALID_REQUEST)
+                        throw AiSelectionException(AiSelectionFailure.INVALID_REQUEST)
                     }
                 }
             }
@@ -138,9 +138,9 @@ internal class AiSelectionService(
 
         val requiredItems = if (requiredItemIds.isNullOrEmpty()) emptyList()
             else items.findAllByOwnerIdAndIdInOrderByIdAsc(ownerId, requiredItemIds).also {
-                if (it.size != requiredItemIds.size) throw AiOutfitException(AiOutfitFailure.SOURCE_CHANGED)
+                if (it.size != requiredItemIds.size) throw AiSelectionException(AiSelectionFailure.SOURCE_CHANGED)
                 if (it.any { item -> item.availability != WardrobeItemAvailability.AVAILABLE }) {
-                    throw AiOutfitException(AiOutfitFailure.INVALID_REQUEST)
+                    throw AiSelectionException(AiSelectionFailure.INVALID_REQUEST)
                 }
             }
         val candidateItems = (offeredItems + requiredItems).distinctBy { it.id }
@@ -149,18 +149,18 @@ internal class AiSelectionService(
             val id = requireNotNull(item.id)
             val photo = photos.findFirstByItemIdOrderByIdAsc(id)
             if (photo == null && requiredItemIds?.contains(id) == true) {
-                throw AiOutfitException(AiOutfitFailure.INVALID_REQUEST)
+                throw AiSelectionException(AiSelectionFailure.INVALID_REQUEST)
             }
             photo?.let { PreparedCandidate(item, requireNotNull(it.id)) }
         }
         if (candidates.size !in 1..MAX_AI_CANDIDATES ||
             (requiredItemIds != null && candidates.none { it.item.id !in requiredItemIds })
         ) {
-            throw AiOutfitException(AiOutfitFailure.INVALID_REQUEST)
+            throw AiSelectionException(AiSelectionFailure.INVALID_REQUEST)
         }
 
         PreparedCandidates(
-            OutfitSelectionWeather(
+            ItemSelectionWeather(
                 criteria.weather.temperatureC,
                 criteria.weather.windSpeedMps,
                 precipitationType.code,
@@ -168,7 +168,7 @@ internal class AiSelectionService(
             ),
             candidates,
             preferences.findByOwnerId(ownerId)?.let {
-                OutfitSelectionStylePreferences(
+                ItemSelectionStylePreferences(
                     it.preferredColorsAndMaterials,
                     it.avoidances,
                     it.additionalWishes,
@@ -180,7 +180,7 @@ internal class AiSelectionService(
     private fun loadImages(
         ownerId: Long,
         candidates: List<PreparedCandidate>,
-    ): List<OutfitSelectionCandidate> =
+    ): List<ItemSelectionCandidate> =
         candidates.map { candidate ->
             requireAccess(ownerId)
             val itemId = requireNotNull(candidate.item.id)
@@ -188,10 +188,10 @@ internal class AiSelectionService(
                 try {
                     photoContent.getContent(ownerId, itemId, candidate.photoId)
                 } catch (_: EntityNotFoundException) {
-                    throw AiOutfitException(AiOutfitFailure.SOURCE_CHANGED)
+                    throw AiSelectionException(AiSelectionFailure.SOURCE_CHANGED)
                 }
             requireAccess(ownerId)
-            OutfitSelectionCandidate(
+            ItemSelectionCandidate(
                 itemId = itemId,
                 name = candidate.item.name,
                 categoryCode = candidate.item.category.code,
@@ -212,7 +212,7 @@ internal class AiSelectionService(
         if (currentItems.size != candidates.size ||
             currentItems.any { it.availability != WardrobeItemAvailability.AVAILABLE }
         ) {
-            throw AiOutfitException(AiOutfitFailure.SOURCE_CHANGED)
+            throw AiSelectionException(AiSelectionFailure.SOURCE_CHANGED)
         }
         candidates.forEach {
             if (
@@ -222,7 +222,7 @@ internal class AiSelectionService(
                     ownerId,
                 ) == null
             ) {
-                throw AiOutfitException(AiOutfitFailure.SOURCE_CHANGED)
+                throw AiSelectionException(AiSelectionFailure.SOURCE_CHANGED)
             }
         }
     }
@@ -238,17 +238,17 @@ internal class AiSelectionService(
             throw AccessDeniedException("Access denied")
         }
         if (ownerLogin.isBlank() || user.login != ownerLogin) {
-            throw AiOutfitException(AiOutfitFailure.UNAVAILABLE)
+            throw AiSelectionException(AiSelectionFailure.UNAVAILABLE)
         }
     }
 
     private fun validateIds(ids: List<Long?>) {
         if (ids.isEmpty() || ids.any { it == null || it <= 0 } || ids.distinct().size != ids.size) {
-            throw AiOutfitException(AiOutfitFailure.INVALID_REQUEST)
+            throw AiSelectionException(AiSelectionFailure.INVALID_REQUEST)
         }
     }
 
-    private fun validateSelection(response: OutfitSelectionResponse, candidateIds: Set<Long>, requiredIds: Set<Long>?) {
+    private fun validateSelection(response: ItemSelectionResponse, candidateIds: Set<Long>, requiredIds: Set<Long>?) {
         val selectedIds = response.itemIds
         if (
             selectedIds.isEmpty() ||
@@ -256,16 +256,16 @@ internal class AiSelectionService(
                 selectedIds.any { it !in candidateIds } ||
                 (requiredIds != null && (!selectedIds.containsAll(requiredIds) || selectedIds.none { it !in requiredIds }))
         ) {
-            throw AiOutfitException(AiOutfitFailure.INVALID_RESPONSE)
+            throw AiSelectionException(AiSelectionFailure.INVALID_RESPONSE)
         }
     }
 
     private data class PreparedCandidate(val item: WardrobeItem, val photoId: Long)
 
     private data class PreparedCandidates(
-        val weather: OutfitSelectionWeather,
+        val weather: ItemSelectionWeather,
         val candidates: List<PreparedCandidate>,
-        val stylePreferences: OutfitSelectionStylePreferences?,
+        val stylePreferences: ItemSelectionStylePreferences?,
     )
 
     companion object {

@@ -5,8 +5,8 @@ import ru.itmo.clothesadvisor.dto.ai.CreateAiOutfitRequest
 import ru.itmo.clothesadvisor.dto.ai.CreateAiOutfitReplacementRequest
 import ru.itmo.clothesadvisor.dto.outfit.CreateOutfitRequest
 import ru.itmo.clothesadvisor.dto.outfit.OutfitResponse
-import ru.itmo.clothesadvisor.model.ai.AiOutfitException
-import ru.itmo.clothesadvisor.model.ai.AiOutfitFailure
+import ru.itmo.clothesadvisor.model.ai.AiSelectionException
+import ru.itmo.clothesadvisor.model.ai.AiSelectionFailure
 import ru.itmo.clothesadvisor.model.idempotency.IdempotencyOperation.CREATE_AI_OUTFIT
 import ru.itmo.clothesadvisor.model.idempotency.IdempotencyOperation.CREATE_AI_OUTFIT_REPLACEMENT
 import ru.itmo.clothesadvisor.service.idempotency.IdempotencyService
@@ -60,7 +60,7 @@ internal class AiOutfitService(
                 validateIds(request.replaceItemIds)
                 val replaced = request.replaceItemIds.map { requireNotNull(it) }.toSet()
                 if (!source.itemIds.containsAll(replaced)) {
-                    throw AiOutfitException(AiOutfitFailure.INVALID_REQUEST)
+                    throw AiSelectionException(AiSelectionFailure.INVALID_REQUEST)
                 }
                 AiSelectionCriteria(
                     source.weather,
@@ -85,7 +85,7 @@ internal class AiOutfitService(
 
     private fun validateIds(ids: List<Long?>) {
         if (ids.isEmpty() || ids.any { it == null || it <= 0 } || ids.distinct().size != ids.size) {
-            throw AiOutfitException(AiOutfitFailure.INVALID_REQUEST)
+            throw AiSelectionException(AiSelectionFailure.INVALID_REQUEST)
         }
     }
 }

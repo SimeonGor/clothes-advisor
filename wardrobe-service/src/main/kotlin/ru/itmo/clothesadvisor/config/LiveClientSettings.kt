@@ -142,7 +142,8 @@ internal class LiveClientSettings(
         const val BREAKER_PREFIX = "resilience4j.circuitbreaker"
         val BREAKER_NAMES = listOf(
             "AccountClientgetUserlong", "AccountClientrequireStylistAccesslonglong",
-            "AccountClientrequireAdminAccesslonglong", "RecommendationClientselectOutfitSelectionRequest",
+            "AccountClientrequireAdminAccesslonglong", "RecommendationClientselectItemSelectionRequest",
+            "RecommendationClientselectCapsuleItemSelectionRequest",
         )
         private val POLICY_KEYS = listOf(
             "sliding-window-type", "sliding-window-size", "minimum-number-of-calls", "failure-rate-threshold",
