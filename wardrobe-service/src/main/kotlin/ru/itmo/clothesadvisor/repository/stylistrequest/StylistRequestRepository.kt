@@ -54,4 +54,12 @@ internal interface StylistRequestRepository : Repository<StylistRequest, Long> {
         WHERE id = :id AND owner_id = :ownerId AND version = :version AND status = 'PENDING'
     """)
     fun cancel(id: Long, ownerId: Long, version: Long): Int
+
+    @Modifying
+    @Query("""
+        UPDATE stylist_request SET status = 'ANSWERED', version = version + 1, modified_at = CURRENT_TIMESTAMP
+        WHERE id = :id AND owner_id = :ownerId AND stylist_id = :stylistId
+            AND version = :version AND status = 'PENDING'
+    """)
+    fun answer(id: Long, ownerId: Long, stylistId: Long, version: Long): Int
 }
