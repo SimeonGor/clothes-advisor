@@ -1,5 +1,6 @@
 import React from "react";
 import { createRequest, NewAttempt } from "./idempotency";
+import { OutfitReplacement } from "./outfit-replacement";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
@@ -396,6 +397,16 @@ export function OutfitDetail({ actor, context = { kind: "own" }, onPending, pend
       <div className={styles.grid}>
         {items.data?.map((item) => <DetailItem key={item.id} actor={actor} item={item} base={itemsBase} context={context} />)}
       </div>
+      {context.kind === "own" && actor.role === "USER" && items.data && (
+        <OutfitReplacement
+          key={`${actor.id}:${row.id}`}
+          actor={actor}
+          outfit={row}
+          sourceItems={items.data}
+          pending={pending}
+          onPending={onPending}
+        />
+      )}
       {failure && <div role="alert" className={styles.error}>{failure}</div>}
       {conflict && <div role="alert" className={styles.error}>
         Данные изменились. Обновите образ, затем решите, нужно ли повторить действие.
