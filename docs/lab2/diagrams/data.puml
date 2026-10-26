@@ -49,7 +49,18 @@ package "wardrobe_db · wardrobe-service" as wardrobe #F2F8F5 {
     --
     * owner_id : bigint
     * name : varchar(300)
+    * source : USER / AI
+    occasion : varchar(300)
+    preferred_style : varchar(300)
+    explanation : varchar(2000)
     * created_at : timestamptz
+  }
+  entity "capsule_weather" as capsule_weather #E8F5EF {
+    * capsule_id : bigint <<PK, FK>>
+    --
+    * temperature_c : numeric
+    * precipitation_type_id : bigint <<FK>>
+    * wind_speed_mps : numeric
   }
   entity "capsule_item" as capsule_item #E8F5EF {
     * capsule_id : bigint <<PK, FK>>
@@ -261,6 +272,8 @@ package "wardrobe_db · wardrobe-service" as wardrobe #F2F8F5 {
   outfit ||--o{ calendar_entry : outfit_id
   calendar_entry -[hidden]right-> calendar_history
   capsule ||--|{ capsule_item : capsule_id
+  capsule ||--o| capsule_weather : capsule_id
+  precipitation ||--o{ capsule_weather : precipitation_type_id
   item ||--o{ capsule_item : wardrobe_item_id
   precipitation ||--o{ request_weather : precipitation_type_id
   outfit ||--o{ rating : outfit_id

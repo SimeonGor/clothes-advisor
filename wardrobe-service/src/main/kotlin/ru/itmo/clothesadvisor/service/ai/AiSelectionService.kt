@@ -59,6 +59,7 @@ internal class AiSelectionService(
     fun <T : Any> select(
         ownerId: Long,
         completion: IdempotencyService.Completion,
+        goal: AiSelectionGoal = AiSelectionGoal.OUTFIT,
         prepare: () -> AiSelectionCriteria,
         save: (AiSelectionCriteria, ItemSelectionResponse) -> T,
     ): T {
@@ -82,7 +83,10 @@ internal class AiSelectionService(
                     prepared.stylePreferences,
                 )
             requireAccess(ownerId)
-            val response = recommendation.select(selection)
+            val response = when (goal) {
+                AiSelectionGoal.OUTFIT -> recommendation.select(selection)
+                AiSelectionGoal.CAPSULE -> recommendation.selectCapsule(selection)
+            }
             validateSelection(
                 response,
                 prepared.candidates.map { requireNotNull(it.item.id) }.toSet(),

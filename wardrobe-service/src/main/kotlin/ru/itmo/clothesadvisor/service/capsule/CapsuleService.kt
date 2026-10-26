@@ -11,16 +11,20 @@ import org.springframework.transaction.TransactionDefinition
 import org.springframework.transaction.support.TransactionTemplate
 import ru.itmo.clothesadvisor.dto.capsule.CapsuleResponse
 import ru.itmo.clothesadvisor.dto.capsule.CreateCapsuleRequest
+import ru.itmo.clothesadvisor.dto.ai.CreateAiCapsuleRequest
+import ru.itmo.clothesadvisor.dto.outfit.OutfitWeatherDto
 import ru.itmo.clothesadvisor.dto.user.CurrentUser
 import ru.itmo.clothesadvisor.model.AccessDeniedException
 import ru.itmo.clothesadvisor.model.EntityNotFoundException
 import ru.itmo.clothesadvisor.model.capsule.Capsule
 import ru.itmo.clothesadvisor.model.capsule.CapsuleItem
 import ru.itmo.clothesadvisor.model.capsule.CapsuleItemId
+import ru.itmo.clothesadvisor.model.capsule.CapsuleWeather
 import ru.itmo.clothesadvisor.model.idempotency.IdempotencyOperation.CREATE_CAPSULE
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.repository.capsule.CapsuleItemRepository
 import ru.itmo.clothesadvisor.repository.capsule.CapsuleRepository
+import ru.itmo.clothesadvisor.repository.capsule.CapsuleWeatherRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.service.idempotency.IdempotencyService
 import tools.jackson.core.type.TypeReference
@@ -31,6 +35,7 @@ internal class InvalidCapsuleRequestException : RuntimeException()
 internal class CapsuleService(
     private val capsules: CapsuleRepository,
     private val composition: CapsuleItemRepository,
+    private val weather: CapsuleWeatherRepository,
     private val wardrobe: WardrobeItemRepository,
     private val validator: Validator,
     private val idempotency: IdempotencyService,
@@ -61,14 +66,21 @@ internal class CapsuleService(
                         throw EntityNotFoundException()
                     }
                     val capsule = capsules.create(user.id, request.name)
-                    composition.insertAll(ids.mapIndexed { position, itemId ->
-                        CapsuleItem(CapsuleItemId(capsule.id, itemId), position)
-                    })
-                    CapsuleResponse(capsule.id, capsule.ownerId, capsule.name, ids, capsule.createdAt)
+                    saveComposition(capsule, ids)
+                    toResponse(capsule, ids)
                 }
             }
         }
     }
+
+    fun createAi(ownerId: Long, request: CreateAiCapsuleRequest, ids: List<Long>, explanation: String): CapsuleResponse =
+        writeTransaction.execute {
+            val capsule = capsules.createAi(ownerId, request.name, request.occasion, request.preferredStyle, explanation)
+            weather.insert(CapsuleWeather(capsule.id, request.weather.temperatureC,
+                request.weather.precipitationTypeId, request.weather.windSpeedMps))
+            saveComposition(capsule, ids)
+            toResponse(capsule, ids, request.weather)
+        }
 
     fun list(user: CurrentUser, pageable: Pageable): Page<CapsuleResponse> {
         requireUser(user)
@@ -100,10 +112,23 @@ internal class CapsuleService(
 
     private fun toResponses(rows: List<Capsule>): List<CapsuleResponse> {
         if (rows.isEmpty()) return emptyList()
-        val items = composition.findRows(rows.map { it.id }).groupBy { it.id.capsuleId }
+        val ids = rows.map { it.id }
+        val items = composition.findRows(ids).groupBy { it.id.capsuleId }
+        val weatherByCapsule = weather.findAllByIdIn(ids).associateBy { it.id }
         return rows.map { capsule ->
-            CapsuleResponse(capsule.id, capsule.ownerId, capsule.name,
-                items.getValue(capsule.id).map { it.id.wardrobeItemId }, capsule.createdAt)
+            val weather = weatherByCapsule[capsule.id]?.let {
+                OutfitWeatherDto(it.temperatureC, it.precipitationTypeId, it.windSpeedMps)
+            }
+            toResponse(capsule, items.getValue(capsule.id).map { it.id.wardrobeItemId }, weather)
         }
     }
+
+    private fun saveComposition(capsule: Capsule, ids: List<Long>) =
+        composition.insertAll(ids.mapIndexed { position, itemId ->
+            CapsuleItem(CapsuleItemId(capsule.id, itemId), position)
+        })
+
+    private fun toResponse(capsule: Capsule, ids: List<Long>, weather: OutfitWeatherDto? = null) =
+        CapsuleResponse(capsule.id, capsule.ownerId, capsule.name, ids, capsule.createdAt,
+            capsule.source, weather, capsule.occasion, capsule.preferredStyle, capsule.explanation)
 }

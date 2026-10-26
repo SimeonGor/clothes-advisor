@@ -9,6 +9,12 @@ internal interface CapsuleRepository : Repository<Capsule, Long> {
     @Query("INSERT INTO capsule (owner_id, name) VALUES (:ownerId, :name) RETURNING *")
     fun create(ownerId: Long, name: String): Capsule
 
+    @Query("""
+        INSERT INTO capsule (owner_id, name, source, occasion, preferred_style, explanation)
+        VALUES (:ownerId, :name, 'AI', :occasion, :preferredStyle, :explanation) RETURNING *
+    """)
+    fun createAi(ownerId: Long, name: String, occasion: String?, preferredStyle: String?, explanation: String): Capsule
+
     fun findByIdAndOwnerId(id: Long, ownerId: Long): Capsule?
 
     @Query("SELECT * FROM capsule WHERE id = :id AND owner_id = :ownerId FOR UPDATE")
