@@ -16,10 +16,10 @@ import {
   type Precipitation,
   type WardrobeItem,
   availabilityLabel,
-  itemAvailability,
   type WorkspaceContext,
 } from "./api";
 import { PhotoImage } from "./site";
+import { WardrobeItemPicker } from "./wardrobe-item-picker";
 import styles from "./site.module.css";
 
 const size = 12;
@@ -141,8 +141,6 @@ export function OutfitEditor({ actor, context = { kind: "own" }, onPending, pend
   const [wind, setWind] = React.useState("0");
   const [precipitationId, setPrecipitationId] = React.useState("");
   const [selected, setSelected] = React.useState<number[]>([]);
-  const [search, setSearch] = React.useState("");
-  const [page, setPage] = React.useState(0);
   const [failure, setFailure] = React.useState("");
   const busy = React.useRef(false);
   const types = useQuery({
@@ -153,8 +151,6 @@ export function OutfitEditor({ actor, context = { kind: "own" }, onPending, pend
     queryKey: ["outfit-items", actor.id, contextKey(context)],
     queryFn: ({ signal }) => allPages<WardrobeItem>(itemsBase, actor.id, signal),
   });
-  const rows = (items.data ?? []).filter((item) => item.name.toLocaleLowerCase().includes(search.toLocaleLowerCase()));
-  const selectedUnavailable = (items.data ?? []).filter((item) => selected.includes(item.id) && itemAvailability(item) !== "AVAILABLE");
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
@@ -224,42 +220,10 @@ export function OutfitEditor({ actor, context = { kind: "own" }, onPending, pend
           </div>
           {types.isError && <ReadError error={types.error} retry={() => void types.refetch()} />}
         </section>
-        <section className={styles.wardrobe}>
-          <div className={styles.sectionHeading}>
-            <span>01</span><div><h2>Вещи</h2><p>Отметьте от одной до пятидесяти вещей.</p></div>
-            <span className={styles.count}>{selected.length} выбрано</span>
-          </div>
-          {selectedUnavailable.length > 0 && <p className={styles.notice} role="status">В выбранном образе есть вещи в стирке или убранные. Их можно оставить вручную.</p>}
-          <label className={styles.nameField}>ПОИСК ПО НАЗВАНИЮ
-            <input value={search} onChange={(event) => { setSearch(event.target.value); setPage(0); }} disabled={pending} />
-          </label>
-          {items.isLoading && <p className={styles.state}>Загружаем гардероб…</p>}
-          {items.isError && <ReadError error={items.error} retry={() => void items.refetch()} />}
-          {items.data?.length === 0 && <p className={styles.state}>В гардеробе пока нет вещей.</p>}
-          {items.data && rows.length === 0 && <p className={styles.state}>Ничего не найдено.</p>}
-          <div className={styles.grid}>
-            {rows.slice(page * size, (page + 1) * size).map((item) => (
-              <SelectionCard
-                key={item.id}
-                actor={actor}
-                context={context}
-                item={item}
-                selected={selected.includes(item.id)}
-                toggle={() => setSelected((old) => old.includes(item.id)
-                  ? old.filter((id) => id !== item.id)
-                  : old.length < 50 ? [...old, item.id] : old)}
-                disabled={pending}
-              />
-            ))}
-          </div>
-          {rows.length > size && <div className={styles.pages}>
-            <span>Страница {page + 1}</span>
-            <div>
-              <button type="button" disabled={!page || pending} onClick={() => setPage((n) => n - 1)}>← Назад</button>
-              <button type="button" disabled={(page + 1) * size >= rows.length || pending} onClick={() => setPage((n) => n + 1)}>Далее →</button>
-            </div>
-          </div>}
-        </section>
+        {items.isLoading && <p className={styles.state}>Загружаем гардероб…</p>}
+        {items.isError && <ReadError error={items.error} retry={() => void items.refetch()} />}
+        <WardrobeItemPicker actor={actor} context={context} items={items.isSuccess ? items.data : undefined}
+          selected={selected} onSelectedChange={setSelected} disabled={pending || !items.isSuccess} />
         {failure && <div role="alert" className={styles.error}>{failure}</div>}
         {failure && <NewAttempt actorId={actor.id} path={base} disabled={pending} onReset={() => setFailure("")} />}
         <div className={styles.submitRow}>
@@ -268,29 +232,6 @@ export function OutfitEditor({ actor, context = { kind: "own" }, onPending, pend
         </div>
       </form>
     </main>
-  );
-}
-
-function SelectionCard({ actor, context, item, selected, toggle, disabled }: { actor: Actor; context: WorkspaceContext; item: WardrobeItem; selected: boolean; toggle: () => void; disabled: boolean }) {
-  const base = wardrobeItemsPath(context);
-  const photos = useQuery({
-    queryKey: ["photos", actor.id, contextKey(context), item.id],
-    queryFn: ({ signal }) => request<Photo[]>(`${base}/${item.id}/photos`, actor.id, { signal }),
-  });
-  return (
-    <label className={`${styles.card} ${selected ? styles.selected : ""}`}>
-      <span className={styles.image}>
-        {photos.data?.[0]
-          ? <PhotoImage actor={actor} item={item} photo={photos.data[0]} itemsBase={base} />
-          : <span className={styles.photoEmpty}>{photos.isError ? "Фото не загрузилось" : photos.data ? "Нет фото" : "Загружаем фото…"}</span>}
-      </span>
-      <span className={styles.cardInfo}>
-        <span className={styles.itemName}>{item.name}</span>
-        <small>{item.color} · {item.material}</small>
-        <small>{availabilityLabel(item)}</small>
-      </span>
-      <input type="checkbox" checked={selected} disabled={disabled} onChange={toggle} aria-label={`Выбрать: ${item.name}`} />
-    </label>
   );
 }
 
