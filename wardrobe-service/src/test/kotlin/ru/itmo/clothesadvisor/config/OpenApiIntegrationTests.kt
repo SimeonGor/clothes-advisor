@@ -80,6 +80,23 @@ class OpenApiIntegrationTests : PostgresIntegrationTest() {
         }
         assertThat(schemas).doesNotContainKeys("CurrentUser", "InternalUserResponse")
 
+        val preferences = "$.paths['/api/me/style-preferences']"
+        assertThat(paths.getValue("/api/me/style-preferences").keys)
+            .containsExactlyInAnyOrder("get", "put")
+        assertThat(paths.getValue("/api/stylist/clients/{ownerId}/style-preferences").keys)
+            .containsExactly("get")
+        assertThat(spec.read<String>("$preferences.put.requestBody.content['application/json'].schema['\$ref']"))
+            .isEqualTo("#/components/schemas/PutStylePreferencesRequest")
+        val preferencesSchema = "$.components.schemas.PutStylePreferencesRequest"
+        listOf("preferredColorsAndMaterials", "avoidances", "additionalWishes").forEach { field ->
+            assertThat(spec.read<Int>("$preferencesSchema.properties.$field.maxLength")).isEqualTo(2000)
+        }
+        assertThat(spec.read<Map<String, Any?>>(preferencesSchema)["required"]).isNull()
+        assertThat(spec.read<Map<String, Any?>>("$preferences.put.responses").keys)
+            .contains("200", "400", "403", "409", "503")
+        assertThat(spec.read<List<String>>("$preferences.get.responses['200'].content.*.schema['\$ref']"))
+            .containsExactly("#/components/schemas/StylePreferencesResponse")
+
         val create = "$.paths['/api/wardrobe/items'].post"
         val content = "$create.requestBody.content"
         assertThat(spec.read<Map<String, Any?>>(content).keys)
