@@ -106,6 +106,39 @@ class OutfitSelectionHttpTests {
         assertThat(selection.path("occasion").isNull).isTrue()
         assertThat(selection.path("preferredStyle").isNull).isTrue()
         assertThat(selection.has("requiredItemIds")).isFalse()
+        assertThat(selection.has("stylePreferences")).isFalse()
+    }
+
+    @Test
+    fun `preference limits are enforced through HTTP before provider and maximum texts remain user data`() {
+        // given
+        val mapper = credentials.mapper
+        val input = mapper.readTree(valid) as ObjectNode
+        val preferences = input.putObject("stylePreferences")
+        val fields = listOf("preferredColorsAndMaterials", "avoidances", "additionalWishes")
+        fields.forEach { preferences.put(it, it.take(1).repeat(2000)) }
+
+        // when
+        val accepted = http.send(request(mapper.writeValueAsString(input)), HttpResponse.BodyHandlers.ofString())
+
+        // then
+        assertThat(accepted.statusCode()).isEqualTo(200)
+        assertThat(calls).hasValue(1)
+        val payload = mapper.readTree(providerRequests.single())
+        val context = mapper.readTree(payload.path("input")[0].path("content")[0].path("text").asString())
+        assertThat(context.path("stylePreferences")).isEqualTo(preferences)
+        fields.forEach { field ->
+            assertThat(payload.path("instructions").asString()).doesNotContain(preferences.path(field).asString())
+            val oversized = input.deepCopy() as ObjectNode
+            (oversized.path("stylePreferences") as ObjectNode).put(field, "x".repeat(2001))
+
+            // when
+            val rejected = http.send(request(mapper.writeValueAsString(oversized)), HttpResponse.BodyHandlers.ofString())
+
+            // then
+            assertThat(rejected.statusCode()).isEqualTo(400)
+            assertThat(calls).hasValue(1)
+        }
     }
 
     @Test

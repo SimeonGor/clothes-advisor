@@ -34,12 +34,15 @@ import ru.itmo.clothesadvisor.dto.ai.CreateAiOutfitRequest
 import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionRequest as ServerSelectionRequest
 import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionResponse as ServerSelectionResponse
 import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionWeather as ServerSelectionWeather
+import ru.itmo.clothesadvisor.dto.ai.OutfitSelectionStylePreferences as ServerStylePreferences
 import ru.itmo.clothesadvisor.dto.outfit.CreateOutfitRequest
 import ru.itmo.clothesadvisor.dto.outfit.OutfitResponse
 import ru.itmo.clothesadvisor.dto.outfit.OutfitWeatherDto
 import ru.itmo.clothesadvisor.dto.user.CurrentUser
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemPhotoContent
 import ru.itmo.clothesadvisor.model.outfit.OutfitSource
+import ru.itmo.clothesadvisor.model.preferences.StylePreferences
+import ru.itmo.clothesadvisor.repository.preferences.StylePreferencesRepository
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeCategory
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItem
@@ -89,6 +92,7 @@ class RecommendationPayloadTests {
         val items = mock(WardrobeItemRepository::class.java)
         val photos = mock(WardrobeItemPhotoRepository::class.java)
         val precipitation = mock(PrecipitationTypeRepository::class.java)
+        val preferences = mock(StylePreferencesRepository::class.java)
         val content = mock(WardrobeItemPhotoService::class.java)
         val outfits = mock(OutfitService::class.java)
         val transactions = mock(PlatformTransactionManager::class.java)
@@ -100,6 +104,9 @@ class RecommendationPayloadTests {
         `when`(users.requireActive(7)).thenReturn(CurrentUser(7, "user", UserRole.USER))
         `when`(transactions.getTransaction(any())).thenAnswer { SimpleTransactionStatus() }
         `when`(precipitation.findById(1)).thenReturn(PrecipitationType("NONE", "None"))
+        `when`(preferences.findByOwnerId(7)).thenReturn(
+            StylePreferences(7, "c".repeat(2000), "a".repeat(2000), "w".repeat(2000), 3, storedAt, storedAt),
+        )
         `when`(items.findOwnedItemsWithPhotos(7, 21)).thenReturn(candidates)
         `when`(items.lockOwnedItemsForShare(7, candidateIds)).thenReturn(candidates)
         candidateIds.forEach { id ->
@@ -122,6 +129,8 @@ class RecommendationPayloadTests {
                 assertThat(actual.weather).isEqualTo(serverRequest.weather)
                 assertThat(actual.occasion).isEqualTo("Work")
                 assertThat(actual.preferredStyle).isEqualTo("Casual")
+                assertThat(actual.stylePreferences)
+                    .isEqualTo(ServerStylePreferences("c".repeat(2000), "a".repeat(2000), "w".repeat(2000)))
                 assertThat(actual.candidates.map { it.itemId }).containsExactlyElementsOf(candidateIds)
                 actual.candidates.forEach { candidate ->
                     assertThat(candidate.name).isEqualTo("Item ${candidate.itemId}")
@@ -151,7 +160,7 @@ class RecommendationPayloadTests {
             "--spring.cloud.discovery.client.simple.instances.recommendation-service[0].uri=http://127.0.0.1:$port",
         ).use { context ->
             val service = AiOutfitService(
-                users, items, photos, precipitation, content,
+                users, items, photos, precipitation, preferences, content,
                 context.getBean(RecommendationClient::class.java), outfits,
                 ru.itmo.clothesadvisor.service.idempotency.IdempotencyService(
                     mock(ru.itmo.clothesadvisor.repository.idempotency.IdempotencyCommandRepository::class.java),

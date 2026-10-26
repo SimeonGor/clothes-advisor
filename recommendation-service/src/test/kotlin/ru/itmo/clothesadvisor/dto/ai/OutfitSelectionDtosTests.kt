@@ -9,6 +9,26 @@ class OutfitSelectionDtosTests {
     private val mapper = JsonMapper.builder().findAndAddModules().build()
 
     @Test
+    fun `optional preferences round trip with only three texts`() {
+        // given
+        val request = OutfitSelectionRequest(
+            OutfitSelectionWeather(BigDecimal.ZERO, BigDecimal.ZERO, "NONE", "None"),
+            emptyList(),
+            stylePreferences = OutfitSelectionStylePreferences("  Blue  ", "", "Loose fit"),
+        )
+
+        // when
+        val json = mapper.writeValueAsString(request)
+        val decoded = mapper.readValue(json, OutfitSelectionRequest::class.java)
+
+        // then
+        assertThat(decoded).isEqualTo(request)
+        assertThat(mapper.readTree(json).path("stylePreferences").propertyNames().toList())
+            .containsExactlyInAnyOrder("preferredColorsAndMaterials", "avoidances", "additionalWishes")
+        assertThat(json).doesNotContain("ownerId", "version", "createdAt", "modifiedAt")
+    }
+
+    @Test
     fun `request and ordered response round trip with only recommendation fields`() {
 
         // given
