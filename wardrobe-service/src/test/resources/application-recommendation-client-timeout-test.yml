@@ -1,10 +1,6 @@
-spring:
-  cloud:
-    openfeign:
-      client:
-        config:
-          recommendation-service:
-            read-timeout: 200
+app:
+  recommendation-client:
+    read-timeout: 200ms
 
 resilience4j:
   timelimiter:

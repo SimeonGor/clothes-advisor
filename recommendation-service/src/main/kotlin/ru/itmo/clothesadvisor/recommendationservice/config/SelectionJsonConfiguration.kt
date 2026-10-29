@@ -15,11 +15,17 @@ import tools.jackson.databind.type.LogicalType
 @Configuration
 class SelectionJsonConfiguration : WebFluxConfigurer {
     override fun configureHttpMessageCodecs(configurer: ServerCodecConfigurer) {
-        val mapper = JsonMapper.builder()
+        configurer.defaultCodecs().jacksonJsonDecoder(JacksonJsonDecoder(mapper()))
+    }
+
+    companion object {
+        fun mapper(): JsonMapper = JsonMapper.builder()
+            .findAndAddModules()
             .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
             .enable(
                 DeserializationFeature.FAIL_ON_NULL_FOR_PRIMITIVES,
                 DeserializationFeature.FAIL_ON_TRAILING_TOKENS,
+                DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES,
             )
             .disable(MapperFeature.ALLOW_COERCION_OF_SCALARS)
             .disable(DeserializationFeature.ACCEPT_FLOAT_AS_INT)
@@ -28,6 +34,5 @@ class SelectionJsonConfiguration : WebFluxConfigurer {
                     .forEach { config.setCoercion(it, CoercionAction.Fail) }
             }
             .build()
-        configurer.defaultCodecs().jacksonJsonDecoder(JacksonJsonDecoder(mapper))
     }
 }

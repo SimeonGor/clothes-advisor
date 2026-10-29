@@ -62,7 +62,7 @@ import ru.itmo.clothesadvisor.model.user.UserStatus
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
 )
 @ActiveProfiles("test", "account-client-test")
-class AccountClientTests {
+class AccountClientTests : ru.itmo.clothesadvisor.dto.recommendation.SelectionPhotoFixture() {
     @Configuration
     @Profile("account-client-test")
     @EnableAutoConfiguration
@@ -89,12 +89,13 @@ class AccountClientTests {
                 "user" -> client.getUser(7)
                 "stylist" -> client.requireStylistAccess(3, 7)
                 "admin" -> client.requireAdminAccess(5, 7)
-                "recommendation" -> recommendation.select(ItemSelectionRequest(
+                "recommendation" -> ru.itmo.clothesadvisor.dto.recommendation.SelectionPhotos().use { photos ->
+                    recommendation.select(ItemSelectionRequest(
                     ItemSelectionWeather(BigDecimal.ZERO, BigDecimal.ZERO, "NONE", "None"),
                     listOf(ItemSelectionCandidate(
-                        7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", "AQID",
+                        7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", photos.add(byteArrayOf(1, 2, 3)),
                     )),
-                ))
+                )) }
                 else -> error("Unknown test method")
             }
             ResponseEntity.noContent().build<Void>()
@@ -113,7 +114,7 @@ class AccountClientTests {
     @Autowired private lateinit var reactiveClient: AccountClient
     @Autowired private lateinit var properties: AccountClientProperties
     @Autowired private lateinit var recommendation: RecommendationClient
-    @Autowired private lateinit var factory: FeignClientFactory
+    @Autowired private lateinit var settings: ru.itmo.clothesadvisor.config.LiveClientSettings
     @Autowired private lateinit var breakers: CircuitBreakerRegistry
     @Autowired private lateinit var discovery: SimpleReactiveDiscoveryProperties
     @Autowired private lateinit var context: ApplicationContext
@@ -232,14 +233,11 @@ class AccountClientTests {
     @Test
     fun `account transport options and decoder remain isolated from recommendation`() {
         // given
-        val transport = factory.getInstance("recommendation-service", Client::class.java)
-        val recommendationOptions = factory.getInstance(
-            "recommendation-service", Request.Options::class.java,
-        )!!
+        val recommendationOptions = settings.recommendationOptions()
         val selection = ItemSelectionRequest(
             ItemSelectionWeather(BigDecimal.ZERO, BigDecimal.ZERO, "NONE", "None"),
             listOf(ItemSelectionCandidate(
-                7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", "AQID",
+                7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", image(),
             )),
         )
 
@@ -252,9 +250,7 @@ class AccountClientTests {
         assertThat(result.itemIds).containsExactly(7)
         assertThat(properties.connectTimeout.toMillis()).isEqualTo(2_000)
         assertThat(properties.readTimeout.toMillis()).isEqualTo(5_000)
-        assertThat(transport).isInstanceOf(FeignBlockingLoadBalancerClient::class.java)
-        assertThat((transport as FeignBlockingLoadBalancerClient).delegate)
-            .isInstanceOf(Client.Default::class.java)
+        assertThat(recommendation).isInstanceOf(ru.itmo.clothesadvisor.client.recommendation.StreamingRecommendationAdapter::class.java)
         assertThat(recommendationOptions.connectTimeoutMillis()).isEqualTo(5_000)
         assertThat(recommendationOptions.readTimeoutMillis()).isEqualTo(90_000)
         assertThat(context.getBeansOfType(Request.Options::class.java)).isEmpty()

@@ -3,7 +3,6 @@ package ru.itmo.clothesadvisor.client.recommendation
 import ru.itmo.clothesadvisor.config.idempotencyService
 
 import com.sun.net.httpserver.HttpServer
-import feign.Client
 import feign.Request
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
@@ -33,8 +32,6 @@ import org.springframework.beans.factory.annotation.Autowired
 import org.springframework.boot.autoconfigure.EnableAutoConfiguration
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.cloud.client.discovery.simple.reactive.SimpleReactiveDiscoveryProperties
-import org.springframework.cloud.openfeign.FeignClientFactory
-import org.springframework.cloud.openfeign.loadbalancer.FeignBlockingLoadBalancerClient
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Import
 import org.springframework.context.annotation.Profile
@@ -80,7 +77,7 @@ import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemPhotoService
     webEnvironment = SpringBootTest.WebEnvironment.NONE,
 )
 @ActiveProfiles("test", "recommendation-client-test")
-class RecommendationClientTests {
+class RecommendationClientTests : ru.itmo.clothesadvisor.dto.recommendation.SelectionPhotoFixture() {
     @Configuration
     @Profile("recommendation-client-test")
     @EnableAutoConfiguration
@@ -88,13 +85,12 @@ class RecommendationClientTests {
     class ClientApplication
 
     @Autowired private lateinit var client: RecommendationClient
-    @Autowired private lateinit var factory: FeignClientFactory
     @Autowired private lateinit var breakers: CircuitBreakerRegistry
     @Autowired private lateinit var settings: LiveClientSettings
     @Autowired private lateinit var discovery: SimpleReactiveDiscoveryProperties
     private val selection = ItemSelectionRequest(
         ItemSelectionWeather(BigDecimal("-1.23456789"), BigDecimal.ZERO, "NONE", "None"),
-        listOf(ItemSelectionCandidate(7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", "AQID")),
+        listOf(ItemSelectionCandidate(7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", image())),
     )
 
     @BeforeEach
@@ -115,10 +111,9 @@ class RecommendationClientTests {
     }
 
     @Test
-    fun `discovery client uses JDK transport and long read timeout without redirects`() {
+    fun `discovery client uses Reactive Feign and long read timeout without redirects`() {
         // given
-        val transport = factory.getInstance("recommendation-service", Client::class.java)
-        val options = factory.getInstance("recommendation-service", Request.Options::class.java)!!
+        val options = settings.recommendationOptions()
 
         // when
         val result = client.select(selection)
@@ -127,9 +122,7 @@ class RecommendationClientTests {
         assertThat(result.itemIds).containsExactly(7)
         assertThat(result.explanation).isNull()
         assertThat(calls).hasValue(1)
-        assertThat(transport).isInstanceOf(FeignBlockingLoadBalancerClient::class.java)
-        assertThat((transport as FeignBlockingLoadBalancerClient).delegate)
-            .isInstanceOf(Client.Default::class.java)
+        assertThat(client).isInstanceOf(StreamingRecommendationAdapter::class.java)
         assertThat(options.connectTimeoutMillis()).isEqualTo(5_000)
         assertThat(options.readTimeoutMillis()).isEqualTo(90_000)
         assertThat(options.isFollowRedirects).isFalse()
@@ -562,12 +555,8 @@ class RecommendationClientTests {
         )
 
         causes.forEach { (cause, expected) ->
-            val fallback = RecommendationFallbackFactory().create(java.util.concurrent.ExecutionException(cause))
-
             // when
-            val error = catchThrowable {
-                if (capsule) fallback.selectCapsule(selection) else fallback.select(selection)
-            } as AiSelectionException
+            val error = recommendationFailure(java.util.concurrent.ExecutionException(cause))
 
             // then
             assertThat(error.failure).isEqualTo(expected)
@@ -577,6 +566,34 @@ class RecommendationClientTests {
     }
 
     private fun select(capsule: Boolean) = if (capsule) client.selectCapsule(selection) else client.select(selection)
+
+    @Test
+    fun `production client sends prefix before finishing image serialization`() {
+        val prefix = CountDownLatch(1)
+        prefixReceived = prefix
+        val original = selectionPhotos.add(ByteArray(500_000) { 3 })
+        val image = org.mockito.Mockito.spy(original)
+        org.mockito.Mockito.doAnswer {
+            object : java.io.FilterInputStream(original.open()) {
+                private var readBytes = 0
+                override fun read(bytes: ByteArray, offset: Int, length: Int): Int {
+                    if (readBytes >= 32_768) check(prefix.await(5, TimeUnit.SECONDS))
+                    return super.read(bytes, offset, length).also { if (it > 0) readBytes += it }
+                }
+            }
+        }.`when`(image).open()
+        try {
+            body = """{"itemIds":[7]}"""
+            val response = client.select(selection.copy(
+                candidates = listOf(selection.candidates.single().copy(imageBase64 = image)),
+            ))
+            assertThat(response.itemIds).containsExactly(7)
+            assertThat(prefix.count).isZero()
+            val decoded = tools.jackson.databind.json.JsonMapper.builder().build().readTree(received)
+                .path("candidates")[0].path("imageBase64").asString()
+            assertThat(java.util.Base64.getDecoder().decode(decoded)).hasSize(500_000).containsOnly(3)
+        } finally { prefixReceived = null }
+    }
 
     private fun assertFailure(expected: AiSelectionFailure, error: Throwable?) {
         assertThat(error)
@@ -599,6 +616,7 @@ class RecommendationClientTests {
         @Volatile private var disconnect = false
         @Volatile private var gate: CountDownLatch? = null
         @Volatile private var entered = CountDownLatch(1)
+        @Volatile private var prefixReceived: CountDownLatch? = null
         private val executor = Executors.newVirtualThreadPerTaskExecutor()
         private val server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
             this.executor = Companion.executor
@@ -606,7 +624,11 @@ class RecommendationClientTests {
                 calls.incrementAndGet()
                 receivedPath = exchange.requestURI.path
                 receivedMethod = exchange.requestMethod
-                received = exchange.requestBody.bufferedReader().readText()
+                received = prefixReceived?.let { signal ->
+                    val prefix = exchange.requestBody.readNBytes(8192)
+                    signal.countDown()
+                    prefix.toString(Charsets.UTF_8) + exchange.requestBody.bufferedReader().readText()
+                } ?: exchange.requestBody.bufferedReader().readText()
                 if (disconnect) {
                     exchange.close()
                 } else {

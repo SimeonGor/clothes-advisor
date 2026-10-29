@@ -30,13 +30,13 @@ import ru.itmo.clothesadvisor.model.ai.AiSelectionFailure
     webEnvironment = SpringBootTest.WebEnvironment.NONE,
 )
 @ActiveProfiles("test", "recommendation-client-test", "recommendation-client-timeout-test")
-class RecommendationClientTimeoutTests {
+class RecommendationClientTimeoutTests : ru.itmo.clothesadvisor.dto.recommendation.SelectionPhotoFixture() {
     @Autowired private lateinit var client: RecommendationClient
     @Autowired private lateinit var breakers: CircuitBreakerRegistry
     private val selection = ItemSelectionRequest(
         ItemSelectionWeather(BigDecimal.ZERO, BigDecimal.ZERO, "NONE", "None"),
         listOf(ItemSelectionCandidate(
-            7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", "AQID",
+            7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", image(),
         )),
     )
 

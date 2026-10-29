@@ -42,7 +42,7 @@ import ru.itmo.clothesadvisor.dto.ai.ItemSelectionRequest
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionWeather
 import tools.jackson.databind.json.JsonMapper
 
-class SelectionPromptSettingsTests {
+class SelectionPromptSettingsTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhotoFixture() {
     @TempDir lateinit var temporary: Path
 
     @Test
@@ -367,7 +367,7 @@ class SelectionPromptSettingsTests {
 
     private fun selection() = ItemSelectionRequest(
         ItemSelectionWeather(BigDecimal.TEN, BigDecimal.ZERO, "NONE", "None"),
-        listOf(ItemSelectionCandidate(7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", "AQID")),
+        listOf(ItemSelectionCandidate(7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", image())),
     )
 
     private fun client(credentials: ChatGptCredentialFixture, clock: Clock, settings: SelectionPromptSettings, endpoint: URI, goal: SelectionGoal) =

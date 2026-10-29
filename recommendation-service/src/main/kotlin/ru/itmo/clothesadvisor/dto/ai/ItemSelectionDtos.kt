@@ -35,7 +35,9 @@ data class ItemSelectionCandidate(
     val color: String,
     val material: String,
     val contentType: String,
-    val imageBase64: String,
+    @get:tools.jackson.databind.annotation.JsonSerialize(using = SelectionImageSerializer::class)
+    @param:tools.jackson.databind.annotation.JsonDeserialize(using = SelectionImageDeserializer::class)
+    val imageBase64: SelectionImage,
 )
 
 data class ItemSelectionResponse(val itemIds: List<Long>, val explanation: String)

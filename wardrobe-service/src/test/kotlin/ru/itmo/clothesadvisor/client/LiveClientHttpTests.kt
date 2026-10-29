@@ -39,7 +39,7 @@ import ru.itmo.clothesadvisor.model.ai.AiSelectionFailure
     webEnvironment = SpringBootTest.WebEnvironment.NONE,
 )
 @ActiveProfiles("test", "account-client-test")
-class LiveClientHttpTests {
+class LiveClientHttpTests : ru.itmo.clothesadvisor.dto.recommendation.SelectionPhotoFixture() {
     @Autowired private lateinit var account: AccountClient
     @Autowired private lateinit var recommendation: RecommendationClient
     @Autowired private lateinit var settings: LiveClientSettings
@@ -47,7 +47,7 @@ class LiveClientHttpTests {
     @Autowired private lateinit var context: ApplicationContext
     private val selection = ItemSelectionRequest(
         ItemSelectionWeather(BigDecimal.ZERO, BigDecimal.ZERO, "NONE", "None"),
-        listOf(ItemSelectionCandidate(7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", "AQID")),
+        listOf(ItemSelectionCandidate(7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", image())),
     )
 
     @BeforeEach

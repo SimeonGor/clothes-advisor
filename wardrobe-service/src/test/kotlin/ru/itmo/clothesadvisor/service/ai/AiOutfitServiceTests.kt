@@ -62,7 +62,7 @@ import ru.itmo.clothesadvisor.service.user.CurrentUserService
 import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemPhotoService
 import ru.itmo.clothesadvisor.storage.wardrobe.PhotoStorageUnavailableException
 
-internal class AiOutfitServiceTests {
+internal class AiOutfitServiceTests : ru.itmo.clothesadvisor.dto.recommendation.SelectionPhotoFixture() {
     private val users = mock(CurrentUserService::class.java)
     private val items = mock(WardrobeItemRepository::class.java)
     private val photos = mock(WardrobeItemPhotoRepository::class.java)
@@ -74,10 +74,13 @@ internal class AiOutfitServiceTests {
     private var providerFailure: AiSelectionFailure? = null
     private var onSelection: () -> Unit = {}
     private var receivedSelection: ItemSelectionRequest? = null
+    private var receivedImage: String? = null
     private val provider =
         mock(RecommendationClient::class.java) { call ->
             if (call.method.name == "select") {
                 receivedSelection = call.getArgument(0)
+                receivedImage = receivedSelection!!.candidates.first().imageBase64.open()
+                    .bufferedReader().use { it.readText() }
                 providerFailure?.let { throw AiSelectionException(it) }
                 onSelection()
                 ItemSelectionResponse(selected, explanation)
@@ -160,6 +163,7 @@ internal class AiOutfitServiceTests {
         verify(preferences).findByOwnerId(7)
         assertThat(savedSourceId).isNull()
         assertThat(receivedSelection!!.candidates.single())
+            .usingRecursiveComparison().ignoringFields("imageBase64")
             .isEqualTo(
                 ItemSelectionCandidate(
                     11,
@@ -169,9 +173,11 @@ internal class AiOutfitServiceTests {
                     "White",
                     "Cotton",
                     "image/png",
-                    "AQID",
+                    image(),
                 ),
             )
+        assertThat(receivedImage).isEqualTo("AQID")
+        assertThat(java.nio.file.Files.exists(receivedSelection!!.candidates.single().imageBase64.path)).isFalse()
         assertThat(receivedSelection!!.weather.precipitationCode).isEqualTo("NONE")
         assertThat(receivedSelection!!.weather.precipitationName).isEqualTo("None")
         verify(photos).findByIdAndItemIdAndItemOwnerId(21, 11, 7)

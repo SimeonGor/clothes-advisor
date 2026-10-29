@@ -7,6 +7,7 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.net.http.HttpTimeoutException
 import java.nio.charset.CharacterCodingException
+import java.nio.ByteBuffer
 import java.time.Duration
 import java.util.concurrent.Callable
 import java.util.concurrent.ExecutionException
@@ -17,6 +18,11 @@ import java.util.concurrent.atomic.AtomicReference
 import ru.itmo.clothesadvisor.config.SelectionPromptSettings
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionRequest
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionResponse
+import ru.itmo.clothesadvisor.dto.ai.SelectionImage
+import org.springframework.core.io.buffer.DataBufferUtils
+import org.springframework.core.io.buffer.DefaultDataBufferFactory
+import reactor.adapter.JdkFlowAdapter
+import reactor.core.publisher.Flux
 import tools.jackson.core.JacksonException
 import tools.jackson.databind.DeserializationFeature
 import tools.jackson.databind.json.JsonMapper
@@ -68,7 +74,18 @@ class OpenAiSelectionClient internal constructor(
                     .header("Authorization", "Bearer $accessToken")
                     .header("Content-Type", "application/json")
                     .header("Accept", "text/event-stream")
-                    .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(body)))
+                    .POST(HttpRequest.BodyPublishers.fromPublisher(JdkFlowAdapter.publisherToFlowPublisher(
+                        Flux.from(DataBufferUtils.outputStreamPublisher(
+                            { output -> mapper.writeValue(output, body) },
+                            DefaultDataBufferFactory.sharedInstance,
+                            { task -> Thread.startVirtualThread(task) },
+                            8192,
+                        )).map { buffer ->
+                            try {
+                                ByteBuffer.wrap(ByteArray(buffer.readableByteCount()).also { buffer.read(it) })
+                            } finally { DataBufferUtils.release(buffer) }
+                        },
+                    )))
                     .build()
             } catch (_: IllegalArgumentException) {
                 throw AiSelectionException(AiSelectionFailure.UNAVAILABLE)
@@ -169,7 +186,7 @@ class OpenAiSelectionClient internal constructor(
             content += mapOf("type" to "input_text", "text" to mapper.writeValueAsString(description))
             content += mapOf(
                 "type" to "input_image",
-                "image_url" to "data:${candidate.contentType};base64,${candidate.imageBase64}",
+                "image_url" to ImageUrl(candidate.contentType, candidate.imageBase64),
             )
         }
         return content
@@ -238,5 +255,18 @@ class OpenAiSelectionClient internal constructor(
         } catch (_: JacksonException) {
             throw AiSelectionException(AiSelectionFailure.INVALID_RESPONSE)
         }
+    }
+}
+
+@tools.jackson.databind.annotation.JsonSerialize(using = ImageUrlSerializer::class)
+private data class ImageUrl(val contentType: String, val image: SelectionImage)
+
+private class ImageUrlSerializer : tools.jackson.databind.ValueSerializer<ImageUrl>() {
+    override fun serialize(
+        value: ImageUrl,
+        generator: tools.jackson.core.JsonGenerator,
+        context: tools.jackson.databind.SerializationContext,
+    ) {
+        value.image.writeJson(generator, "data:${value.contentType};base64,")
     }
 }

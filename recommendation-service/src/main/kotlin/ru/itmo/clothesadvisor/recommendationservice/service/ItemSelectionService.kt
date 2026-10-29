@@ -1,6 +1,5 @@
 package ru.itmo.clothesadvisor.recommendationservice.service
 
-import java.util.Base64
 import org.springframework.stereotype.Service
 import ru.itmo.clothesadvisor.client.ai.AiSelectionException
 import ru.itmo.clothesadvisor.client.ai.AiSelectionFailure
@@ -35,18 +34,6 @@ class ItemSelectionService(private val provider: OpenAiSelectionClient) {
         candidates.forEach { candidate ->
             if (candidate == null || candidate.itemId <= 0 ||
                 candidate.contentType !in setOf("image/jpeg", "image/png")
-            ) invalidRequest()
-            val image = candidate.imageBase64
-            if (image.isEmpty() || image.length > 13_333_336 || image.length % 4 != 0) {
-                invalidRequest()
-            }
-            val bytes = try {
-                Base64.getDecoder().decode(image)
-            } catch (_: IllegalArgumentException) {
-                invalidRequest()
-            }
-            if (bytes.size !in 1..10_000_000 ||
-                Base64.getEncoder().encodeToString(bytes) != image
             ) invalidRequest()
         }
         val allowed = request.candidates.map { it.itemId }.toSet()

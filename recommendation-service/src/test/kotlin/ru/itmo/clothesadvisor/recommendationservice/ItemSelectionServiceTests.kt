@@ -23,11 +23,11 @@ import ru.itmo.clothesadvisor.dto.ai.ItemSelectionStylePreferences
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionWeather
 import ru.itmo.clothesadvisor.recommendationservice.service.ItemSelectionService
 
-class ItemSelectionServiceTests {
+class ItemSelectionServiceTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhotoFixture() {
     private val provider = mock(OpenAiSelectionClient::class.java)
     private val service = ItemSelectionService(provider)
     private val candidate =
-        ItemSelectionCandidate(7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", "AQID")
+        ItemSelectionCandidate(7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", image())
     private val request = ItemSelectionRequest(
         ItemSelectionWeather(BigDecimal("-1.23456789"), BigDecimal.ZERO, "NONE", "None"),
         listOf(candidate, candidate.copy(itemId = 9)),
@@ -129,11 +129,7 @@ class ItemSelectionServiceTests {
             request.copy(weather = request.weather.copy(windSpeedMps = BigDecimal("-0.01"))),
         ) + listOf(
             candidate.copy(itemId = 0), candidate.copy(itemId = -1),
-            candidate.copy(contentType = "image/gif"), candidate.copy(imageBase64 = ""),
-            candidate.copy(imageBase64 = "data:image/png;base64,AQID"),
-            candidate.copy(imageBase64 = "!!!!"), candidate.copy(imageBase64 = "AQI"),
-            candidate.copy(imageBase64 = "AR=="), candidate.copy(imageBase64 = "AQ-D"),
-            candidate.copy(imageBase64 = Base64.getEncoder().encodeToString(ByteArray(10_000_001))),
+            candidate.copy(contentType = "image/gif"),
         ).map { request.copy(candidates = listOf(it)) }
 
         invalid.forEach {
@@ -150,7 +146,7 @@ class ItemSelectionServiceTests {
     @EnumSource(SelectionGoal::class)
     fun `maximum image and twenty candidates reach provider`(goal: SelectionGoal) {
         // given
-        val image = Base64.getEncoder().encodeToString(ByteArray(10_000_000))
+        val image = selectionPhotos.add(ByteArray(10_000_000))
         val maximum = request.copy(
             candidates = (1L..20).map { candidate.copy(itemId = it, imageBase64 = image) },
         )

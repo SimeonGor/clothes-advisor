@@ -123,7 +123,7 @@ curl http://127.0.0.1:8080/api/wardrobe/items \
 ./gradlew bootJar                 # JAR всех backend-сервисов через общую сборку
 ./gradlew test                    # unit- и интеграционные тесты
 ./gradlew check                   # проверки бизнес-сервисов
-./gradlew :wardrobe-service:transportTest # максимальный пакет изображений, отдельная JVM с heap 3 ГиБ
+./gradlew :wardrobe-service:transportTest # максимальный пакет изображений, отдельная JVM с heap 512 МиБ
 ```
 
 Dockerfile каждого сервиса копирует только wrapper, собственные файлы сборки и `src/main`. Корневая многомодульная сборка сохранена для общих команд и транспортного теста между wardrobe и recommendation; в Docker она не используется. Транспортный тест запускается только из корневой сборки. Интеграционные тесты используют конфигурации из соседнего `config-repository`, а тест переноса аккаунтов — также старые миграции wardrobe; поэтому тесты запускаются из полного checkout.
