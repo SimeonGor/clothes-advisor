@@ -5,7 +5,7 @@ import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import tools.jackson.databind.json.JsonMapper
 
-class ItemSelectionDtosTests {
+class ItemSelectionDtosTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhotoFixture() {
     private val mapper = JsonMapper.builder().findAndAddModules().build()
 
     @Test
@@ -49,7 +49,7 @@ class ItemSelectionDtosTests {
                         "Blue",
                         "Wool",
                         "image/png",
-                        "AQID",
+                        image(),
                     ),
                 ),
                 occasion = "Work",
@@ -60,11 +60,12 @@ class ItemSelectionDtosTests {
         // when
         val requestJson = mapper.writeValueAsString(request)
         val responseJson = mapper.writeValueAsString(response)
-        val decodedRequest = mapper.readValue(requestJson, ItemSelectionRequest::class.java)
+        val decodedRequest = mapper.readerFor(ItemSelectionRequest::class.java)
+            .withAttribute(SelectionPhotos::class.java, selectionPhotos).readValue<ItemSelectionRequest>(requestJson)
         val decodedResponse = mapper.readValue(responseJson, ItemSelectionResponse::class.java)
 
         // then
-        assertThat(decodedRequest).isEqualTo(request)
+        assertThat(mapper.writeValueAsString(decodedRequest)).isEqualTo(requestJson)
         assertThat(decodedResponse).isEqualTo(response)
         val requestNode = mapper.readTree(requestJson)
         assertThat(requestNode.propertyNames().toList())

@@ -5,6 +5,13 @@ import java.lang.management.ManagementFactory
 import java.math.BigDecimal
 import java.time.Instant
 import java.util.Base64
+import java.nio.file.Files
+import java.net.InetSocketAddress
+import com.sun.net.httpserver.HttpServer
+import org.junit.jupiter.api.AfterAll
+import org.springframework.test.context.DynamicPropertyRegistry
+import org.springframework.test.context.DynamicPropertySource
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.Test
 import org.mockito.Mockito.any
@@ -60,25 +67,19 @@ import ru.itmo.clothesadvisor.service.user.CurrentUserService
 import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemPhotoService
 
 @SpringBootTest(
-    classes = [RecommendationServiceApplication::class, RecommendationPayloadTests.Provider::class],
+    classes = [RecommendationServiceApplication::class],
     webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
     properties = ["spring.config.name=application-transport"],
 )
 @ActiveProfiles("transport-server")
 class RecommendationPayloadTests {
-    @TestConfiguration
-    class Provider {
-        @Bean @Primary
-        fun transportProvider(): OpenAiSelectionClient = mock(OpenAiSelectionClient::class.java)
-    }
-
     @SpringBootConfiguration
     @EnableAutoConfiguration
     @Import(ExternalClientsConfiguration::class)
     class ClientApplication
 
     @LocalServerPort private var port = 0
-    @Autowired private lateinit var provider: OpenAiSelectionClient
+    @MockitoSpyBean private lateinit var provider: OpenAiSelectionClient
 
     @Test
     fun `twenty maximum images are loaded encoded and sent through production Feign and decoder`() {
@@ -141,12 +142,13 @@ class RecommendationPayloadTests {
                     assertThat(candidate.color).isEqualTo("White")
                     assertThat(candidate.material).isEqualTo("Cotton")
                     assertThat(candidate.contentType).isEqualTo("image/jpeg")
-                    assertThat(candidate.imageBase64).hasSize(13_333_336)
-                    val decoded = Base64.getDecoder().decode(candidate.imageBase64)
+                    val decoded = candidate.imageBase64.open().buffered().use {
+                        Base64.getDecoder().wrap(it).readAllBytes()
+                    }
                     assertThat(decoded).hasSize(10_000_000)
                     assertThat(decoded.all { it == candidate.itemId.toByte() }).isTrue()
                 }
-                ServerSelectionResponse(selectedIds, "Подходит для погоды.")
+                call.callRealMethod()
             }
             .`when`(provider).select(eq(SelectionGoal.OUTFIT) ?: SelectionGoal.OUTFIT, any(ServerSelectionRequest::class.java) ?: serverRequest)
         val expectedSave = CreateOutfitRequest(request.name, selectedIds, weather)
@@ -180,6 +182,8 @@ class RecommendationPayloadTests {
             // then
             assertThat(response).isSameAs(saved)
             assertThat(response.itemIds).containsExactlyElementsOf(selectedIds)
+            assertThat(providerFailure.get()).isNull()
+            assertThat(providerImages.get()).isEqualTo(20)
             candidateIds.forEach { id -> verify(content).getContent(7, id, id + 100) }
             verify(provider).select(eq(SelectionGoal.OUTFIT) ?: SelectionGoal.OUTFIT, any(ServerSelectionRequest::class.java) ?: serverRequest)
             verify(outfits).createAi(
@@ -189,6 +193,84 @@ class RecommendationPayloadTests {
                 "Maximum-image preparation and transport memory pool peaks: " +
                     pools.joinToString { "${it.name}=${it.peakUsage.used}" },
             )
+        }
+    }
+
+    companion object {
+        private val directory = Files.createTempDirectory("transport-fake-credentials-").toRealPath().also {
+            Files.writeString(it.resolve("registration.json"), """{"client_id":"transport-test"}""")
+            Files.writeString(it.resolve("credentials.json"), """{"client_id":"transport-test","issuer":"https://auth.openai.com","subject":"test","scopes":["resource.invoke","chatgpt.tokens.use.direct"],"expires_at":"2999-01-01T00:00:00Z","access_token":"local-fake-token"}""")
+        }
+        private val providerImages = java.util.concurrent.atomic.AtomicInteger()
+        private val providerFailure = java.util.concurrent.atomic.AtomicReference<Throwable?>()
+        private val executor = java.util.concurrent.Executors.newVirtualThreadPerTaskExecutor()
+        private val fakeProvider = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
+            this.executor = Companion.executor
+            createContext("/responses") { exchange ->
+                exchange.use {
+                    try {
+                        val mapper = tools.jackson.databind.json.JsonMapper.builder().build()
+                        mapper.createParser(it.requestBody).use { parser ->
+                            while (parser.nextToken() != null) {
+                                if (parser.currentToken() == tools.jackson.core.JsonToken.PROPERTY_NAME &&
+                                    parser.currentName() == "image_url"
+                                ) {
+                                    parser.nextToken()
+                                    val value = parser.string
+                                    assertThat(value).startsWith("data:image/jpeg;base64,")
+                                    val bytes = Base64.getDecoder().decode(value.substringAfter(','))
+                                    val id = providerImages.incrementAndGet()
+                                    assertThat(bytes).hasSize(10_000_000)
+                                    val expected = java.security.MessageDigest.getInstance("SHA-256")
+                                    val chunk = ByteArray(8192) { id.toByte() }
+                                    var remaining = 10_000_000
+                                    while (remaining > 0) {
+                                        val count = minOf(remaining, chunk.size)
+                                        expected.update(chunk, 0, count)
+                                        remaining -= count
+                                    }
+                                    assertThat(java.security.MessageDigest.getInstance("SHA-256").digest(bytes))
+                                        .isEqualTo(expected.digest())
+                                }
+                            }
+                        }
+                        val text = mapper.writeValueAsString(mapOf("itemIds" to listOf(20, 1), "explanation" to "Подходит для погоды."))
+                        val response = "data: " + mapper.writeValueAsString(mapOf(
+                            "type" to "response.completed", "response" to mapOf(
+                                "status" to "completed", "output" to listOf(mapOf(
+                                    "type" to "message", "role" to "assistant", "status" to "completed",
+                                    "content" to listOf(mapOf("type" to "output_text", "text" to text)),
+                                )),
+                            ),
+                        )) + "\n\n"
+                        val bytes = response.toByteArray()
+                        it.responseHeaders.add("Content-Type", "text/event-stream")
+                        it.sendResponseHeaders(200, bytes.size.toLong())
+                        it.responseBody.write(bytes)
+                    } catch (error: Throwable) {
+                        providerFailure.set(error)
+                        runCatching { it.sendResponseHeaders(500, -1) }
+                    }
+                }
+            }
+            start()
+        }
+
+        @JvmStatic @DynamicPropertySource
+        fun providerProperties(registry: DynamicPropertyRegistry) {
+            registry.add("app.openai.endpoint") { "http://127.0.0.1:${fakeProvider.address.port}/responses" }
+            registry.add("app.openai.credentials-directory") { directory.toString() }
+            registry.add("app.openai.model") { "local-test-model" }
+            registry.add("app.openai.timeout") { "90s" }
+        }
+
+        @JvmStatic @AfterAll
+        fun close() {
+            fakeProvider.stop(0)
+            executor.close()
+            Files.deleteIfExists(directory.resolve("credentials.json"))
+            Files.deleteIfExists(directory.resolve("registration.json"))
+            Files.deleteIfExists(directory)
         }
     }
 }

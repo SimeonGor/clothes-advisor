@@ -35,7 +35,8 @@ data class ItemSelectionCandidate(
     val color: String,
     val material: String,
     val contentType: String,
-    val imageBase64: String,
+    @get:tools.jackson.databind.annotation.JsonSerialize(using = SelectionImageSerializer::class)
+    val imageBase64: SelectionImage,
 )
 
 // The outfit consumer still accepts legacy responses; capsule consumers must require explanation.

@@ -20,7 +20,6 @@ import ru.itmo.clothesadvisor.client.account.AccountClient
 import ru.itmo.clothesadvisor.client.account.AccountClientFactory
 import ru.itmo.clothesadvisor.client.account.AccountClientProperties
 import ru.itmo.clothesadvisor.client.account.ReloadableAccountClient
-import ru.itmo.clothesadvisor.client.recommendation.RecommendationClientConfiguration
 import ru.itmo.clothesadvisor.dto.account.AccountUserResponse
 
 class LiveClientSettingsTests {
@@ -144,8 +143,7 @@ class LiveClientSettingsTests {
         doReturn(next).`when`(factory).create(nextProperties)
         doReturn(Mono.empty<AccountUserResponse>()).`when`(next).getUser(7)
         val pending = client.getUser(7)
-        val options = RecommendationClientConfiguration().recommendationOptions(settings)
-        val captured = options.getMethodOptions("select")
+        val captured = settings.recommendationOptions()
 
         // when
         settings.apply(source(mapOf(
@@ -157,11 +155,10 @@ class LiveClientSettingsTests {
         assertThat(client.target).isSameAs(next)
         verifyNoInteractions(original)
         assertThat(captured.readTimeoutMillis()).isEqualTo(90_000)
-        assertThat(options.getMethodOptions("select").readTimeoutMillis()).isEqualTo(4_000)
-        assertThat(options.getMethodOptions("selectCapsule").readTimeoutMillis()).isEqualTo(4_000)
-        assertThat(options.connectTimeoutMillis()).isEqualTo(5_000)
-        assertThat(options.readTimeoutMillis()).isEqualTo(90_000)
-        assertThat(options.getMethodOptions("select").isFollowRedirects).isFalse()
+        assertThat(settings.recommendationOptions().readTimeoutMillis()).isEqualTo(4_000)
+        assertThat(settings.recommendationOptions().connectTimeoutMillis()).isEqualTo(5_000)
+        assertThat(captured.readTimeoutMillis()).isEqualTo(90_000)
+        assertThat(settings.recommendationOptions().isFollowRedirects).isFalse()
     }
 
     @Test

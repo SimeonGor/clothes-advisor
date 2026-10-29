@@ -49,7 +49,7 @@ import tools.jackson.databind.node.ObjectNode
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
 @Import(ItemSelectionHttpTests.FixedClock::class)
-class ItemSelectionHttpTests {
+class ItemSelectionHttpTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhotoFixture() {
     @TestConfiguration
     class FixedClock {
         @Bean @Primary
@@ -331,7 +331,7 @@ class ItemSelectionHttpTests {
         val selection = ItemSelectionRequest(
             ItemSelectionWeather(BigDecimal("-1.23456789"), BigDecimal.ZERO, "NONE", "None"),
             listOf(ItemSelectionCandidate(
-                7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", "AQID",
+                7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", image(),
             )),
         )
         doAnswer { call ->
@@ -339,7 +339,8 @@ class ItemSelectionHttpTests {
             workers += WorkerTrace(span?.traceId(), span?.spanId(), MDC.get("traceId"),
                 MDC.get("spanId"), Thread.currentThread().name)
             call.callRealMethod()
-        }.`when`(outfitClient).select(SelectionGoal.OUTFIT, selection)
+        }.`when`(outfitClient).select(org.mockito.Mockito.eq(SelectionGoal.OUTFIT) ?: SelectionGoal.OUTFIT,
+            org.mockito.Mockito.any(ItemSelectionRequest::class.java) ?: selection)
 
         // when
         val correlated = http.send(

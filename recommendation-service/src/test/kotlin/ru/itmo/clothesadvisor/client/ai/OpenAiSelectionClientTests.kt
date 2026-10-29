@@ -1,17 +1,20 @@
 package ru.itmo.clothesadvisor.client.ai
 
 import com.sun.net.httpserver.HttpServer
+import java.io.FilterInputStream
 import java.math.BigDecimal
 import java.net.InetSocketAddress
 import java.net.URI
 import java.net.http.HttpClient
 import java.nio.charset.MalformedInputException
+import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.catchThrowable
 import org.junit.jupiter.api.AfterEach
@@ -19,6 +22,7 @@ import org.junit.jupiter.api.Test
 import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.EnumSource
 import org.junit.jupiter.api.io.TempDir
+import org.mockito.Mockito
 import org.springframework.boot.env.YamlPropertySourceLoader
 import org.springframework.core.io.FileSystemResource
 import ru.itmo.clothesadvisor.config.SelectionPromptSettings
@@ -26,9 +30,10 @@ import ru.itmo.clothesadvisor.dto.ai.ItemSelectionCandidate
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionRequest
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionStylePreferences
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionWeather
+import ru.itmo.clothesadvisor.dto.ai.SelectionPhotos
 import tools.jackson.databind.json.JsonMapper
 
-class OpenAiSelectionClientTests {
+class OpenAiSelectionClientTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhotoFixture() {
     @TempDir lateinit var temporary: Path
     private val credentials by lazy { ChatGptCredentialFixture(temporary) }
     private val mapper = JsonMapper.builder().build()
@@ -52,7 +57,7 @@ class OpenAiSelectionClientTests {
                 "White",
                 "Cotton",
                 "image/png",
-                "AQID",
+                image(),
             )
         }
     private val selection = ItemSelectionRequest(weather, candidates)
@@ -314,6 +319,72 @@ class OpenAiSelectionClientTests {
             assertThat(calls).hasValue(1)
         } finally {
             release.countDown()
+        }
+    }
+
+    @Test
+    fun `stalled HTTP upload times out and releases private file after body writer terminates`() {
+        // given
+        val photos = SelectionPhotos()
+        val photo = photos.add(ByteArray(10_000_000))
+        val readerOpened = CountDownLatch(1)
+        val readerClosed = CountDownLatch(1)
+        val writer = AtomicReference<Thread>()
+        val observedPhoto = Mockito.spy(photo)
+        Mockito.doAnswer {
+            writer.set(Thread.currentThread())
+            val input = photo.open()
+            readerOpened.countDown()
+            object : FilterInputStream(input) {
+                override fun close() {
+                    try { super.close() } finally { readerClosed.countDown() }
+                }
+            }
+        }.`when`(observedPhoto).open()
+        val firstBytes = CountDownLatch(1)
+        val releaseServer = CountDownLatch(1)
+        val serverEnded = CountDownLatch(1)
+        server.createContext("/v1/responses") { exchange ->
+            calls.incrementAndGet()
+            try {
+                if (exchange.requestBody.readNBytes(8192).size == 8192) firstBytes.countDown()
+                releaseServer.await(10, TimeUnit.SECONDS)
+            } finally {
+                exchange.close()
+                serverEnded.countDown()
+            }
+        }
+        val provider = client(timeout = Duration.ofSeconds(3))
+        val upload = executor.submit<Throwable?> {
+            catchThrowable {
+                provider.select(SelectionGoal.OUTFIT, selection.copy(
+                    candidates = listOf(candidates.first().copy(imageBase64 = observedPhoto)),
+                ))
+            }
+        }
+        try {
+            assertThat(firstBytes.await(2, TimeUnit.SECONDS)).isTrue()
+            assertThat(readerOpened.await(1, TimeUnit.SECONDS)).isTrue()
+            assertThat(readerClosed.count).isEqualTo(1)
+            assertThat(Files.getPosixFilePermissions(photo.path).map { it.name })
+                .containsExactlyInAnyOrder("OWNER_READ", "OWNER_WRITE")
+
+            // when: the operation owner releases the scope while the network still owns a reader
+            photos.close()
+            assertThat(Files.exists(photo.path)).isTrue()
+            val failure = upload.get(5, TimeUnit.SECONDS)
+
+            // then: cancellation must reach the real HTTP body publisher and its file reader
+            assertFailure(504, failure)
+            assertThat(calls).hasValue(1)
+            assertThat(readerClosed.await(3, TimeUnit.SECONDS)).isTrue()
+            assertThat(writer.get().join(Duration.ofSeconds(3))).isTrue()
+            assertThat(Files.exists(photo.path)).isFalse()
+        } finally {
+            releaseServer.countDown()
+            upload.cancel(true)
+            photos.close()
+            assertThat(serverEnded.await(3, TimeUnit.SECONDS)).isTrue()
         }
     }
 

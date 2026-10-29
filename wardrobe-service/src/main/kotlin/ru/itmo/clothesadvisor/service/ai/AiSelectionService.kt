@@ -1,7 +1,7 @@
 package ru.itmo.clothesadvisor.service.ai
 
 import io.micrometer.core.instrument.MeterRegistry
-import java.util.Base64
+import java.io.IOException
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import org.springframework.beans.factory.annotation.Value
@@ -15,6 +15,7 @@ import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionRequest
 import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionResponse
 import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionStylePreferences
 import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionWeather
+import ru.itmo.clothesadvisor.dto.recommendation.SelectionPhotos
 import ru.itmo.clothesadvisor.model.AccessDeniedException
 import ru.itmo.clothesadvisor.model.EntityNotFoundException
 import ru.itmo.clothesadvisor.model.ai.AiSelectionException
@@ -71,37 +72,41 @@ internal class AiSelectionService(
         val startedAt = System.nanoTime()
         var succeeded = false
         try {
-            val criteria = prepare()
-            val prepared = prepareCandidates(ownerId, criteria)
-            val selection =
-                ItemSelectionRequest(
-                    prepared.weather,
-                    loadImages(ownerId, prepared.candidates),
-                    criteria.occasion,
-                    criteria.preferredStyle,
-                    criteria.requiredItemIds?.toList(),
-                    prepared.stylePreferences,
-                )
-            requireAccess(ownerId)
-            val response = when (goal) {
-                AiSelectionGoal.OUTFIT -> recommendation.select(selection)
-                AiSelectionGoal.CAPSULE -> recommendation.selectCapsule(selection)
-            }
-            validateSelection(
-                response,
-                prepared.candidates.map { requireNotNull(it.item.id) }.toSet(),
-                criteria.requiredItemIds,
-            )
-            requireAccess(ownerId)
-
-            val saved = completion.commit {
-                transaction.execute {
-                    validateCurrentCandidates(ownerId, prepared.candidates)
-                    save(criteria, response)
+            return SelectionPhotos().use { imageFiles ->
+                val criteria = prepare()
+                val prepared = prepareCandidates(ownerId, criteria)
+                val selection =
+                    ItemSelectionRequest(
+                        prepared.weather,
+                        loadImages(ownerId, prepared.candidates, imageFiles),
+                        criteria.occasion,
+                        criteria.preferredStyle,
+                        criteria.requiredItemIds?.toList(),
+                        prepared.stylePreferences,
+                    )
+                requireAccess(ownerId)
+                val response = when (goal) {
+                    AiSelectionGoal.OUTFIT -> recommendation.select(selection)
+                    AiSelectionGoal.CAPSULE -> recommendation.selectCapsule(selection)
                 }
+                validateSelection(
+                    response,
+                    prepared.candidates.map { requireNotNull(it.item.id) }.toSet(),
+                    criteria.requiredItemIds,
+                )
+                requireAccess(ownerId)
+
+                val saved = completion.commit {
+                    transaction.execute {
+                        validateCurrentCandidates(ownerId, prepared.candidates)
+                        save(criteria, response)
+                    }
+                }
+                succeeded = true
+                saved
             }
-            succeeded = true
-            return saved
+        } catch (_: IOException) {
+            throw AiSelectionException(AiSelectionFailure.UNAVAILABLE)
         } finally {
             active.set(false)
             val duration = if (succeeded) successfulDuration else failedDuration
@@ -184,6 +189,7 @@ internal class AiSelectionService(
     private fun loadImages(
         ownerId: Long,
         candidates: List<PreparedCandidate>,
+        imageFiles: SelectionPhotos,
     ): List<ItemSelectionCandidate> =
         candidates.map { candidate ->
             requireAccess(ownerId)
@@ -203,7 +209,7 @@ internal class AiSelectionService(
                 color = candidate.item.color,
                 material = candidate.item.material,
                 contentType = content.contentType,
-                imageBase64 = Base64.getEncoder().encodeToString(content.bytes),
+                imageBase64 = imageFiles.add(content.bytes),
             )
         }
 

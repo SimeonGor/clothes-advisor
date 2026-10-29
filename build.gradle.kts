@@ -34,7 +34,7 @@ project(":wardrobe-service") {
         description = "Isolated maximum-payload check through production Feign and WebFlux."
         testClassesDirs = transportTest.output.classesDirs
         classpath = transportTest.runtimeClasspath
-        maxHeapSize = "3g"
+        maxHeapSize = "512m"
         inputs.file(layout.projectDirectory.file("../config-repository/recommendation-service/recommendation-service.yml"))
     }
 }
