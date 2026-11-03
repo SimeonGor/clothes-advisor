@@ -66,14 +66,14 @@ describe("Предпочтения владельца", () => {
     const view = mount();
     await screen.findByLabelText(colors);
     expect(field().value).toBe("");
-    expect(screen.getByRole("link", { name: "Предпочтения ↗" }).getAttribute("aria-current")).toBe("page");
+    expect(screen.getByRole("link", { name: "Предпочтения" }).getAttribute("aria-current")).toBe("page");
     fireEvent.change(field(), { target: { value: "Зелёный" } });
     fireEvent.change(field("Чего избегать"), { target: { value: "Синтетика" } });
 
     // when
     fireEvent.click(save());
     fireEvent.submit(field().closest("form")!);
-    fireEvent.click(screen.getByRole("link", { name: "Гардероб ↗" }));
+    fireEvent.click(screen.getByRole("link", { name: "Гардероб" }));
     fireEvent.click(screen.getByRole("button", { name: "Сменить аккаунт" }));
 
     // then
@@ -181,7 +181,7 @@ describe("Предпочтения владельца", () => {
     finishReload = () => {};
     fireEvent.click(screen.getByRole("button", { name: "Обновить данные" }));
     fireEvent.click(screen.getByRole("button", { name: "Обновить данные" }));
-    fireEvent.click(screen.getByRole("link", { name: "Гардероб ↗" }));
+    fireEvent.click(screen.getByRole("link", { name: "Гардероб" }));
     expect(screen.getByRole("heading", { name: "Предпочтения" })).toBeTruthy();
     expect((screen.getByRole("button", { name: "Сменить аккаунт" }) as HTMLButtonElement).disabled).toBe(true);
     expect(calls.filter(({ init }) => !init?.method)).toHaveLength(2);
@@ -402,7 +402,7 @@ describe("Предпочтения клиента и маршруты ролей
     await screen.findByRole("heading", { name: actor.role === "STYLIST" ? "Клиенты" : "Аккаунты" });
 
     // then
-    expect(screen.queryByRole("link", { name: "Предпочтения ↗" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Предпочтения" })).toBeNull();
     expect(calls.some(({ url }) => url.includes("style-preferences"))).toBe(false);
   });
 

@@ -80,7 +80,7 @@ describe("Ручные капсулы", () => {
     fireEvent.click(screen.getByRole("button", { name: /Сохранить капсулу/ }));
     await waitFor(() => expect(finishFirst).toBeDefined());
     expect((screen.getByRole("button", { name: "Сменить аккаунт" }) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(screen.getByRole("link", { name: "Капсулы ↗" }));
+    fireEvent.click(screen.getByRole("link", { name: "Капсулы" }));
     expect(screen.getByRole("heading", { name: "Новая капсула" })).toBeTruthy();
     expect(switched).not.toHaveBeenCalled();
     await act(async () => { finishFirst(fail(503)); });
@@ -367,7 +367,7 @@ describe("Ручные капсулы", () => {
     </QueryClientProvider>);
 
     // when / then
-    await waitFor(() => expect(screen.queryByRole("link", { name: "Капсулы ↗" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("link", { name: "Капсулы" })).toBeNull());
     expect(screen.queryByRole("heading", { name: "Капсулы" })).toBeNull();
   });
 });

@@ -100,7 +100,7 @@ describe("Календарь пользователя", () => {
     const first = calls.find((call) => call.init?.method === "POST")!;
     fireEvent.click(screen.getByRole("button", { name: "Добавить в календарь" }));
     await waitFor(() => expect(calls.filter((call) => call.init?.method === "POST")).toHaveLength(2));
-    fireEvent.click(screen.getByRole("link", { name: "Гардероб ↗" }));
+    fireEvent.click(screen.getByRole("link", { name: "Гардероб" }));
 
     // then
     const writes = calls.filter((call) => call.init?.method === "POST");
