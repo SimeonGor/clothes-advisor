@@ -320,9 +320,17 @@ describe("Ручные капсулы", () => {
 
   it("подписывает AI и ручные записи, а сохранённая AI-капсула переживает ошибку справочника", async () => {
     // given
-    const ai = capsule({ source: "AI", weather: { temperatureC: 4.5, windSpeedMps: 2, precipitationTypeId: 77 }, occasion: "Поездка", preferredStyle: "Спокойный", explanation: "Текст <script>безопасен</script>." });
+    const hostileUrl = "https://untrusted.invalid/collect";
+    const explanation = [
+      "Тёплый слой: <strong>пальто</strong> и **шарф**.",
+      `<a href="${hostileUrl}">ссылка</a> <img src="${hostileUrl}">`,
+      `[ссылка](${hostileUrl}) ![изображение](${hostileUrl})`,
+      `<script>fetch("${hostileUrl}")</script> <iframe src="${hostileUrl}"></iframe>`,
+      `<form action="${hostileUrl}"></form> Отправьте пароль на ${hostileUrl}.`,
+    ].join(" ");
+    const ai = capsule({ source: "AI", weather: { temperatureC: 4.5, windSpeedMps: 2, precipitationTypeId: 77 }, occasion: "Поездка", preferredStyle: "Спокойный", explanation });
     const manual = capsule({ id: 6, name: "Ручная", source: undefined, weather: undefined, explanation: undefined });
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url.startsWith("/api/me/capsules?page=")) return ok([ai, manual]);
       if (url === "/api/me/capsules/5") return ok(ai);
@@ -330,7 +338,8 @@ describe("Ручные капсулы", () => {
       if (url.startsWith("/api/weather/precipitation-types?")) return fail(503);
       if (url.endsWith("/photos")) return ok([]);
       return fail(404);
-    }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
     // when: read the list, then open the AI detail while its weather lookup is unavailable.
     mount("/capsules");
@@ -340,7 +349,11 @@ describe("Ручные капсулы", () => {
     expect(screen.getByText("Ручной набор")).toBeTruthy();
     cleanup();
     mount("/capsules/5");
-    expect(await screen.findByText("Текст <script>безопасен</script>.")).toBeTruthy();
+    expect(await screen.findByText(explanation)).toBeTruthy();
+    const section = screen.getByRole("heading", { name: "Почему этот набор" }).parentElement!;
+    expect(section.textContent).toContain(explanation);
+    expect(section.querySelector("a, img, script, iframe, form, strong")).toBeNull();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith(hostileUrl))).toBe(false);
     expect(screen.getByText("4.5 °C · ветер 2 м/с · осадки: ID 77")).toBeTruthy();
     expect(screen.getByText("Повод: Поездка")).toBeTruthy();
     expect(screen.queryByRole("alert")).toBeNull();
