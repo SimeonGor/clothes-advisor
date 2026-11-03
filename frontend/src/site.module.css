@@ -33,6 +33,7 @@
 .personRow button { min-height: 36px; }
 .top { height: 60px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #dedcd2; color: #858579; font-size: 9px; letter-spacing: .12em; }
 .intro { display: flex; align-items: center; justify-content: space-between; padding: 58px 0 50px; border-bottom: 1px solid #dedcd2; }
+.intro > div { min-width: 0; overflow-wrap: anywhere; }
 .intro h1, .pick h1 { margin: 17px 0; font: 400 clamp(42px, 5vw, 67px)/1.02 Georgia, "Times New Roman", serif; letter-spacing: -.045em; }
 .muted { max-width: 480px; color: #797b70; font-size: 14px; line-height: 1.65; }
 .weatherNote { display: grid; grid-template-columns: 34px auto; column-gap: 10px; align-items: center; padding: 17px 20px; border: 1px solid #dcdacf; color: #6e7554; font-size: 9px; letter-spacing: .12em; }

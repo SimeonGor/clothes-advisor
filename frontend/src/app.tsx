@@ -10,6 +10,7 @@ import { Calendar, CalendarEditor } from "./calendar";
 import { StylistRequestDetail, StylistRequestEditor, StylistRequests } from "./stylist-requests";
 import { CapsuleDetail, CapsuleEditor, Capsules } from "./capsules";
 import { AiCapsuleEditor } from "./ai-capsule";
+import { Dialog } from "./dialog";
 import type { Actor } from "./api";
 import styles from "./site.module.css";
 
@@ -31,7 +32,6 @@ export function AppRoutes({ account, onChoose, onSwitch, onPending, pending }: {
   function switchAccount() {
     if (pending) return;
     onSwitch();
-    navigate("/", { replace: true });
   }
   const path = location.pathname;
   const identity = `${account.id}:${path}`;
@@ -79,25 +79,38 @@ export function AppRoutes({ account, onChoose, onSwitch, onPending, pending }: {
 }
 
 export function App() {
+  const navigate = useNavigate();
   const [account, setAccount] = React.useState<Actor | null>(null);
   const [client, setClient] = React.useState(() => new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: 0 } },
   }));
   const [pending, setPending] = React.useState(false);
+  const [switchOpen, setSwitchOpen] = React.useState(false);
   React.useEffect(() => {
     if (!pending) return;
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
   }, [pending]);
-  function leaveAccount() {
-    if (pending) return;
+  function completeSwitch(actor: Actor) {
     client.clear();
     setClient(new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 0 } } }));
-    setAccount(null);
+    setAccount(actor);
+    setSwitchOpen(false);
+    navigate(landing(actor), { replace: true });
+  }
+  function openSwitch() {
+    if (pending) return;
+    setSwitchOpen(true);
+  }
+  function closeSwitch() {
+    setSwitchOpen(false);
   }
   return <QueryClientProvider client={client}>
-    <AppRoutes account={account} onChoose={setAccount} onSwitch={leaveAccount} onPending={setPending} pending={pending} />
+    <AppRoutes account={account} onChoose={setAccount} onSwitch={openSwitch} onPending={setPending} pending={pending} />
+    <Dialog open={switchOpen && Boolean(account)} title="Выберите аккаунт" onClose={closeSwitch}>
+      {switchOpen && account && <AccountPicker embedded onChoose={completeSwitch} />}
+    </Dialog>
     <a className={styles.skipLink} href="#main">К основному содержимому</a>
   </QueryClientProvider>;
 }
