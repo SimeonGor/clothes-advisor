@@ -1,3 +1,4 @@
+# syntax=docker/dockerfile:1
 FROM eclipse-temurin:25-jdk AS build
 
 WORKDIR /workspace
@@ -5,7 +6,8 @@ COPY gradlew ./
 COPY gradle/ ./gradle/
 COPY recommendation-service/build.gradle.kts recommendation-service/settings.gradle.kts ./
 COPY recommendation-service/src/main/ ./src/main/
-RUN chmod +x ./gradlew && ./gradlew --no-daemon \
+RUN --mount=type=cache,id=clothes-advisor-gradle,target=/root/.gradle,sharing=locked \
+    chmod +x ./gradlew && ./gradlew --no-daemon \
     -Pkotlin.compiler.execution.strategy=in-process bootJar
 
 FROM eclipse-temurin:25-jre

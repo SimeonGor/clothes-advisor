@@ -133,6 +133,11 @@ curl http://127.0.0.1:8080/api/wardrobe/items \
 
 Dockerfile каждого сервиса копирует только wrapper, собственные файлы сборки и `src/main`. Корневая многомодульная сборка сохранена для общих команд и транспортного теста между wardrobe и recommendation; в Docker она не используется. Транспортный тест запускается только из корневой сборки. Интеграционные тесты используют конфигурации из соседнего `config-repository`, а тест переноса аккаунтов — также старые миграции wardrobe; поэтому тесты запускаются из полного checkout.
 
+Для Docker-сборок нужен BuildKit/Buildx (`docker buildx version`). JVM-сервисы используют
+общий кеш Gradle: изменение исходников не требует заново скачивать wrapper и зависимости.
+Кеш заблокирован на время Gradle-шагов, поэтому они выполняются последовательно;
+в runtime-образы кеш не попадает. Его очистка замедляет следующую сборку, но не меняет результат.
+
 Код гардероба находится в `wardrobe-service`, аккаунтов — в `account-service`, AI — в `recommendation-service`, Config Server — в `config-server`, Eureka — в `discovery-server`, единая HTTP-точка входа — в `api-gateway`. Для запуска без Docker нужны PostgreSQL и переменные окружения из `.env`: Gradle сам этот файл не читает. Сначала выполните `./gradlew :config-server:bootRun`, затем `./gradlew :discovery-server:bootRun`, `APP_PORT=8081 ./gradlew :wardrobe-service:bootRun`, `APP_PORT=8083 ./gradlew :recommendation-service:bootRun` и `./gradlew :api-gateway:bootRun`. Сервисы регистрируются в Eureka; обнаружение после запуска может занять некоторое время. Команды запускаются из корня репозитория; конкретный модуль можно указать явно: `./gradlew :wardrobe-service:test`.
 
 Account также подключается к Config/Eureka и нужен wardrobe для запросов с пользователем: `APP_PORT=8084 ./gradlew :account-service:bootRun`. Ему нужна отдельная БД `account_db`: `DB_R2DBC_URL` — R2DBC-адрес, `DB_URL` — JDBC-адрес той же БД для Flyway, `DB_USER` и `DB_PASSWORD` — её учётные данные. При отдельном запуске account передайте в `DB_PASSWORD` значение `ACCOUNT_DB_PASSWORD`; Compose делает это автоматически. Не направляйте его на рабочую БД wardrobe.
