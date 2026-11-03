@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { Link, MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { Actor, Category, Photo, WardrobeItem } from "./api";
@@ -103,11 +103,11 @@ describe("Гардероб", () => {
     // given: заполнены обязательные поля и выбрана JPEG-фотография.
 
     await screen.findByRole("option", { name: "Пальто" });
-    fireEvent.change(screen.getByLabelText("НАЗВАНИЕ"), { target: { value: "Пальто" } });
-    fireEvent.change(screen.getByLabelText("КАТЕГОРИЯ"), { target: { value: "4" } });
-    fireEvent.change(screen.getByLabelText("ЦВЕТ"), { target: { value: "серое" } });
-    fireEvent.change(screen.getByLabelText("МАТЕРИАЛ"), { target: { value: "шерсть" } });
-    fireEvent.change(screen.getByLabelText(/ФОТОГРАФИИ/), {
+    fireEvent.change(screen.getByLabelText("Название"), { target: { value: "Пальто" } });
+    fireEvent.change(screen.getByLabelText("Категория"), { target: { value: "4" } });
+    fireEvent.change(screen.getByLabelText("Цвет"), { target: { value: "серое" } });
+    fireEvent.change(screen.getByLabelText("Материал"), { target: { value: "шерсть" } });
+    fireEvent.change(screen.getByLabelText(/Фотографии/i), {
       target: { files: [new File(["jpeg"], "coat.jpg", { type: "image/jpeg" })] },
     });
 
@@ -144,7 +144,7 @@ describe("Гардероб", () => {
 
     // given: загружены сохранённые поля вещи.
 
-    const name = await screen.findByLabelText("НАЗВАНИЕ") as HTMLInputElement;
+    const name = await screen.findByLabelText("Название") as HTMLInputElement;
     fireEvent.change(name, { target: { value: "Моё название" } });
 
     // when: обновление версии конфликтует, затем пользователь подтверждает удаление.
@@ -173,14 +173,14 @@ describe("Гардероб", () => {
     });
     mount("/wardrobe/new", fetchMock);
     await screen.findByRole("option", { name: "Пальто" });
-    fireEvent.change(screen.getByLabelText("НАЗВАНИЕ"), { target: { value: "Пальто" } });
-    fireEvent.change(screen.getByLabelText("КАТЕГОРИЯ"), { target: { value: "4" } });
-    fireEvent.change(screen.getByLabelText("ЦВЕТ"), { target: { value: "серое" } });
-    fireEvent.change(screen.getByLabelText("МАТЕРИАЛ"), { target: { value: "шерсть" } });
+    fireEvent.change(screen.getByLabelText("Название"), { target: { value: "Пальто" } });
+    fireEvent.change(screen.getByLabelText("Категория"), { target: { value: "4" } });
+    fireEvent.change(screen.getByLabelText("Цвет"), { target: { value: "серое" } });
+    fireEvent.change(screen.getByLabelText("Материал"), { target: { value: "шерсть" } });
 
     // given: файл не JPEG/PNG, затем файл больше предела и выбор из шести фото.
 
-    const input = screen.getByLabelText(/ФОТОГРАФИИ/);
+    const input = screen.getByLabelText(/Фотографии/i);
     const invalidChoices = [
       [new File(["gif"], "coat.gif", { type: "image/gif" })],
       [new File([new Uint8Array(10_000_001)], "large.jpg", { type: "image/jpeg" })],
@@ -195,7 +195,7 @@ describe("Гардероб", () => {
 
     // when: цвет состоит только из пробелов, хотя остальные поля корректны.
 
-    fireEvent.change(screen.getByLabelText("ЦВЕТ"), { target: { value: "   " } });
+    fireEvent.change(screen.getByLabelText("Цвет"), { target: { value: "   " } });
     fireEvent.change(input, { target: { files: [] } });
     fireEvent.click(screen.getByRole("button", { name: /Добавить вещь/ }));
 
@@ -203,6 +203,63 @@ describe("Гардероб", () => {
 
     expect((await screen.findByRole("alert")).textContent).toContain("Укажите цвет и материал");
     expect(posts).toBe(0);
+  });
+
+  it("принимает перетаскивание валидных фото, не показывает невалидные и удаляет выбранное превью", async () => {
+    const createUrl = vi.fn((file: File) => `blob:${file.name}`);
+    const revokeUrl = vi.fn();
+    Object.defineProperty(URL, "createObjectURL", { configurable: true, value: createUrl });
+    Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: revokeUrl });
+    const fetchMock = fixtureFetch((url) => url.startsWith("/api/wardrobe/categories") ? json([category]) : failed(404));
+    mount("/wardrobe/new", fetchMock);
+    const zone = await screen.findByText("Начните с фотографии");
+    const valid = new File(["jpeg"], "coat.jpg", { type: "image/jpeg" });
+    fireEvent.drop(zone.closest("div")!, { dataTransfer: { files: [valid] } });
+    await screen.findByAltText("Предпросмотр: coat.jpg");
+    expect(createUrl).toHaveBeenCalledWith(valid);
+
+    const invalid = new File(["gif"], "coat.gif", { type: "image/gif" });
+    fireEvent.drop(zone.closest("div")!, { dataTransfer: { files: [invalid] } });
+    expect(await screen.findByRole("alert").then((alert) => alert.textContent)).toContain("Поддерживаются фотографии JPEG и PNG");
+    expect(screen.queryByAltText("Предпросмотр: coat.gif")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Продолжить без этих файлов" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByAltText("Предпросмотр: coat.jpg")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Удалить фото coat.jpg" }));
+    await waitFor(() => expect(screen.queryByAltText("Предпросмотр: coat.jpg")).toBeNull());
+    expect(revokeUrl).toHaveBeenCalledWith("blob:coat.jpg");
+  });
+
+  it("игнорирует перетаскивание пока создание вещи ожидает ответа", async () => {
+    let finishCreate!: (response: Response) => void;
+    const fetchMock = fixtureFetch((url, init) => {
+      if (url.startsWith("/api/wardrobe/categories")) return json([category]);
+      if (url === "/api/wardrobe/items" && init?.method === "POST") {
+        return new Promise<Response>((resolve) => { finishCreate = resolve; });
+      }
+      if (url === "/api/wardrobe/items/8") return json(item);
+      if (url === "/api/wardrobe/items/8/photos") return json([]);
+      return failed(404);
+    });
+    mount("/wardrobe/new", fetchMock);
+    await screen.findByRole("option", { name: "Пальто" });
+    fireEvent.change(screen.getByLabelText("Название"), { target: { value: "Пальто" } });
+    fireEvent.change(screen.getByLabelText("Категория"), { target: { value: "4" } });
+    fireEvent.change(screen.getByLabelText("Цвет"), { target: { value: "серое" } });
+    fireEvent.change(screen.getByLabelText("Материал"), { target: { value: "шерсть" } });
+    fireEvent.click(screen.getByRole("button", { name: /Добавить вещь/ }));
+    await screen.findByRole("button", { name: /Сохраняем/ });
+
+    const zone = screen.getByText("Начните с фотографии").closest("div")!;
+    const dragOver = createEvent.dragOver(zone);
+    fireEvent(zone, dragOver);
+    expect(dragOver.defaultPrevented).toBe(true);
+    fireEvent.drop(zone, { dataTransfer: { files: [new File(["jpeg"], "late.jpg", { type: "image/jpeg" })] } });
+    expect(screen.queryByAltText("Предпросмотр: late.jpg")).toBeNull();
+
+    await act(async () => { finishCreate(json(item)); });
+    await screen.findByRole("heading", { name: "Изменить вещь" });
   });
 
   it("сохраняет версию исходного черновика при фоне и обновляет её только по явному запросу", async () => {
@@ -224,9 +281,9 @@ describe("Гардероб", () => {
       return failed(404);
     });
     const { client } = mount("/wardrobe/8", fetchMock);
-    const name = await screen.findByLabelText("НАЗВАНИЕ") as HTMLInputElement;
+    const name = await screen.findByLabelText("Название") as HTMLInputElement;
     await screen.findByRole("option", { name: "Пальто" });
-    const availability = screen.getByLabelText("ДОСТУПНОСТЬ") as HTMLSelectElement;
+    const availability = screen.getByLabelText("Доступность") as HTMLSelectElement;
     expect(availability.value).toBe("IN_LAUNDRY");
 
     // given: draft is based on v1, then a background query refresh observes v2.
@@ -300,7 +357,7 @@ describe("Гардероб", () => {
 
     // given: пользователь редактирует первую вещь.
 
-    const name = await screen.findByLabelText("НАЗВАНИЕ") as HTMLInputElement;
+    const name = await screen.findByLabelText("Название") as HTMLInputElement;
     await screen.findByRole("option", { name: "Пальто" });
     fireEvent.change(name, { target: { value: "Несохранённый текст" } });
 
@@ -311,7 +368,7 @@ describe("Гардероб", () => {
     // then: новая карточка показывает свои поля, а PUT адресован новому id/version.
 
     await screen.findByDisplayValue("Куртка");
-    const nextName = screen.getByLabelText("НАЗВАНИЕ") as HTMLInputElement;
+    const nextName = screen.getByLabelText("Название") as HTMLInputElement;
     expect(nextName.value).toBe("Куртка");
     fireEvent.change(nextName, { target: { value: "Новая куртка" } });
     fireEvent.click(screen.getByRole("button", { name: /Сохранить изменения/ }));
@@ -346,14 +403,14 @@ describe("Гардероб", () => {
     });
     mount("/wardrobe/new", fetchMock);
     await screen.findByRole("option", { name: "Пальто" });
-    fireEvent.change(screen.getByLabelText("НАЗВАНИЕ"), { target: { value: "Пальто" } });
-    fireEvent.change(screen.getByLabelText("КАТЕГОРИЯ"), { target: { value: "4" } });
-    fireEvent.change(screen.getByLabelText("ЦВЕТ"), { target: { value: "серое" } });
-    fireEvent.change(screen.getByLabelText("МАТЕРИАЛ"), { target: { value: "шерсть" } });
+    fireEvent.change(screen.getByLabelText("Название"), { target: { value: "Пальто" } });
+    fireEvent.change(screen.getByLabelText("Категория"), { target: { value: "4" } });
+    fireEvent.change(screen.getByLabelText("Цвет"), { target: { value: "серое" } });
+    fireEvent.change(screen.getByLabelText("Материал"), { target: { value: "шерсть" } });
 
     // given: сохранение отправлено, ответ сервера ещё не пришёл.
 
-    const form = screen.getByLabelText("НАЗВАНИЕ").closest("form")!;
+    const form = screen.getByLabelText("Название").closest("form")!;
     fireEvent.submit(form);
     fireEvent.submit(form);
     await waitFor(() => expect(posts).toBe(1));
