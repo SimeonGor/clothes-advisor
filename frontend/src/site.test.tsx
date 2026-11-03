@@ -51,9 +51,14 @@ function mountToday(actor = accounts[0], pendingInitially = false) {
 }
 
 async function readyToSubmit() {
-  const button = await screen.findByRole("button", { name: /Создать образ на сегодня/ });
+  const button = await screen.findByRole("button", { name: "Подобрать образ на сегодня" });
   await waitFor(() => expect((button as HTMLButtonElement).disabled).toBe(false));
   return button;
+}
+
+async function openCandidates() {
+  fireEvent.click(screen.getByRole("button", { name: /Выбрать вещи/ }));
+  await screen.findByRole("dialog", { name: "Выбрать вещи" });
 }
 
 async function readyPrecipitationSelect() {
@@ -98,9 +103,15 @@ function apiFetch(
   });
 }
 
-beforeEach(() => { window.history.replaceState({}, "", "/app/today"); });
+beforeEach(() => {
+  window.history.replaceState({}, "", "/app/today");
+  Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function (this: HTMLDialogElement) { this.setAttribute("open", ""); } });
+  Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: function (this: HTMLDialogElement) { this.removeAttribute("open"); } });
+});
 afterEach(() => {
   cleanup();
+  Reflect.deleteProperty(HTMLDialogElement.prototype, "showModal");
+  Reflect.deleteProperty(HTMLDialogElement.prototype, "close");
   vi.unstubAllGlobals();
   if (originalCreateObjectUrl) {
     Object.defineProperty(URL, "createObjectURL", { configurable: true, value: originalCreateObjectUrl });
@@ -165,15 +176,21 @@ describe("Экран «Сегодня»", () => {
 
     // given: пользователь выбирает вещи на нескольких страницах гардероба.
 
+    await openCandidates();
     await screen.findByLabelText("Выбрать: Вещь 1");
     for (let id = 1; id <= 12; id += 1) {
       fireEvent.click(screen.getByLabelText(`Выбрать: Вещь ${id}`));
     }
     fireEvent.click(screen.getByRole("button", { name: "Далее →" }));
     await screen.findByLabelText("Выбрать: Вещь 13");
-    for (let id = 13; id <= 21; id += 1) {
+    for (let id = 13; id <= 24; id += 1) {
       fireEvent.click(screen.getByLabelText(`Выбрать: Вещь ${id}`));
     }
+    fireEvent.click(screen.getByRole("button", { name: "Далее →" }));
+    await screen.findByText("В гардеробе пока нет вещей.");
+    fireEvent.click(screen.getByRole("button", { name: "Готово" }));
+    expect(screen.queryByText("В гардеробе пока нет вещей.")).toBeNull();
+    expect(screen.getByText("Вещь 1")).toBeTruthy();
     fireEvent.change(screen.getByLabelText("НАЗВАНИЕ ОБРАЗА"), { target: { value: "Заметки о поле" } });
     fireEvent.change(await readyPrecipitationSelect(), { target: { value: "7" } });
 
@@ -186,8 +203,38 @@ describe("Экран «Сегодня»", () => {
     await screen.findByText(/ОБРАЗ СОХРАНЁН · №42/);
     const sent = fetchMock.mock.calls.find(([url]) => url === "/api/outfits/ai");
     const body = JSON.parse(String(sent?.[1]?.body));
-    expect(body.candidateItemIds).toEqual(Array.from({ length: 21 }, (_, index) => index + 1));
+    expect(body.candidateItemIds).toEqual(Array.from({ length: 24 }, (_, index) => index + 1));
     expect(await screen.findByText("Сохранено вещей: 2.")).toBeTruthy();
+  });
+
+  it("не блокирует подбор после ошибки следующей страницы и закрытия выбора", async () => {
+    const baseFetch = apiFetch(Array.from({ length: 12 }, (_, index) => wardrobeItem(index + 1)));
+    vi.stubGlobal("fetch", (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input).includes("items?page=1") ? Promise.resolve(failed(503)) : baseFetch(input, init));
+    mountToday();
+    await openCandidates();
+    await screen.findByLabelText("Выбрать: Вещь 1");
+    fireEvent.click(screen.getByRole("button", { name: "Далее →" }));
+    await screen.findByRole("alert");
+    fireEvent.click(screen.getByRole("button", { name: "Готово" }));
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(screen.getByText("Вещь 1")).toBeTruthy();
+    expect((await readyToSubmit() as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("показывает пустой выбор честно, очищает его и закрывает диалог отменой", async () => {
+    vi.stubGlobal("fetch", apiFetch([wardrobeItem(1)]));
+    mountToday();
+    await openCandidates();
+    const dialog = screen.getByRole("dialog", { name: "Выбрать вещи" });
+    expect(screen.getByText("Выбор пуст — подойдут все доступные вещи.")).toBeTruthy();
+    const item = await screen.findByLabelText("Выбрать: Вещь 1") as HTMLInputElement;
+    fireEvent.click(item);
+    expect(screen.getByText("Выбрано вещей: 1")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Весь гардероб" }));
+    expect(screen.getByText("Выбор пуст — подойдут все доступные вещи.")).toBeTruthy();
+    fireEvent(dialog, new Event("cancel", { bubbles: true, cancelable: true }));
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Выбрать вещи" })).toBeNull());
   });
 
   it("сохраняет последнее состояние выбранной вещи после смены страницы и блокирует устаревший выбор", async () => {
@@ -195,15 +242,17 @@ describe("Экран «Сегодня»", () => {
     const fetchMock = apiFetch(rows);
     vi.stubGlobal("fetch", fetchMock);
     const { client } = mountToday();
+    await openCandidates();
     await screen.findByLabelText("Выбрать: Вещь 1");
     fireEvent.click(screen.getByLabelText("Выбрать: Вещь 1"));
 
     // given: выбранная вещь со страницы 1 обновляется до состояния «убрана».
 
     await act(async () => client.setQueryData(["items", 1, 0], [{ ...rows[0], availability: "STORED" }, ...rows.slice(1, 12)]));
-    await waitFor(() => expect(screen.getByText("Убрана")).toBeTruthy());
+    await waitFor(() => expect(screen.getAllByText("Убрана").length).toBeGreaterThan(0));
     fireEvent.click(screen.getByRole("button", { name: "Далее →" }));
     await screen.findByLabelText("Выбрать: Вещь 13");
+    fireEvent.click(screen.getByRole("button", { name: "Готово" }));
     fireEvent.change(screen.getByLabelText("НАЗВАНИЕ ОБРАЗА"), { target: { value: "Проверка выбора" } });
     fireEvent.change(await readyPrecipitationSelect(), { target: { value: "7" } });
 
@@ -218,11 +267,13 @@ describe("Экран «Сегодня»", () => {
 
     // when: пользователь возвращается к вещи, снимает её и отправляет пустой выбор.
 
+    await openCandidates();
     fireEvent.click(screen.getByRole("button", { name: "← Назад" }));
     const unavailable = await screen.findByLabelText("Выбрать: Вещь 1") as HTMLInputElement;
     expect(unavailable.checked).toBe(true);
     expect(unavailable.disabled).toBe(false);
     fireEvent.click(unavailable);
+    fireEvent.click(screen.getByRole("button", { name: "Готово" }));
     fireEvent.submit(screen.getByLabelText("НАЗВАНИЕ ОБРАЗА").closest("form")!);
 
     // then: явное снятие возвращает прежнее поведение «весь гардероб».

@@ -18,6 +18,8 @@ import {
 } from "./api";
 import styles from "./site.module.css";
 import { SiteShell } from "./site-shell";
+import { Dialog } from "./dialog";
+import todayStyles from "./today.module.css";
 export { SiteShell } from "./site-shell";
 
 const pageSize = 12;
@@ -160,13 +162,14 @@ export function PhotoImage({ actor, item, photo, itemsBase = "/api/wardrobe/item
   );
 }
 
-function ItemCard({ actor, item, categories, selected, onToggle, disabled }: {
+function ItemCard({ actor, item, categories, selected, onToggle, disabled, showCheckbox = true }: {
   actor: Actor;
   item: WardrobeItem;
   categories: Map<number, string>;
   selected: boolean;
   onToggle: () => void;
   disabled: boolean;
+  showCheckbox?: boolean;
 }) {
   const photos = useQuery({
     queryKey: ["photos", actor.id, item.id],
@@ -177,10 +180,11 @@ function ItemCard({ actor, item, categories, selected, onToggle, disabled }: {
     ),
   });
   const photo = photos.data?.[0];
+  const Card = showCheckbox ? "label" : "article";
 
   return (
-    <label className={`${styles.card} ${selected ? styles.selected : ""}`}>
-      <span className={styles.image}>
+    <Card className={`${styles.card} ${showCheckbox && selected ? styles.selected : ""} ${!showCheckbox ? todayStyles.previewCard : ""}`}>
+      <span className={`${styles.image} ${!showCheckbox ? todayStyles.previewImage : ""}`}>
         {photo ? (
           <PhotoImage actor={actor} item={item} photo={photo} />
         ) : photos.isError ? (
@@ -199,19 +203,19 @@ function ItemCard({ actor, item, categories, selected, onToggle, disabled }: {
           <span className={styles.photoEmpty}>Загружаем фото…</span>
         )}
       </span>
-      <span className={styles.cardInfo}>
-        <span className={styles.itemName}>{item.name}</span>
+      <span className={`${styles.cardInfo} ${!showCheckbox ? todayStyles.previewInfo : ""}`}>
+        <span className={`${styles.itemName} ${!showCheckbox ? todayStyles.previewName : ""}`}>{item.name}</span>
         <small>{categories.get(item.categoryId) ?? "Вещь"} · {item.color}</small>
         <small>{availabilityLabel(item)}</small>
       </span>
-      <input
+      {showCheckbox && <input
         type="checkbox"
         checked={selected}
         disabled={disabled}
         onChange={onToggle}
         aria-label={`Выбрать: ${item.name}`}
-      />
-    </label>
+      />}
+    </Card>
   );
 }
 
@@ -254,6 +258,7 @@ function TodayForUser({ account, onSwitch, onPending, pending }: {
   const [precipitationId, setPrecipitationId] = React.useState("");
   const [selected, setSelected] = React.useState<Map<number, WardrobeItem>>(() => new Map());
   const [page, setPage] = React.useState(0);
+  const [candidatesOpen, setCandidatesOpen] = React.useState(false);
   const [result, setResult] = React.useState<{
     outfit: Outfit;
     items: WardrobeItem[];
@@ -292,6 +297,12 @@ function TodayForUser({ account, onSwitch, onPending, pending }: {
       `/api/wardrobe/items?page=${page}&size=${pageSize}`,
       account.id,
       { signal },
+    ),
+  });
+  const previewQuery = useQuery({
+    queryKey: ["items", account.id, 0],
+    queryFn: ({ signal }) => request<WardrobeItem[]>(
+      `/api/wardrobe/items?page=0&size=${pageSize}`, account.id, { signal },
     ),
   });
   React.useEffect(() => {
@@ -381,6 +392,7 @@ function TodayForUser({ account, onSwitch, onPending, pending }: {
     }
 
     sending.current = true;
+    setCandidatesOpen(false);
     onPending(true);
     setFailure(null);
     setResultError("");
@@ -427,63 +439,29 @@ function TodayForUser({ account, onSwitch, onPending, pending }: {
           <span>ПЕРСОНАЛЬНЫЙ СТИЛЬ</span>
           <span>ВАШ ГАРДЕРОБ</span>
         </header>
-        <section className={styles.intro}>
+        <section className={`${styles.intro} ${todayStyles.intro}`}>
           <div>
             <p className={styles.eyebrow}>НЕМНОГО ЯСНОСТИ НА СЕГОДНЯ</p>
-            <h1>Что надеть<br />сегодня?</h1>
+            <h1>Что надеть сегодня?</h1>
             <p className={styles.muted}>
               Продуманный образ из вещей, которые у вас уже есть.
             </p>
           </div>
-          <div className={styles.weatherNote}>
-            <span className={styles.sun}>◌</span><span>ПОГОДА — ВАШ ВЫБОР</span>
-            <small>Укажите условия ниже</small>
-          </div>
+          <button className={todayStyles.headerAction} type="submit" form="today-form" disabled={pending || savedOutfit || !weatherTypes.data || !previewQuery.data}>
+            Подобрать образ
+          </button>
         </section>
 
-        <form onSubmit={(event) => void submit(event)}>
-          <section className={styles.formTop}>
-            <div className={styles.sectionHeading}>
-              <span>01</span>
-              <div>
-                <h2>Задайте контекст</h2>
-                <p>Назовите образ, укажите погоду и при желании добавьте повод и стиль.</p>
-              </div>
-            </div>
-            <label className={styles.nameField}>
-              НАЗВАНИЕ ОБРАЗА
-              <input
-                required
-                maxLength={300}
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                placeholder="Неспешное утро в городе"
-                disabled={pending || savedOutfit}
-              />
-            </label>
-            <label className={styles.nameField}>
-              ПОВОД (НЕОБЯЗАТЕЛЬНО)
-              <input
-                maxLength={300}
-                value={occasion}
-                onChange={(event) => setOccasion(event.target.value)}
-                placeholder="Прогулка, работа или встреча с друзьями"
-                disabled={pending || savedOutfit}
-              />
-            </label>
-            <label className={styles.nameField}>
-              ЖЕЛАЕМЫЙ СТИЛЬ (НЕОБЯЗАТЕЛЬНО)
-              <input
-                maxLength={300}
-                value={preferredStyle}
-                onChange={(event) => setPreferredStyle(event.target.value)}
-                placeholder="Например, спокойный повседневный"
-                disabled={pending || savedOutfit}
-              />
-            </label>
-            <div className={styles.weatherFields}>
-              <label>ТЕМПЕРАТУРА <span>°C</span>
+        <form id="today-form" className={todayStyles.form} onSubmit={(event) => void submit(event)}>
+          <div className={todayStyles.columns}>
+            <div className={todayStyles.leftColumn}>
+              <section className={todayStyles.panel}>
+                <div className={todayStyles.panelTitle}><h2>Погода и планы</h2><span>Ввод вручную</span></div>
+                <div className={todayStyles.weatherHeading}><span aria-hidden="true">☼</span><div><strong>{temperature ? `${Number(temperature) > 0 ? "+" : ""}${temperature}°` : "Укажите погоду"}</strong><small>{weatherTypes.data?.find((type) => String(type.id) === precipitationId)?.name ?? "Выберите осадки"} · ветер {wind || "—"} м/с</small></div></div>
+                <div className={todayStyles.weatherFields}>
+              <label>Температура, °C
                 <input
+                  aria-label="ТЕМПЕРАТУРА °C"
                   type="number"
                   step="any"
                   required
@@ -492,8 +470,9 @@ function TodayForUser({ account, onSwitch, onPending, pending }: {
                   disabled={pending || savedOutfit}
                 />
               </label>
-              <label>ВЕТЕР <span>м/с</span>
+              <label>Ветер, м/с
                 <input
+                  aria-label="ВЕТЕР м/с"
                   type="number"
                   step="any"
                   min="0"
@@ -503,8 +482,9 @@ function TodayForUser({ account, onSwitch, onPending, pending }: {
                   disabled={pending || savedOutfit}
                 />
               </label>
-              <label>ОСАДКИ
+              <label>Осадки
                 <select
+                  aria-label="ОСАДКИ"
                   value={precipitationId}
                   onChange={(event) => setPrecipitationId(event.target.value)}
                   disabled={pending || savedOutfit || !weatherTypes.data}
@@ -516,90 +496,65 @@ function TodayForUser({ account, onSwitch, onPending, pending }: {
                   ))}
                 </select>
               </label>
-            </div>
-            {weatherTypes.isError && (
-              <ReadError error={weatherTypes.error} retry={() => void weatherTypes.refetch()} />
-            )}
-            {categoryQuery.isError && (
-              <ReadError error={categoryQuery.error} retry={() => void categoryQuery.refetch()} />
-            )}
-          </section>
-
-          <section className={styles.wardrobe}>
-            <div className={styles.sectionHeading}>
-              <span>02</span>
-              <div>
-                <h2>Выберите вещи</h2>
-                <p>
-                  Отметьте вещи или оставьте выбор пустым, чтобы искать по всему гардеробу.
-                </p>
-              </div>
-              <span className={styles.count}>
-                {selected.size ? `Выбрано: ${selected.size}` : "Весь гардероб"}
-              </span>
-            </div>
-            {itemsQuery.isLoading && <p className={styles.state}>Загружаем гардероб…</p>}
-            {itemsQuery.isError && (
-              <ReadError error={itemsQuery.error} retry={() => void itemsQuery.refetch()} />
-            )}
-            {itemsQuery.data?.length === 0 && (
-              <p className={styles.state}>В гардеробе пока нет вещей.</p>
-            )}
-            <div className={styles.grid}>
-              {itemsQuery.data?.map((item) => (
-                <ItemCard
-                  key={item.id}
-                  actor={account}
-                  item={item}
-                  categories={categories}
-                  selected={selected.has(item.id)}
-                  disabled={pending || savedOutfit || (!selected.has(item.id) && itemAvailability(item) !== "AVAILABLE")}
-                  onToggle={() => setSelected((old) => {
-                    const next = new Map(old);
-                    if (next.has(item.id)) next.delete(item.id);
-                    else next.set(item.id, item);
-                    return next;
-                  })}
-                />
-              ))}
-            </div>
-            <div className={styles.pages}>
-              <span>Страница {page + 1}</span>
-              <div>
-                <button
-                  type="button"
-                  disabled={!page || pending || savedOutfit}
-                  onClick={() => setPage((n) => n - 1)}
-                >← Назад</button>
-                <button
-                  type="button"
-                  disabled={!itemsQuery.data || itemsQuery.data.length < pageSize || pending || savedOutfit}
-                  onClick={() => setPage((n) => n + 1)}
-                >Далее →</button>
+                </div>
+                <div className={todayStyles.divider} />
+                <div className={todayStyles.planFields}>
+                  <label className={todayStyles.field}>Название образа<input aria-label="НАЗВАНИЕ ОБРАЗА" required maxLength={300} value={name} onChange={(event) => setName(event.target.value)} placeholder="На каждый день" disabled={pending || savedOutfit} /></label>
+                  <label className={todayStyles.field}>Куда собираетесь?<small>Необязательно. Поможет учесть ваш день.</small><input aria-label="ПОВОД (НЕОБЯЗАТЕЛЬНО)" maxLength={300} value={occasion} onChange={(event) => setOccasion(event.target.value)} placeholder="Прогулка, работа или встреча" disabled={pending || savedOutfit} /></label>
+                  <label className={todayStyles.field}>Пожелания к стилю<small>Можно оставить пустым.</small><input aria-label="ЖЕЛАЕМЫЙ СТИЛЬ (НЕОБЯЗАТЕЛЬНО)" maxLength={300} value={preferredStyle} onChange={(event) => setPreferredStyle(event.target.value)} placeholder="Например, спокойный повседневный" disabled={pending || savedOutfit} /></label>
+                </div>
+                {weatherTypes.isError && <ReadError error={weatherTypes.error} retry={() => void weatherTypes.refetch()} />}
+                {categoryQuery.isError && <ReadError error={categoryQuery.error} retry={() => void categoryQuery.refetch()} />}
+                {failure && <div role="alert" className={styles.error}><p>{failure}</p></div>}
+                {failure && <NewAttempt actorId={account.id} path="/api/outfits/ai" disabled={pending} onReset={() => setFailure(null)} />}
+              </section>
+              <div className={todayStyles.submitBlock}>
+                <button className={styles.create} type="submit" aria-label="Подобрать образ на сегодня" disabled={pending || savedOutfit || !weatherTypes.data || !previewQuery.data}>
+                  {pending ? "Подбираем образ…" : "Подобрать образ на сегодня"}<span>↗</span>
+                </button>
+                <p>ИИ предложит сочетание и сразу сохранит образ.</p>
               </div>
             </div>
-          </section>
-
-          {failure && <div role="alert" className={styles.error}><p>{failure}</p></div>}
-          {failure && <NewAttempt actorId={account.id} path="/api/outfits/ai" disabled={pending} onReset={() => setFailure(null)} />}
-          <div className={styles.submitRow}>
-            <p>
-              Образ сохранится сразу. Запросы не повторяются автоматически.
-            </p>
-            <button
-              className={styles.create}
-              type="submit"
-              disabled={pending || savedOutfit || !weatherTypes.data || !itemsQuery.data}
-            >
-              {pending ? "Создаём образ…" : "Создать образ на сегодня"}
-              <span>↗</span>
-            </button>
+            <section className={todayStyles.preview}>
+              <div className={todayStyles.previewHeader}><div><h2>Из вашего гардероба</h2><p>Выберите вещи для подбора</p></div><span>{selected.size ? `Выбрано: ${selected.size}` : "Весь гардероб"}</span></div>
+              <div className={todayStyles.segmented}>
+                <button type="button" aria-label="Использовать весь гардероб" aria-pressed={!selected.size} onClick={() => setSelected(new Map())} disabled={pending || savedOutfit}>Весь гардероб</button>
+                <button type="button" aria-pressed={selected.size > 0} onClick={() => setCandidatesOpen(true)} disabled={pending || savedOutfit}>Выбрать вещи</button>
+              </div>
+              {previewQuery.isLoading && <p className={styles.state}>Загружаем гардероб…</p>}
+              {previewQuery.isError && <ReadError error={previewQuery.error} retry={() => void previewQuery.refetch()} />}
+              {previewQuery.data?.length === 0 && <p className={styles.state}>В гардеробе пока нет вещей.</p>}
+              <div className={todayStyles.previewGrid}>
+                {previewQuery.data?.slice(0, 4).map((item) => (
+                  <ItemCard key={item.id} actor={account} item={item} categories={categories} selected={selected.has(item.id)} showCheckbox={false}
+                    disabled={pending || savedOutfit || (!selected.has(item.id) && itemAvailability(item) !== "AVAILABLE")}
+                    onToggle={() => setSelected((old) => { const next = new Map(old); if (next.has(item.id)) next.delete(item.id); else next.set(item.id, item); return next; })} />
+                ))}
+              </div>
+              <p className={todayStyles.tip}>После исключения вещей в стирке, убранных и без фото должно остаться от 1 до 20 кандидатов. Без выбора используем весь подходящий гардероб.</p>
+            </section>
           </div>
-          <p className={styles.notice}>
-            При подборе фотографии вещей передаются OpenAI. После исключения вещей в стирке, убранных и без фото
-            должно остаться от 1 до 20 кандидатов. Доступность AI зависит от настроек сервера;
-            запрос может занять до 60 секунд.
-          </p>
+          {candidatesOpen && (
+            <Dialog open title="Выбрать вещи" className={todayStyles.candidateDialog} onClose={() => setCandidatesOpen(false)}>
+              <p className={todayStyles.dialogSummary}>{selected.size ? `Выбрано вещей: ${selected.size}` : "Выбор пуст — подойдут все доступные вещи."}</p>
+              <button type="button" className={todayStyles.clearButton} onClick={() => setSelected(new Map())} disabled={!selected.size}>Весь гардероб</button>
+              {itemsQuery.isLoading && <p>Загружаем гардероб…</p>}
+              {itemsQuery.isError && <ReadError error={itemsQuery.error} retry={() => void itemsQuery.refetch()} />}
+              {itemsQuery.data?.length === 0 && <p>В гардеробе пока нет вещей.</p>}
+              <div className={todayStyles.dialogGrid}>{itemsQuery.data?.map((item) => (
+                <ItemCard key={item.id} actor={account} item={item} categories={categories} selected={selected.has(item.id)}
+                  disabled={pending || savedOutfit || (!selected.has(item.id) && itemAvailability(item) !== "AVAILABLE")}
+                  onToggle={() => setSelected((old) => { const next = new Map(old); if (next.has(item.id)) next.delete(item.id); else next.set(item.id, item); return next; })} />
+              ))}</div>
+              <div className={styles.pages}><span>Страница {page + 1}</span><div>
+                <button type="button" disabled={!page || pending || savedOutfit} onClick={() => setPage((n) => n - 1)}>← Назад</button>
+                <button type="button" disabled={!itemsQuery.data || itemsQuery.data.length < pageSize || pending || savedOutfit} onClick={() => setPage((n) => n + 1)}>Далее →</button>
+              </div></div>
+              <button type="button" className={todayStyles.doneButton} onClick={() => setCandidatesOpen(false)}>Готово</button>
+            </Dialog>
+          )}
+          {unavailableSelected.length > 0 && <p className={todayStyles.unavailable} role="status">Снимите выбор с вещей, которые сейчас в стирке или убраны.</p>}
+          <p className={styles.notice}>Фотографии вещей передаются OpenAI для подбора образа. Доступность AI зависит от настроек сервера; запрос может занять до 60 секунд.</p>
         </form>
 
         {result && (
