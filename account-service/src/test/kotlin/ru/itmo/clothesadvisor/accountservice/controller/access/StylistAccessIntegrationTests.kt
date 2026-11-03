@@ -35,6 +35,8 @@ class StylistAccessIntegrationTests : PostgresIntegrationTest() {
         val stylist = user("STYLIST")
         val spoofedPath = "$ACCESS/$stylist?ownerId=$other"
         val body = """{"ownerId":$other}"""
+        assertThat(ids(send("GET", ACCESS, owner.toString()))).isEmpty()
+        assertThat(ids(send("GET", CLIENTS, stylist.toString()))).isEmpty()
 
         // when
         val first = send("PUT", spoofedPath, owner.toString(), body)
@@ -61,6 +63,8 @@ class StylistAccessIntegrationTests : PostgresIntegrationTest() {
         // then
         listOf(revoked, revokedAgain, absentTarget).forEach { assertEmpty(it, 204) }
         assertThat(pairs()).isEmpty()
+        assertThat(ids(send("GET", ACCESS, owner.toString()))).isEmpty()
+        assertThat(ids(send("GET", CLIENTS, stylist.toString()))).isEmpty()
     }
 
     @Test
@@ -68,10 +72,10 @@ class StylistAccessIntegrationTests : PostgresIntegrationTest() {
         // given
         val owner = user()
         val stylist = user("STYLIST")
-        val ready = CountDownLatch(2)
+        val ready = CountDownLatch(4)
         val start = CountDownLatch(1)
-        Executors.newFixedThreadPool(2).use { executor ->
-            val pending = (1..2).map {
+        Executors.newFixedThreadPool(4).use { executor ->
+            val pending = (1..4).map {
                 executor.submit(Callable {
                     ready.countDown()
                     check(start.await(10, TimeUnit.SECONDS))
@@ -182,6 +186,7 @@ class StylistAccessIntegrationTests : PostgresIntegrationTest() {
         val owner = user()
         val stylist = user("STYLIST")
         assertEmpty(send("PUT", "$ACCESS/$stylist", owner.toString()), 204)
+        assertEmpty(send("PUT", "$ACCESS/$owner", owner.toString()), 404)
         change(stylist, role, status)
 
         // when
@@ -261,7 +266,8 @@ class StylistAccessIntegrationTests : PostgresIntegrationTest() {
     fun `lists sort by id paginate and expose only public fields`(kind: String) {
         // given
         val actor = user(if (kind == "clients") "STYLIST" else "USER")
-        val expected = (1..52).map {
+        val count = if (kind == "clients") 54 else 52
+        val expected = (1..count).map {
             user(if (kind == "clients") "USER" else "STYLIST")
         }
         for (id in expected.reversed()) {
@@ -271,10 +277,13 @@ class StylistAccessIntegrationTests : PostgresIntegrationTest() {
             change(expected[0], "STYLIST", "BLOCKED")
             change(expected[1], "USER")
         } else {
+            change(expected[0], "USER", "BLOCKED")
+            change(expected[1], "STYLIST")
             storeGrant(user(status = "BLOCKED"), actor)
             storeGrant(user("ADMIN"), actor)
             storeGrant(user("STYLIST"), actor)
         }
+        val visible = if (kind == "clients") expected.drop(2) else expected
         val path = if (kind == "clients") CLIENTS else ACCESS
         val header = actor.toString()
 
@@ -285,9 +294,9 @@ class StylistAccessIntegrationTests : PostgresIntegrationTest() {
         val empty = send("GET", "$path?page=2147483647&size=1", header)
 
         // then
-        assertThat(ids(first)).containsExactlyElementsOf(expected.take(50))
-        assertThat(ids(next)).containsExactlyElementsOf(expected.drop(50))
-        assertThat(ids(single)).containsExactly(expected[1])
+        assertThat(ids(first)).containsExactlyElementsOf(visible.take(50))
+        assertThat(ids(next)).containsExactlyElementsOf(visible.drop(50))
+        assertThat(ids(single)).containsExactly(visible[1])
         assertThat(ids(empty)).isEmpty()
         for (response in listOf(first, next, single, empty)) {
             assertThat(response.headers().firstValue("X-Total-Count")).isEmpty()
@@ -308,6 +317,7 @@ class StylistAccessIntegrationTests : PostgresIntegrationTest() {
         // given
         val actor = user("STYLIST").toString()
         val queries = listOf("page=-1", "size=0", "size=-1", "size=51", "page=no", "size=no",
+            "page=1.5", "page=0&size=1.5",
             "page=2147483647&size=50", "page=2147483648", "size=2147483648")
 
         for (path in listOf(ACCESS, CLIENTS)) {
