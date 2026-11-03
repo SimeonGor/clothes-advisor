@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "./app";
 
 const accounts = [
@@ -9,13 +9,45 @@ const accounts = [
 ];
 const ok = (data: unknown) => ({ ok: true, status: 200, headers: new Headers(), json: async () => data } as Response);
 
+beforeEach(() => {
+  vi.spyOn(window, "scrollTo").mockImplementation(() => {});
+});
+
 afterEach(() => {
-  cleanup(); vi.unstubAllGlobals();
+  cleanup(); vi.unstubAllGlobals(); vi.restoreAllMocks();
   Reflect.deleteProperty(HTMLDialogElement.prototype, "showModal");
   Reflect.deleteProperty(HTMLDialogElement.prototype, "close");
 });
 
 describe("App account switching", () => {
+  it("resets scroll on route navigation but not when opening or cancelling a modal", async () => {
+    const user = { id: 11, login: "user", role: "USER", status: "ACTIVE" };
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.startsWith("/api/admin/users?")) return ok([user]);
+      if (url === "/api/admin/users/11") return ok(user);
+      return ok([]);
+    }));
+    const scrollTo = vi.mocked(window.scrollTo);
+    Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function (this: HTMLDialogElement) { this.setAttribute("open", ""); } });
+    Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: function (this: HTMLDialogElement) { this.removeAttribute("open"); } });
+
+    render(<MemoryRouter initialEntries={["/app"]}><App /></MemoryRouter>);
+    fireEvent.click(await screen.findByRole("button", { name: /user/ }));
+    await waitFor(() => expect(screen.getByRole("link", { name: "Сегодня" }).getAttribute("aria-current")).toBe("page"));
+    scrollTo.mockClear();
+
+    fireEvent.click(screen.getByRole("link", { name: "Гардероб" }));
+    await waitFor(() => expect(screen.getByRole("link", { name: "Гардероб" }).getAttribute("aria-current")).toBe("page"));
+    expect(scrollTo).toHaveBeenCalledWith(0, 0);
+    scrollTo.mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: /Ещё/ }));
+    const dialog = screen.getByRole("dialog", { name: "Ещё" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Закрыть" }));
+    expect(scrollTo).not.toHaveBeenCalled();
+  });
+
   it("keeps the active workspace on cancel and clears account query state on confirmation", async () => {
     const calls: Array<{ url: string; userId: string | null }> = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
