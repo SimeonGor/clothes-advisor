@@ -2,12 +2,6 @@ spring:
   reactor:
     context-propagation: auto
   cloud:
-    openfeign:
-      circuitbreaker:
-        enabled: true
-      httpclient:
-        hc5:
-          enabled: false
     loadbalancer:
       retry:
         enabled: false
@@ -26,6 +20,7 @@ app:
   recommendation-client:
     connect-timeout: 5s
     read-timeout: 90s
+    write-timeout: 30s
 
 resilience4j:
   circuitbreaker:

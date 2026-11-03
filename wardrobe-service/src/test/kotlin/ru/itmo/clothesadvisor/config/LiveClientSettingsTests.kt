@@ -86,6 +86,9 @@ class LiveClientSettingsTests {
         "app.account-client.read-timeout,''", "app.recommendation-client.read-timeout,''",
         "app.account-client.max-response-size,0B", "app.account-client.max-response-size,2147483648B",
         "app.recommendation-client.connect-timeout,0s", "app.recommendation-client.read-timeout,-1s",
+        "app.recommendation-client.write-timeout,0s", "app.recommendation-client.write-timeout,-1s",
+        "app.recommendation-client.write-timeout,2147483648ms",
+        "app.recommendation-client.write-timeout,not-a-duration", "app.recommendation-client.write-timeout,''",
         "resilience4j.circuitbreaker.configs.remote-service.sliding-window-type,UNKNOWN",
         "resilience4j.circuitbreaker.configs.remote-service.sliding-window-size,0",
         "resilience4j.circuitbreaker.configs.remote-service.minimum-number-of-calls,0",
@@ -110,7 +113,7 @@ class LiveClientSettingsTests {
         // then
         assertThat(failure).isNotNull()
         assertThat(client.target).isSameAs(original)
-        assertThat(settings.recommendationOptions().readTimeoutMillis()).isEqualTo(90_000)
+        assertThat(settings.recommendationProperties()).isEqualTo(RecommendationClientProperties())
         assertThat(registry.circuitBreaker(ACCOUNT_BREAKER)).isSameAs(breaker)
         assertThat(breaker.state).isEqualTo(CircuitBreaker.State.OPEN)
         verifyNoInteractions(factory)
@@ -119,7 +122,9 @@ class LiveClientSettingsTests {
     @Test
     fun `missing required keys retain working settings and allow valid recovery`() {
         // given
-        settings.apply(source(mapOf("app.recommendation-client.read-timeout" to "3s")))
+        settings.apply(source(mapOf(
+            "app.recommendation-client.read-timeout" to "3s", "app.recommendation-client.write-timeout" to "2s",
+        )))
 
         // when
         val failures = LiveClientSettings.REQUIRED_KEYS.map { missing ->
@@ -130,35 +135,38 @@ class LiveClientSettingsTests {
         // then
         assertThat(failures).allSatisfy { assertThat(it).isNotNull() }
         assertThat(emptyFailure).isNotNull()
-        assertThat(settings.recommendationOptions().readTimeoutMillis()).isEqualTo(3_000)
+        assertThat(settings.recommendationProperties().readTimeout).isEqualTo(Duration.ofSeconds(3))
+        assertThat(settings.recommendationProperties().writeTimeout).isEqualTo(Duration.ofSeconds(2))
         assertThat(settings.apply(source())).isTrue()
-        assertThat(settings.recommendationOptions().readTimeoutMillis()).isEqualTo(90_000)
+        assertThat(settings.recommendationProperties()).isEqualTo(RecommendationClientProperties())
     }
 
     @Test
-    fun `stable account bean selects target on subscription and captured Feign options stay immutable`() {
+    fun `stable account bean selects target on subscription and captured recommendation settings stay immutable`() {
         // given
         val next = mock(AccountClient::class.java)
         val nextProperties = AccountClientProperties(readTimeout = Duration.ofSeconds(3))
         doReturn(next).`when`(factory).create(nextProperties)
         doReturn(Mono.empty<AccountUserResponse>()).`when`(next).getUser(7)
         val pending = client.getUser(7)
-        val captured = settings.recommendationOptions()
+        val captured = settings.recommendationProperties()
 
         // when
         settings.apply(source(mapOf(
             "app.account-client.read-timeout" to "3s", "app.recommendation-client.read-timeout" to "4s",
+            "app.recommendation-client.connect-timeout" to "1s", "app.recommendation-client.write-timeout" to "2s",
         )))
         pending.block(Duration.ofSeconds(1))
 
         // then
         assertThat(client.target).isSameAs(next)
         verifyNoInteractions(original)
-        assertThat(captured.readTimeoutMillis()).isEqualTo(90_000)
-        assertThat(settings.recommendationOptions().readTimeoutMillis()).isEqualTo(4_000)
-        assertThat(settings.recommendationOptions().connectTimeoutMillis()).isEqualTo(5_000)
-        assertThat(captured.readTimeoutMillis()).isEqualTo(90_000)
-        assertThat(settings.recommendationOptions().isFollowRedirects).isFalse()
+        assertThat(captured).isEqualTo(RecommendationClientProperties())
+        assertThat(captured.writeTimeout).isEqualTo(Duration.ofSeconds(30))
+        assertThat(settings.recommendationProperties()).isEqualTo(RecommendationClientProperties(
+            connectTimeout = Duration.ofSeconds(1), readTimeout = Duration.ofSeconds(4),
+            writeTimeout = Duration.ofSeconds(2),
+        ))
     }
 
     @Test
@@ -188,6 +196,7 @@ class LiveClientSettingsTests {
             "app.account-client.max-response-size" to "1MB",
             "app.recommendation-client.connect-timeout" to "5s",
             "app.recommendation-client.read-timeout" to "90s",
+            "app.recommendation-client.write-timeout" to "30s",
             "resilience4j.circuitbreaker.configs.remote-service.sliding-window-type" to "COUNT_BASED",
             "resilience4j.circuitbreaker.configs.remote-service.sliding-window-size" to "100",
             "resilience4j.circuitbreaker.configs.remote-service.minimum-number-of-calls" to "100",

@@ -1,11 +1,9 @@
 package ru.itmo.clothesadvisor.config
 
-import feign.Request
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry
 import java.time.Duration
-import java.util.concurrent.TimeUnit
 import org.springframework.boot.context.properties.ConfigurationProperties
 import org.springframework.boot.context.properties.bind.Binder
 import org.springframework.boot.context.properties.bind.Bindable
@@ -19,12 +17,8 @@ import ru.itmo.clothesadvisor.client.account.ReloadableAccountClient
 internal data class RecommendationClientProperties(
     val connectTimeout: Duration = Duration.ofSeconds(5),
     val readTimeout: Duration = Duration.ofSeconds(90),
-) {
-    fun options() = Request.Options(
-        connectTimeout.toMillis(), TimeUnit.MILLISECONDS,
-        readTimeout.toMillis(), TimeUnit.MILLISECONDS, false,
-    )
-}
+    val writeTimeout: Duration = Duration.ofSeconds(30),
+)
 
 internal data class ClientBreakerPolicy(
     val slidingWindowType: CircuitBreakerConfig.SlidingWindowType,
@@ -91,7 +85,7 @@ internal class LiveClientSettings(
         validate(initialAccount, initialRecommendation)
     }
 
-    fun recommendationOptions() = recommendation.options()
+    fun recommendationProperties() = recommendation
 
     @Synchronized
     fun apply(source: PropertySource<*>): Boolean {
@@ -133,7 +127,8 @@ internal class LiveClientSettings(
     }
 
     private fun validate(account: AccountClientProperties, recommendation: RecommendationClientProperties) {
-        listOf(account.connectTimeout, account.readTimeout, recommendation.connectTimeout, recommendation.readTimeout)
+        listOf(account.connectTimeout, account.readTimeout, recommendation.connectTimeout,
+            recommendation.readTimeout, recommendation.writeTimeout)
             .forEach { require(it.toMillis() in 1..Int.MAX_VALUE.toLong()) }
         require(account.maxResponseSize.toBytes() in 1..Int.MAX_VALUE.toLong())
     }
@@ -152,6 +147,7 @@ internal class LiveClientSettings(
         val REQUIRED_KEYS = listOf(
             "app.account-client.connect-timeout", "app.account-client.read-timeout", "app.account-client.max-response-size",
             "app.recommendation-client.connect-timeout", "app.recommendation-client.read-timeout",
+            "app.recommendation-client.write-timeout",
         ) + POLICY_KEYS.map { "$BREAKER_PREFIX.configs.remote-service.$it" }
     }
 }

@@ -73,7 +73,7 @@ class AdminUserIntegrationTests : PostgresIntegrationTest() {
     @Test
     fun `public list paginates in database and exposes exact fields including blocked users`() {
         // given
-        val timestamp = Instant.parse("2026-01-01T01:02:03Z")
+        val timestamp = Instant.parse("2026-01-01T01:02:03.123456Z")
         jdbc.batchUpdate(
             """INSERT INTO app_user (login, password_hash, role, status, version,
                 created_at, modified_at) VALUES (?, 'private-hash', 'USER', ?::user_status, 1, ?, ?)""",
@@ -93,6 +93,7 @@ class AdminUserIntegrationTests : PostgresIntegrationTest() {
 
         // then
         assertThat(rows(first).map { number(it, "id") }).containsExactlyElementsOf(ids.take(50))
+        assertThat(rows(first).first()["status"]).isEqualTo("BLOCKED")
         assertThat(rows(next).map { number(it, "id") }).containsExactlyElementsOf(ids.drop(50))
         assertThat(rows(single).map { number(it, "id") }).containsExactly(ids[1])
         assertThat(rows(empty)).isEmpty()
@@ -106,6 +107,8 @@ class AdminUserIntegrationTests : PostgresIntegrationTest() {
         assertThat(blocked.statusCode()).isEqualTo(200)
         assertFields(dto(blocked))
         assertThat(dto(blocked)["status"]).isEqualTo("BLOCKED")
+        assertThat(dto(blocked)["login"]).isEqualTo("listed-52")
+        assertThat(number(dto(blocked), "version")).isEqualTo(1)
         assertThat(dto(blocked)["createdAt"]).isEqualTo(timestamp.toString())
         assertThat(dto(blocked)["modifiedAt"]).isEqualTo(timestamp.toString())
         assertEmpty(send("GET", "$PATH/${Long.MAX_VALUE}"), 404)
@@ -118,6 +121,15 @@ class AdminUserIntegrationTests : PostgresIntegrationTest() {
         val target = user()
         val path = "$PATH/${target.id}"
         val before = jdbc.queryForMap("SELECT * FROM app_user WHERE id = ?", target.id)
+        val initial = dto(send("GET", path))
+
+        // when
+        val initialNoOp = send("PUT", path, actor.id.toString(), update())
+
+        // then
+        assertThat(initialNoOp.statusCode()).isEqualTo(200)
+        assertThat(dto(initialNoOp)).isEqualTo(initial)
+        assertThat(historyCount()).isZero()
 
         // when
         val changed = send("PUT", path, actor.id.toString(), update("STYLIST", "BLOCKED"))
@@ -139,6 +151,7 @@ class AdminUserIntegrationTests : PostgresIntegrationTest() {
             assertThat(history[column]).describedAs(column).isEqualTo(before[column])
         }
         assertThat(history["user_id"]).isEqualTo(target.id)
+        assertThat(history["archived_at"]).isEqualTo(saved["modified_at"])
 
         // when
         val noOp = send("PUT", path, actor.id.toString(), update("STYLIST", "BLOCKED", 2))
@@ -153,7 +166,24 @@ class AdminUserIntegrationTests : PostgresIntegrationTest() {
         assertThat(jdbc.queryForMap("SELECT * FROM app_user WHERE id = ?", target.id))
             .isEqualTo(saved)
         assertThat(historyCount()).isEqualTo(1)
-        assertEmpty(send("PUT", "$PATH/${Long.MAX_VALUE}", actor.id.toString(), update()), 404)
+
+        // when
+        val missing = send("PUT", "$PATH/${Long.MAX_VALUE}", actor.id.toString(), update())
+
+        // then
+        assertEmpty(missing, 404)
+        assertThat(jdbc.queryForMap("SELECT * FROM app_user WHERE id = ?", target.id)).isEqualTo(saved)
+        assertThat(historyCount()).isEqualTo(1)
+
+        // when
+        val promoted = send("PUT", path, actor.id.toString(), update("ADMIN", version = 2))
+
+        // then
+        assertThat(promoted.statusCode()).isEqualTo(200)
+        assertThat(dto(promoted)["role"]).isEqualTo("ADMIN")
+        assertThat(dto(promoted)["status"]).isEqualTo("ACTIVE")
+        assertThat(number(dto(promoted), "version")).isEqualTo(3)
+        assertThat(historyCount()).isEqualTo(2)
     }
 
     @Test
@@ -188,6 +218,39 @@ class AdminUserIntegrationTests : PostgresIntegrationTest() {
         assertThat(historyCount()).isZero()
         assertThat(jdbc.queryForObject("SELECT max(version) FROM app_user", Long::class.java))
             .isEqualTo(1)
+
+        // given
+        val refreshedAdmin = user(UserRole.ADMIN)
+        val refreshedTarget = user()
+        val refreshedActor = refreshedAdmin.id.toString()
+        for ((index, roleStatus) in listOf(
+            UserRole.ADMIN to UserStatus.BLOCKED,
+            UserRole.USER to UserStatus.ACTIVE,
+        ).withIndex()) {
+            // given
+            val (role, status) = roleStatus
+            users.changeRoleAndStatus(refreshedAdmin.id, index + 1L, role, status)
+                .block(Duration.ofSeconds(10))
+
+            // when
+            val response = send(
+                "PUT", "$PATH/${refreshedTarget.id}", refreshedActor, update("ADMIN"),
+            )
+
+            // then
+            assertThat(response.statusCode()).isEqualTo(403)
+            assertThat(response.body()).isEqualTo("""{"error":"forbidden"}""")
+            assertThat(jdbc.queryForObject(
+                "SELECT version FROM app_user WHERE id = ?", Long::class.java, refreshedTarget.id,
+            )).isEqualTo(1)
+        }
+
+        // when
+        users.changeRoleAndStatus(refreshedAdmin.id, 3, UserRole.ADMIN, UserStatus.ACTIVE)
+            .block(Duration.ofSeconds(10))
+
+        // then
+        assertThat(send("GET", PATH, refreshedActor).statusCode()).isEqualTo(200)
     }
 
     @Test

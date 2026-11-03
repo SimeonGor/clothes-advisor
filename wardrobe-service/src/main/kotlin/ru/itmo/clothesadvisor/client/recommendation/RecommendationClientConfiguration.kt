@@ -52,7 +52,7 @@ internal class StreamingRecommendationAdapter(
             else "RecommendationClientselectItemSelectionRequest"
         try {
             return breakers.circuitBreaker(breakerName).executeSupplier {
-                val snapshot = settings.recommendationOptions()
+                val snapshot = settings.recommendationProperties()
                 val client = WebReactiveFeign.builder<StreamingRecommendationClient>(
                     builder.clone()
                         .codecs { it.defaultCodecs().maxInMemorySize(32 * 1024) }
@@ -69,8 +69,9 @@ internal class StreamingRecommendationAdapter(
                             }
                         },
                 ).options(WebReactiveOptions.Builder()
-                    .setConnectTimeoutMillis(snapshot.connectTimeoutMillis().toLong())
-                    .setResponseTimeoutMillis(snapshot.readTimeoutMillis().toLong())
+                    .setConnectTimeoutMillis(snapshot.connectTimeout.toMillis())
+                    .setResponseTimeoutMillis(snapshot.readTimeout.toMillis())
+                    .setWriteTimeoutMillis(snapshot.writeTimeout.toMillis())
                     .setFollowRedirects(false).build())
                     .httpClient(HttpClient.create().disableRetry(true))
                     .objectMapper(mapper)

@@ -146,12 +146,10 @@ export function AiCapsuleEditor({ actor, onPending, pending }: { actor: Actor; o
         setFailure("Данные гардероба изменились. Обновите гардероб, проверьте выбор и подтвердите новую попытку.");
         setWardrobeReloadRequired(true);
         setWardrobeReloaded(false);
-      } else if (error instanceof ApiError && error.status === 503) {
-        setFailure("Подбор сейчас занят или недоступен. Попробуйте повторить ту же попытку позже.");
+      } else if (error instanceof ApiError && [502, 503, 504].includes(error.status)) {
+        setFailure("Не удалось получить подтверждение подбора. Проверьте сохранённые капсулы: действие могло выполниться. Повтор с тем же ключом не запускает уже принятую команду заново. Черновик сохранён.");
       } else if (error instanceof ApiError && error.status === 422) {
         setFailure("Не удалось подобрать капсулу по этим условиям. Измените вводные и начните новую попытку.");
-      } else if (error instanceof ApiError && (error.status === 502 || error.status === 504)) {
-        setFailure("AI-сервис не подтвердил подбор. Повторите ту же попытку позже.");
       } else {
         setFailure(`Не удалось получить подтверждение. ${resourceErrorMessage(error, true)} Черновик сохранён.`);
       }

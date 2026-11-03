@@ -8,11 +8,17 @@ import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
 import java.math.BigDecimal
 import java.net.InetSocketAddress
+import java.net.ServerSocket
+import java.net.Socket
+import java.net.SocketException
+import java.net.URI
 import java.time.Instant
+import java.util.concurrent.ConcurrentLinkedQueue
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.catchThrowable
 import org.junit.jupiter.api.AfterAll
@@ -51,8 +57,10 @@ import ru.itmo.clothesadvisor.dto.outfit.OutfitResponse
 import ru.itmo.clothesadvisor.dto.outfit.OutfitWeatherDto
 import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionCandidate
 import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionRequest
+import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionResponse
 import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionStylePreferences
 import ru.itmo.clothesadvisor.dto.recommendation.ItemSelectionWeather
+import ru.itmo.clothesadvisor.dto.recommendation.SelectionImage
 import ru.itmo.clothesadvisor.dto.user.CurrentUser
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemPhotoContent
 import ru.itmo.clothesadvisor.model.ai.AiSelectionException
@@ -113,7 +121,7 @@ class RecommendationClientTests : ru.itmo.clothesadvisor.dto.recommendation.Sele
     @Test
     fun `discovery client uses Reactive Feign and long read timeout without redirects`() {
         // given
-        val options = settings.recommendationOptions()
+        val options = settings.recommendationProperties()
 
         // when
         val result = client.select(selection)
@@ -123,9 +131,9 @@ class RecommendationClientTests : ru.itmo.clothesadvisor.dto.recommendation.Sele
         assertThat(result.explanation).isNull()
         assertThat(calls).hasValue(1)
         assertThat(client).isInstanceOf(StreamingRecommendationAdapter::class.java)
-        assertThat(options.connectTimeoutMillis()).isEqualTo(5_000)
-        assertThat(options.readTimeoutMillis()).isEqualTo(90_000)
-        assertThat(options.isFollowRedirects).isFalse()
+        assertThat(options.connectTimeout.toMillis()).isEqualTo(5_000)
+        assertThat(options.readTimeout.toMillis()).isEqualTo(90_000)
+        assertThat(options.writeTimeout.toMillis()).isEqualTo(30_000)
         assertThat(received).contains("-1.23456789", "AQID")
         assertThat(receivedPath).isEqualTo("/api/outfit-selections")
         assertThat(breakers.allCircuitBreakers.map { it.name }).containsExactlyInAnyOrder(
@@ -439,8 +447,9 @@ class RecommendationClientTests : ru.itmo.clothesadvisor.dto.recommendation.Sele
         assertThat(calls).hasValue(6)
     }
 
-    @Test
-    fun `cancelling a subscriber keeps admission occupied until the real Feign call exits`() {
+    @ParameterizedTest
+    @ValueSource(booleans = [false, true])
+    fun `cancelling a subscriber keeps admission occupied until the real Feign call exits`(stalledUpload: Boolean) {
         // given
         val users = mock(CurrentUserService::class.java)
         val items = mock(WardrobeItemRepository::class.java)
@@ -466,26 +475,57 @@ class RecommendationClientTests : ru.itmo.clothesadvisor.dto.recommendation.Sele
         `when`(photos.findFirstByItemIdOrderByIdAsc(7)).thenReturn(photo)
         `when`(photos.findByIdAndItemIdAndItemOwnerId(21, 7, 7)).thenReturn(photo)
         `when`(content.getContent(7, 7, 21))
-            .thenReturn(WardrobeItemPhotoContent("image/png", byteArrayOf(1, 2, 3)))
+            .thenReturn(WardrobeItemPhotoContent("image/png",
+                if (stalledUpload) ByteArray(8 * 1024 * 1024) { 3 } else byteArrayOf(1, 2, 3)))
         val outfitRequest = CreateOutfitRequest("Daily", listOf(7), weather)
         `when`(outfits.createAi(eq(7L), refEq(outfitRequest) ?: outfitRequest, org.mockito.Mockito.isNull(), org.mockito.Mockito.isNull(), org.mockito.Mockito.isNull(), org.mockito.Mockito.isNull()))
             .thenReturn(saved)
+        val capturedImage = AtomicReference<SelectionImage>()
+        val readerClosed = CountDownLatch(1)
+        val observedClient = object : RecommendationClient by client {
+            override fun select(request: ItemSelectionRequest): ItemSelectionResponse {
+                val original = request.candidates.single().imageBase64
+                capturedImage.set(original)
+                val observed = org.mockito.Mockito.spy(original)
+                org.mockito.Mockito.doAnswer {
+                    object : java.io.FilterInputStream(original.open()) {
+                        override fun close() {
+                            try { super.close() } finally { readerClosed.countDown() }
+                        }
+                    }
+                }.`when`(observed).open()
+                return client.select(request.copy(candidates = listOf(
+                    request.candidates.single().copy(imageBase64 = observed),
+                )))
+            }
+        }
         val service = AiOutfitService(
             AiSelectionService(
                 users, items, photos, precipitation,
                 mock(ru.itmo.clothesadvisor.repository.preferences.StylePreferencesRepository::class.java),
-                content, client, transactions, meters, "user",
+                content, observedClient, transactions, meters, "user",
             ),
             outfits,
             idempotencyService(transactions),
         )
         val release = CountDownLatch(1)
         val exited = CountDownLatch(1)
+        val transportFailure = AtomicReference<Throwable>()
+        val instance = discovery.getInstances("recommendation-service").single()
+        val originalUri = instance.uri
+        val stalledPeer = if (stalledUpload) StalledUploadPeer() else null
+        if (stalledPeer != null) {
+            settings.apply(LiveClientSettingsTests.source(mapOf("app.recommendation-client.write-timeout" to "3s")))
+            instance.uri = URI("http://127.0.0.1:${stalledPeer.port}")
+        }
         gate = release
         val scheduler = Schedulers.newBoundedElastic(1, 10, "ai-feign-admission-test")
         val creation = Mono.fromCallable {
                 try {
                     service.create(7, request)
+                } catch (error: Throwable) {
+                    transportFailure.set(error)
+                    throw error
                 } finally {
                     exited.countDown()
                 }
@@ -494,7 +534,9 @@ class RecommendationClientTests : ru.itmo.clothesadvisor.dto.recommendation.Sele
             .toFuture()
         try {
             // when
-            assertThat(entered.await(10, TimeUnit.SECONDS)).isTrue()
+            assertThat((stalledPeer?.accepted ?: entered).await(10, TimeUnit.SECONDS)).isTrue()
+            // A live update must not extend the write timeout of the already accepted call.
+            if (stalledUpload) settings.apply(LiveClientSettingsTests.source())
             assertThat(creation.cancel(true)).isTrue()
 
             // then
@@ -506,7 +548,8 @@ class RecommendationClientTests : ru.itmo.clothesadvisor.dto.recommendation.Sele
             // then
             assertFailure(AiSelectionFailure.UNAVAILABLE, busy)
             assertThat(exited.count).isEqualTo(1)
-            assertThat(calls).hasValue(1)
+            assertThat(stalledPeer?.calls ?: calls).hasValue(1)
+            assertThat(capturedImage.get().path).exists()
             verify(items).findAvailableOwnedItemsWithPhotos(7, 21)
             verify(photos).findFirstByItemIdOrderByIdAsc(7)
             verify(content).getContent(7, 7, 21)
@@ -520,17 +563,31 @@ class RecommendationClientTests : ru.itmo.clothesadvisor.dto.recommendation.Sele
             // when
             release.countDown()
             assertThat(exited.await(10, TimeUnit.SECONDS)).isTrue()
+            assertThat(readerClosed.await(5, TimeUnit.SECONDS)).isTrue()
+            assertThat(capturedImage.get().path).doesNotExist()
+            if (stalledPeer != null) {
+                assertFailure(AiSelectionFailure.TIMEOUT, transportFailure.get())
+                assertThat(stalledPeer.calls).hasValue(1)
+                assertThat(meters.get("wardrobe.ai.duration").tag("outcome", "failure").timer().count())
+                    .isEqualTo(1)
+                assertThat(meters.get("wardrobe.ai.active").gauge().value()).isZero()
+                instance.uri = originalUri
+                `when`(content.getContent(7, 7, 21))
+                    .thenReturn(WardrobeItemPhotoContent("image/png", byteArrayOf(1, 2, 3)))
+            }
             val recovered = service.create(7, request)
 
             // then
             assertThat(recovered).isSameAs(saved)
-            assertThat(calls).hasValue(2)
+            assertThat(calls).hasValue(if (stalledUpload) 1 else 2)
             verify(content, times(2)).getContent(7, 7, 21)
             assertThat(meters.get("wardrobe.ai.active").gauge().value()).isZero()
             assertThat(meters.get("wardrobe.ai.duration").tag("outcome", "success").timer().count())
-                .isEqualTo(2)
+                .isEqualTo(if (stalledUpload) 1L else 2L)
         } finally {
             release.countDown()
+            stalledPeer?.close()
+            instance.uri = originalUri
             creation.cancel(true)
             exited.await(10, TimeUnit.SECONDS)
             scheduler.dispose()
@@ -602,6 +659,38 @@ class RecommendationClientTests : ru.itmo.clothesadvisor.dto.recommendation.Sele
                 assertThat(it.message).isNull()
                 assertThat(it.cause).isNull()
             }
+    }
+
+    /** Accept TCP connections but never consume request bytes, including headers. */
+    private class StalledUploadPeer : AutoCloseable {
+        val calls = AtomicInteger()
+        val accepted = CountDownLatch(1)
+        private val sockets = ConcurrentLinkedQueue<Socket>()
+        private val listener = ServerSocket().apply {
+            receiveBufferSize = 1024
+            bind(InetSocketAddress("127.0.0.1", 0))
+        }
+        val port: Int = listener.localPort
+        private val executor = Executors.newVirtualThreadPerTaskExecutor()
+        private val accepting = executor.submit {
+            try {
+                while (!listener.isClosed) {
+                    sockets += listener.accept()
+                    calls.incrementAndGet()
+                    accepted.countDown()
+                }
+            } catch (error: SocketException) {
+                if (!listener.isClosed) throw error
+            }
+        }
+
+        override fun close() {
+            listener.close()
+            try { accepting.get(5, TimeUnit.SECONDS) } finally {
+                sockets.forEach { it.close() }
+                executor.close()
+            }
+        }
     }
 
     companion object {

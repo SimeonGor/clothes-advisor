@@ -30,8 +30,6 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.cloud.client.discovery.simple.reactive.SimpleReactiveDiscoveryProperties
 import org.springframework.cloud.client.discovery.simple.InstanceProperties
-import org.springframework.cloud.openfeign.FeignClientFactory
-import org.springframework.cloud.openfeign.loadbalancer.FeignBlockingLoadBalancerClient
 import org.springframework.context.ApplicationContext
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Import
@@ -233,7 +231,7 @@ class AccountClientTests : ru.itmo.clothesadvisor.dto.recommendation.SelectionPh
     @Test
     fun `account transport options and decoder remain isolated from recommendation`() {
         // given
-        val recommendationOptions = settings.recommendationOptions()
+        val recommendationOptions = settings.recommendationProperties()
         val selection = ItemSelectionRequest(
             ItemSelectionWeather(BigDecimal.ZERO, BigDecimal.ZERO, "NONE", "None"),
             listOf(ItemSelectionCandidate(
@@ -251,8 +249,9 @@ class AccountClientTests : ru.itmo.clothesadvisor.dto.recommendation.SelectionPh
         assertThat(properties.connectTimeout.toMillis()).isEqualTo(2_000)
         assertThat(properties.readTimeout.toMillis()).isEqualTo(5_000)
         assertThat(recommendation).isInstanceOf(ru.itmo.clothesadvisor.client.recommendation.StreamingRecommendationAdapter::class.java)
-        assertThat(recommendationOptions.connectTimeoutMillis()).isEqualTo(5_000)
-        assertThat(recommendationOptions.readTimeoutMillis()).isEqualTo(90_000)
+        assertThat(recommendationOptions.connectTimeout.toMillis()).isEqualTo(5_000)
+        assertThat(recommendationOptions.readTimeout.toMillis()).isEqualTo(90_000)
+        assertThat(recommendationOptions.writeTimeout.toMillis()).isEqualTo(30_000)
         assertThat(context.getBeansOfType(Request.Options::class.java)).isEmpty()
         assertThat(calls).hasValue(2)
     }
