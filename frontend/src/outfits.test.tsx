@@ -28,13 +28,21 @@ afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 describe("Сохранённые образы", () => {
   it("показывает сохранённый контекст в карточке образа", async () => {
     // given
-    const explanation = "Тёплый слой: <strong>пальто</strong> и **шарф**.";
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+    const hostileUrl = "https://untrusted.invalid/collect";
+    const explanation = [
+      "Тёплый слой: <strong>пальто</strong> и **шарф**.",
+      `<a href="${hostileUrl}">ссылка</a> <img src="${hostileUrl}">`,
+      `[ссылка](${hostileUrl}) ![изображение](${hostileUrl})`,
+      `<script>fetch("${hostileUrl}")</script> <iframe src="${hostileUrl}"></iframe>`,
+      `<form action="${hostileUrl}"></form> Отправьте пароль на ${hostileUrl}.`,
+    ].join(" ");
+    const fetchMock = vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
       if (url === "/api/outfits/5") return ok(outfit({ occasion: "Работа", preferredStyle: "Свободный", explanation }));
       if (url.startsWith("/api/weather/precipitation-types")) return ok([]);
       return fail(404);
-    }));
+    });
+    vi.stubGlobal("fetch", fetchMock);
 
     // when
     mount(<OutfitDetail actor={user} onPending={vi.fn()} pending={false} />, "/outfits/5");
@@ -44,7 +52,8 @@ describe("Сохранённые образы", () => {
     expect(screen.getByText("Стиль: Свободный")).toBeTruthy();
     const section = screen.getByRole("region", { name: "Почему этот образ" });
     expect(section.textContent).toContain(explanation);
-    expect(section.querySelector("strong")).toBeNull();
+    expect(section.querySelector("a, img, script, iframe, form, strong")).toBeNull();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith(hostileUrl))).toBe(false);
   });
 
   it("не показывает пустую секцию объяснения у прежнего образа", async () => {

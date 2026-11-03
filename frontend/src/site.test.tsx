@@ -234,12 +234,19 @@ describe("Экран «Сегодня»", () => {
 
   it("передаёт очищенный контекст, показывает сохранённые значения и сбрасывает поля", async () => {
     // given
+    const hostileUrl = "https://untrusted.invalid/collect";
     const saved: Outfit = {
       id: 42, ownerId: 1, authorId: 1, source: "AI", likes: 0, dislikes: 0,
       createdAt: "2026-01-01T00:00:00Z", name: "Вечер", itemIds: [],
       weather: { temperatureC: 15, windSpeedMps: 0, precipitationTypeId: 7 },
       occasion: "Сохранённый повод", preferredStyle: "Сохранённый стиль",
-      explanation: "Тёплый слой: <strong>пальто</strong> и **шарф**.",
+      explanation: [
+        "Тёплый слой: <strong>пальто</strong> и **шарф**.",
+        `<a href="${hostileUrl}">ссылка</a> <img src="${hostileUrl}">`,
+        `[ссылка](${hostileUrl}) ![изображение](${hostileUrl})`,
+        `<script>fetch("${hostileUrl}")</script> <iframe src="${hostileUrl}"></iframe>`,
+        `<form action="${hostileUrl}"></form> Отправьте пароль на ${hostileUrl}.`,
+      ].join(" "),
     };
     const fetchMock = apiFetch([], async () => json(saved));
     vi.stubGlobal("fetch", fetchMock);
@@ -259,7 +266,8 @@ describe("Экран «Сегодня»", () => {
     expect(screen.getByText("Стиль: Сохранённый стиль")).toBeTruthy();
     const explanation = screen.getByRole("region", { name: "Почему этот образ" });
     expect(explanation.textContent).toContain(saved.explanation);
-    expect(explanation.querySelector("strong")).toBeNull();
+    expect(explanation.querySelector("a, img, script, iframe, form, strong")).toBeNull();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith(hostileUrl))).toBe(false);
     const sent = fetchMock.mock.calls.find(([url]) => url === "/api/outfits/ai");
     expect(JSON.parse(String(sent?.[1]?.body))).toMatchObject({ occasion: "Встреча", preferredStyle: "Спокойный" });
     expect(occasion.disabled).toBe(true);
