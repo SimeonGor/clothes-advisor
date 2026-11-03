@@ -15,9 +15,10 @@ import {
   type WardrobeItem,
   availabilityLabel,
   itemAvailability,
-  type WorkspaceContext,
 } from "./api";
 import styles from "./site.module.css";
+import { SiteShell } from "./site-shell";
+export { SiteShell } from "./site-shell";
 
 const pageSize = 12;
 
@@ -235,75 +236,6 @@ export function Today({ account, onSwitch, onPending, pending }: {
       onPending={onPending}
       pending={pending}
     />
-  );
-}
-
-export function SiteShell({ account, onSwitch, pending, active, children }: {
-  account: Actor;
-  onSwitch: () => void;
-  pending: boolean;
-  active: "today" | "wardrobe" | "outfits" | "capsules" | "access" | "clients" | "accounts" | "preferences" | "calendar" | "requests";
-  context?: WorkspaceContext;
-  children: React.ReactNode;
-}) {
-  const wardrobePath = "/wardrobe";
-  const outfitsPath = "/outfits";
-  function guard(event: React.MouseEvent<HTMLAnchorElement>) {
-    if (pending) event.preventDefault();
-  }
-
-  return (
-    <div className={styles.shell} id="main" onClickCapture={(event) => {
-      if (pending && (event.target as HTMLElement).closest("a")) {
-        event.preventDefault();
-        event.stopPropagation();
-      }
-    }}>
-      <aside className={styles.sidebar}>
-        <Link className={styles.brand} to={account.role === "USER" ? "/today" : account.role === "STYLIST" ? "/clients" : "/accounts"} onClick={guard} aria-disabled={pending}>
-          <span className={styles.brandMark}>ca</span><span>clothes advisor</span>
-        </Link>
-        <p className={styles.navLabel}>ВАШЕ ПРОСТРАНСТВО</p>
-        <nav className={styles.navigation} aria-label="Основная навигация">
-        {account.role === "USER" && (
-          <Link
-            className={active === "today" ? styles.activeNav : styles.navLink}
-            to="/today"
-            aria-current={active === "today" ? "page" : undefined}
-            aria-disabled={pending}
-            onClick={guard}
-          >Сегодня <span>↗</span></Link>
-        )}
-        <Link
-          className={active === "wardrobe" ? styles.activeNav : styles.navLink}
-          to={wardrobePath}
-          aria-current={active === "wardrobe" ? "page" : undefined}
-          aria-disabled={pending}
-          onClick={guard}
-        >Гардероб <span>↗</span></Link>
-        <Link className={active === "outfits" ? styles.activeNav : styles.navLink} to={outfitsPath} aria-current={active === "outfits" ? "page" : undefined} aria-disabled={pending} onClick={guard}>Образы <span>↗</span></Link>
-        {account.role === "USER" && <Link className={active === "capsules" ? styles.activeNav : styles.navLink} to="/capsules" aria-current={active === "capsules" ? "page" : undefined} aria-disabled={pending} onClick={guard}>Капсулы <span>↗</span></Link>}
-        {account.role === "USER" && <Link className={active === "calendar" ? styles.activeNav : styles.navLink} to="/calendar" aria-current={active === "calendar" ? "page" : undefined} aria-disabled={pending} onClick={guard}>Календарь <span>↗</span></Link>}
-        {([{ role: "USER", path: "preferences", label: "Предпочтения" },
-          { role: "USER", path: "access", label: "Доступ стилистам" },
-          { role: "USER", path: "requests", label: "Запросы стилисту" },
-          { role: "STYLIST", path: "clients", label: "Клиенты" },
-          { role: "ADMIN", path: "accounts", label: "Аккаунты" }]).filter((entry) => entry.role === account.role).map((entry) => (
-          <Link key={entry.path} className={active === entry.path ? styles.activeNav : styles.navLink}
-            to={`/${entry.path}`} aria-current={active === entry.path ? "page" : undefined}
-            aria-disabled={pending} onClick={guard}>{entry.label} <span>↗</span></Link>
-        ))}
-        </nav>
-        <div className={styles.sidebarBottom}>
-          <p className={styles.navLabel}>АККАУНТ</p>
-          <span className={styles.accountName}>{account.login}</span>
-          <button className={styles.textButton} disabled={pending} onClick={onSwitch}>
-            Сменить аккаунт
-          </button>
-        </div>
-      </aside>
-      {children}
-    </div>
   );
 }
 
