@@ -180,8 +180,9 @@ describe("Рабочие пространства ролей", () => {
       return ok([]);
     }));
     const view = mount(admin, "/accounts");
-    expect(await screen.findByRole("link", { name: /owner.*BLOCKED/ })).toBeTruthy();
-    fireEvent.click(screen.getByRole("link", { name: /admin.*ADMIN/ }));
+    const blockedRow = await screen.findByRole("row", { name: /owner.*Пользователь.*Заблокирован/ });
+    expect(blockedRow).toBeTruthy();
+    fireEvent.click(within(screen.getByRole("row", { name: /admin.*Администратор/ })).getByRole("link", { name: "admin" }));
     expect((await screen.findByLabelText("РОЛЬ") as HTMLSelectElement).disabled).toBe(true);
     expect((screen.getByLabelText("СТАТУС") as HTMLSelectElement).disabled).toBe(true);
     expect(screen.getByText(/Нельзя заблокировать собственный/)).toBeTruthy();
@@ -306,12 +307,14 @@ describe("Рабочие пространства ролей", () => {
       if (url === "/api/admin/users/33") return ok(details(admin));
       return ok([]);
     }));
+    Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function (this: HTMLDialogElement) { this.setAttribute("open", ""); } });
+    Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: function (this: HTMLDialogElement) { this.removeAttribute("open"); } });
     render(<MemoryRouter initialEntries={["/"]}><App /></MemoryRouter>);
-    fireEvent.click(await screen.findByRole("button", { name: "stylist STYLIST" }));
+    fireEvent.click(await screen.findByRole("button", { name: "stylist Стилист" }));
     await screen.findByRole("heading", { name: "Клиенты" });
     // when: активный аккаунт меняется на администратора.
     fireEvent.click(screen.getByRole("button", { name: "Сменить аккаунт" }));
-    fireEvent.click(await screen.findByRole("button", { name: "admin ADMIN" }));
+    fireEvent.click(await screen.findByRole("button", { name: "admin Администратор" }));
     // then: доступен административный каталог, клиентских вкладок больше нет.
     expect(await screen.findByRole("heading", { name: "Аккаунты" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Клиенты ↗" })).toBeNull();
@@ -342,7 +345,7 @@ describe("Рабочие пространства ролей", () => {
     }));
     render(<MemoryRouter initialEntries={["/outfits/5"]}><App /></MemoryRouter>);
     // when: выбран подходящий аккаунт.
-    fireEvent.click(await screen.findByRole("button", { name: "stylist STYLIST" }));
+    fireEvent.click(await screen.findByRole("button", { name: "stylist Стилист" }));
     // then: сохранена исходная страница, стартовый список клиентов не открыт.
     expect(await screen.findByRole("heading", { name: "По прямой ссылке" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Клиенты" })).toBeNull();

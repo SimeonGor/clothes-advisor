@@ -17,6 +17,7 @@ import {
   itemAvailability,
 } from "./api";
 import styles from "./site.module.css";
+import workspaceStyles from "./workspace.module.css";
 import { SiteShell } from "./site-shell";
 import { Dialog } from "./dialog";
 import todayStyles from "./today.module.css";
@@ -33,7 +34,7 @@ function ReadError({ error, retry }: { error: unknown; retry: () => void }) {
   );
 }
 
-export function AccountPicker({ onChoose }: { onChoose: (account: Actor) => void }) {
+export function AccountPicker({ onChoose, embedded = false }: { onChoose: (account: Actor) => void; embedded?: boolean }) {
   const accounts = useQuery({
     queryKey: ["accounts"],
     queryFn: async ({ signal }) => {
@@ -43,26 +44,34 @@ export function AccountPicker({ onChoose }: { onChoose: (account: Actor) => void
   });
   const [loading, setLoading] = React.useState<number | null>(null);
   const [error, setError] = React.useState("");
+  const choiceController = React.useRef<AbortController | null>(null);
+
+  React.useEffect(() => () => choiceController.current?.abort(), []);
 
   async function choose(id: number) {
+    choiceController.current?.abort();
+    const controller = new AbortController();
+    choiceController.current = controller;
     setLoading(id);
     setError("");
     try {
-      const account = await request<Account>(`/api/admin/users/${id}`);
+      const account = await request<Account>(`/api/admin/users/${id}`, undefined, { signal: controller.signal });
+      if (controller.signal.aborted) return;
       if (account.status !== "ACTIVE") throw new Error("inactive");
       onChoose({ id: account.id, login: account.login, role: account.role });
     } catch {
+      if (controller.signal.aborted) return;
       setError("Этот аккаунт больше не активен. "
         + "Обновите список и выберите другой.");
     } finally {
+      if (controller.signal.aborted) return;
       setLoading(null);
     }
   }
 
-  return (
-    <main className={styles.pick} id="main">
+  const content = <>
       <p className={styles.eyebrow}>ГАРДЕРОБ · ПЕРСОНАЛЬНЫЙ СТИЛЬ</p>
-      <h1>Выберите аккаунт</h1>
+      {!embedded && <h1>Выберите аккаунт</h1>}
       <p className={styles.muted}>
         Это тестовый выбор аккаунта, а не вход в систему.
       </p>
@@ -74,17 +83,19 @@ export function AccountPicker({ onChoose }: { onChoose: (account: Actor) => void
       {error && <p role="alert">{error}</p>}
       {accounts.data?.map((account) => (
         <button
-          className={styles.account}
+          className={embedded ? workspaceStyles.accountChoice : styles.account}
           key={account.id}
           disabled={loading !== null}
           onClick={() => void choose(account.id)}
         >
+          <span aria-hidden="true">{account.login.slice(0, 1).toLocaleUpperCase("ru-RU")}</span>
           <span>{account.login}</span>
-          <small>{account.role}{loading === account.id ? " · проверяем" : ""}</small>
+          <small>{account.role === "USER" ? "Пользователь" : account.role === "STYLIST" ? "Стилист" : "Администратор"}{loading === account.id ? " · проверяем" : ""}</small>
         </button>
       ))}
-    </main>
-  );
+    </>;
+  return embedded ? <div className={workspaceStyles.accountPicker}>{content}</div>
+    : <main className={styles.pick} id="main">{content}</main>;
 }
 
 export function PhotoImage({ actor, item, photo, itemsBase = "/api/wardrobe/items" }: {

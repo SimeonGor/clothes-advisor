@@ -7,6 +7,7 @@ import { OutfitDetail, OutfitEditor, Outfits } from "./outfits";
 import { ClientPreferences } from "./preferences";
 import { StylistRequestDetail, StylistRequests } from "./stylist-requests";
 import styles from "./site.module.css";
+import workspaceStyles from "./workspace.module.css";
 
 type Person = { id: number; login: string };
 type AccountDetails = Account & { version: number; createdAt: string; modifiedAt: string };
@@ -66,6 +67,9 @@ export function Access({ actor, pending, onPending }: Props) {
     {grants.isLoading && <p className={styles.state}>Загружаем доступы…</p>}
     {grants.isError && <ReadError error={grants.error} retry={() => void grants.refetch()} />}
     {directory.isError && <ReadError error={directory.error} retry={() => void directory.refetch()} />}
+    <section className={workspaceStyles.grantPanel}>
+    <h2>Предоставить доступ</h2>
+    <p>Выберите активного стилиста, которому можно видеть ваш гардероб и предпочтения.</p>
     <form className={styles.itemForm} onSubmit={(event) => { event.preventDefault(); setConfirmGrant(true); }}>
       <label className={styles.nameField}>СТИЛИСТ
         <select value={selected} required disabled={pending || !grants.isSuccess || !directory.isSuccess}
@@ -76,6 +80,7 @@ export function Access({ actor, pending, onPending }: Props) {
       </label>
       <button className={styles.create} type="submit" disabled={pending || !selected || !grants.isSuccess || !directory.isSuccess}>Предоставить доступ</button>
     </form>
+    </section>
     {confirmGrant && <div className={styles.confirmation} role="group" aria-label="Предоставление доступа">
       <span>Предоставить доступ стилисту {candidates.find((person) => person.id === Number(selected))?.login}?</span>
       <button type="button" disabled={pending || !grants.isSuccess || !directory.isSuccess} onClick={() => void change(Number(selected), "PUT")}>Подтвердить доступ</button>
@@ -84,9 +89,9 @@ export function Access({ actor, pending, onPending }: Props) {
     {directory.isSuccess && grants.isSuccess && !candidates.length && <p className={styles.state}>Нет других активных стилистов.</p>}
     {success && <p role="status" className={styles.success}>{success}</p>}
     {failure && <p role="alert" className={styles.error}>{failure}</p>}
-    <section className={styles.photoSection}><h2>Доступ уже есть</h2>
+    <section className={workspaceStyles.grantList}><h2>Доступ уже есть</h2>
       {grants.data?.length === 0 && <p className={styles.state}>Вы ещё не предоставили доступ.</p>}
-      {grants.data?.map((person) => <article key={person.id} className={styles.personRow}>
+      {grants.data?.map((person) => <article key={person.id} className={workspaceStyles.accessRow}>
         <span>{person.login} <small>№{person.id}</small></span>
         {revokeId === person.id ? <div className={styles.confirmation} role="group" aria-label={`Отозвать доступ: ${person.login}`}>
           <span>Отозвать доступ?</span>
@@ -105,8 +110,10 @@ export function Clients({ actor, pending }: Props) {
     {query.isLoading && <p className={styles.state}>Загружаем клиентов…</p>}
     {query.isError && <ReadError error={query.error} retry={() => void query.refetch()} />}
     {query.data?.length === 0 && <p className={styles.state}>Пока нет клиентов. Пользователь может предоставить доступ в разделе «Доступ стилистам».</p>}
-    {query.data?.map((person) => <Link className={styles.account} key={person.id} to={`/clients/${person.id}/wardrobe`}
+    <section className={workspaceStyles.personGrid} aria-label="Клиенты">
+    {query.data?.map((person) => <Link className={workspaceStyles.personCard} key={person.id} to={`/clients/${person.id}/wardrobe`}
       aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}><span>{person.login}</span><small>Открыть гардероб ↗</small></Link>)}
+    </section>
   </main>;
 }
 
@@ -117,8 +124,10 @@ export function Accounts({ actor, pending }: Props) {
     {query.isLoading && <p className={styles.state}>Загружаем аккаунты…</p>}
     {query.isError && <ReadError error={query.error} retry={() => void query.refetch()} />}
     {query.data?.length === 0 && <p className={styles.state}>Аккаунтов пока нет.</p>}
-    {query.data?.map((person) => <Link className={styles.account} key={person.id} to={`/accounts/${person.id}`}
-      aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}><span>{person.login}</span><small>{person.role} · {person.status}</small></Link>)}
+    {query.data?.length ? <div className={workspaceStyles.tableWrap}><table className={workspaceStyles.accountTable}>
+      <thead><tr><th>Аккаунт</th><th>Роль</th><th>Статус</th><th></th></tr></thead>
+      <tbody>{query.data.map((person) => <tr key={person.id}><td><Link to={`/accounts/${person.id}`} aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}><span aria-hidden="true" className={workspaceStyles.avatar}>{person.login.slice(0, 1).toLocaleUpperCase("ru-RU")}</span><span>{person.login}</span></Link></td><td>{person.role === "USER" ? "Пользователь" : person.role === "STYLIST" ? "Стилист" : "Администратор"}</td><td><span className={person.status === "ACTIVE" ? workspaceStyles.activeStatus : workspaceStyles.blockedStatus}>{person.status === "ACTIVE" ? "Активен" : "Заблокирован"}</span></td><td><Link to={`/accounts/${person.id}`} aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>Открыть →</Link></td></tr>)}</tbody>
+    </table></div> : null}
   </main>;
 }
 
@@ -145,7 +154,7 @@ export function OwnerWorkspace({ kind, actor, pending, onPending }: Props & { ki
   const workspacePending = pending || query.isFetching || query.isError;
   const props = { actor, pending: workspacePending, onPending, context };
   return <>
-    <section className={styles.contextHeader} aria-label="Владелец содержимого">
+    <section className={workspaceStyles.contextBand} aria-label="Владелец содержимого">
       <Link className={styles.textButton} to={directory} aria-disabled={pending}>← {kind === "client" ? "К клиентам" : "К аккаунтам"}</Link>
       <p>{kind === "client" ? "Клиент" : "Аккаунт"}: <strong>{owner.login}</strong> · №{id}</p>
       {query.isError && <ReadError error={query.error} retry={() => void query.refetch()} />}
