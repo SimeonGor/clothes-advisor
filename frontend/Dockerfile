@@ -7,7 +7,6 @@ COPY src ./src
 RUN npm run build
 
 FROM caddy:2.11.4-alpine
-COPY public/ /srv/
 COPY --from=build /app/dist/ /srv/app/
 COPY Caddyfile /etc/caddy/Caddyfile
 USER 10001:10001

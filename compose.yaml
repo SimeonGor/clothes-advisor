@@ -10,7 +10,7 @@ services:
     build:
       context: ./frontend
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/index.html"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/app/"]
       interval: 5s
       timeout: 5s
       retries: 10
