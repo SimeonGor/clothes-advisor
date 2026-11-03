@@ -1,4 +1,4 @@
-.intro { padding: 34px 0 28px; border: 0; }
+.intro { padding: 38px 0 28px; border: 0; }
 .intro h1 { margin: 8px 0; font: 500 clamp(32px, 3.3vw, 46px)/1.13 Onest, sans-serif; letter-spacing: -.045em; }
 .headerAction, .doneButton { min-height: 44px; border: 1px solid var(--accent); border-radius: 8px; padding: 0 18px; background: var(--accent); color: var(--surface); font-size: 14px; cursor: pointer; }
 .form { display: grid; gap: 22px; }
@@ -18,7 +18,7 @@
 .weatherFields label { display: grid; gap: 7px; min-width: 0; color: #69665e; font-size: 13px; font-weight: 500; letter-spacing: 0; }
 .weatherFields label:last-child { grid-column: 1 / -1; }
 .weatherFields label span { color: #69665e; }
-.weatherFields input, .weatherFields select, .field input { width: 100%; min-width: 0; height: 44px; border: 1px solid #827c70; border-radius: 7px; padding: 0 11px; background: #fffdfa; color: #292a25; font-size: 15px; font-weight: 400; letter-spacing: 0; }
+.weatherFields input, .weatherFields select, .field input { width: 100%; min-width: 0; height: 44px; border: 1px solid #827c70; border-radius: 8px; padding: 0 11px; background: #fffdfa; color: #292a25; font-size: 15px; font-weight: 400; letter-spacing: 0; }
 .divider { height: 1px; margin: 22px 0; background: #ded8cd; }
 .planFields { display: grid; gap: 17px; }
 .field { display: grid; gap: 7px; color: #292a25; font-size: 13px; font-weight: 500; }
@@ -50,7 +50,7 @@
   .panel { padding: 18px; }
 }
 @media (max-width: 800px) {
-  .intro { align-items: flex-start; padding: 28px 0 22px; }
+  .intro { align-items: flex-start; padding: 28px 0; }
   .intro h1 { font-size: 34px; }
   .headerAction { display: none; }
   .columns { grid-template-columns: minmax(0, 1fr); gap: 18px; }

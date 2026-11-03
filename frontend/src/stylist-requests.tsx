@@ -281,7 +281,6 @@ function AnswerForm({ actor, ownerId, row, pending, conflict, attemptFailed, new
 
   return <section className={styles.photoSection}>
     <h2>Ответить на запрос</h2>
-    <p>Погода из запроса: <Weather row={row} types={[]} /></p>
     {items.isFetching && <p className={styles.state}>Загружаем гардероб клиента…</p>}
     {items.isError && <ReadError error={items.error} retry={() => void items.refetch()} />}
     {(failure || attemptFailed) && <div className={styles.error} role="alert">{failure && <p>{failure}</p>}

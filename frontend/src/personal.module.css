@@ -22,8 +22,9 @@
 .readOnlyCard dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (max-width: 760px) {
   .weekday { padding: 7px 1px; font-size: 10px; }
-  .day { min-height: 84px; padding: 4px 3px; }
+  .day { height: 84px; min-height: 84px; padding: 4px 3px; }
   .event { margin-top: 4px; padding: 4px; font-size: 9px; }
+  .eventStatus { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .editEntry { width: 22px; min-height: 22px; font-size: 10px; }
   .nameFallback { font-size: 8px; }
   .preferenceCards, .readOnlyCards { grid-template-columns: 1fr; }

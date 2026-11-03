@@ -83,7 +83,7 @@ export function AccountPicker({ onChoose, embedded = false }: { onChoose: (accou
       {error && <p role="alert">{error}</p>}
       {accounts.data?.map((account) => (
         <button
-          className={embedded ? workspaceStyles.accountChoice : styles.account}
+          className={workspaceStyles.accountChoice}
           key={account.id}
           disabled={loading !== null}
           onClick={() => void choose(account.id)}

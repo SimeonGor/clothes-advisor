@@ -80,12 +80,16 @@ export function AppRoutes({ account, onChoose, onSwitch, onPending, pending }: {
 
 export function App() {
   const navigate = useNavigate();
+  const location = useLocation();
   const [account, setAccount] = React.useState<Actor | null>(null);
   const [client, setClient] = React.useState(() => new QueryClient({
     defaultOptions: { queries: { retry: false, staleTime: 0 } },
   }));
   const [pending, setPending] = React.useState(false);
   const [switchOpen, setSwitchOpen] = React.useState(false);
+  React.useEffect(() => {
+    window.scrollTo(0, 0);
+  }, [location.pathname]);
   React.useEffect(() => {
     if (!pending) return;
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = ""; };
