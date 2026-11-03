@@ -1,11 +1,11 @@
 import React from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
 import { createRequest, NewAttempt } from "./idempotency";
 import { allPages, mutationErrorMessage, request, resourceErrorMessage, type Actor, type CalendarEntry, type Outfit } from "./api";
 import styles from "./site.module.css";
+import personal from "./personal.module.css";
 
-const size = 12;
 const entriesKey = (actor: Actor, month: string) => ["calendar", actor.id, month];
 const entryKey = (actor: Actor, id: number) => ["calendar-entry", actor.id, id];
 const ownPath = "/api/me/calendar";
@@ -19,6 +19,18 @@ function monthRange(month: string) {
   return { from: `${month}-01`, to: `${month}-${String(last).padStart(2, "0")}` };
 }
 const statusLabel = (status: CalendarEntry["status"]) => status === "WORN" ? "Надет" : "Запланирован";
+const localDate = (date: Date) => `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
+function monthDays(month: string) {
+  const [year, number] = month.split("-").map(Number);
+  const first = new Date(year, number - 1, 1);
+  const offset = (first.getDay() + 6) % 7;
+  const count = new Date(year, number, 0).getDate();
+  const cells = Math.ceil((offset + count) / 7) * 7;
+  return Array.from({ length: cells }, (_, index) => {
+    const date = new Date(year, number - 1, index - offset + 1);
+    return { date: localDate(date), day: date.getDate(), inMonth: date.getMonth() === number - 1 };
+  });
+}
 
 function ReadError({ error, retry }: { error: unknown; retry: () => void }) {
   return <div className={styles.error} role="alert"><p>{resourceErrorMessage(error)}</p>
@@ -27,19 +39,22 @@ function ReadError({ error, retry }: { error: unknown; retry: () => void }) {
 
 export function Calendar({ actor, pending }: { actor: Actor; pending: boolean }) {
   const [month, setMonth] = React.useState(localMonth);
-  const [page, setPage] = React.useState(0);
   const validMonth = /^\d{4}-(0[1-9]|1[0-2])$/.test(month);
   const range = validMonth ? monthRange(month) : null;
   const query = useQuery({
-    queryKey: entriesKey(actor, month).concat(page),
+    queryKey: entriesKey(actor, month),
     enabled: validMonth,
-    queryFn: ({ signal }) => request<CalendarEntry[]>(`${ownPath}?from=${range!.from}&to=${range!.to}&page=${page}&size=${size}`, actor.id, { signal }),
+    queryFn: ({ signal }) => allPages<CalendarEntry>(`${ownPath}?from=${range!.from}&to=${range!.to}`, actor.id, signal),
   });
-  const grouped = React.useMemo(() => {
-    const groups = new Map<string, CalendarEntry[]>();
-    for (const entry of query.data ?? []) groups.set(entry.date, [...(groups.get(entry.date) ?? []), entry]);
-    return [...groups.entries()];
-  }, [query.data]);
+  const outfitIds = [...new Set((query.data ?? []).map(({ outfitId }) => outfitId))];
+  const outfitQueries = useQueries({ queries: outfitIds.map((id) => ({
+    queryKey: ["calendar-outfit", actor.id, id],
+    queryFn: ({ signal }: { signal: AbortSignal }) => request<Outfit>(`/api/outfits/${id}`, actor.id, { signal }),
+  })) });
+  const outfitNames = new Map(outfitIds.map((id, index) => [id, outfitQueries[index]]));
+  const byDate = new Map<string, CalendarEntry[]>();
+  for (const entry of query.data ?? []) byDate.set(entry.date, [...(byDate.get(entry.date) ?? []), entry]);
+  const days = validMonth ? monthDays(month) : [];
   return <main className={styles.main}>
     <header className={styles.top}><span>ПЕРСОНАЛЬНЫЙ СТИЛЬ</span><span>ПЛАНЫ НА МЕСЯЦ</span></header>
     <section className={styles.intro}><div><p className={styles.eyebrow}>ВАШИ ОБРАЗЫ ПО ДНЯМ</p>
@@ -47,27 +62,45 @@ export function Calendar({ actor, pending }: { actor: Actor; pending: boolean })
       <Link className={styles.create} to="/calendar/new" aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>Добавить образ <span>↗</span></Link>
     </section>
     <label className={styles.nameField}>МЕСЯЦ
-      <input aria-label="Месяц" type="month" value={month} disabled={pending} onChange={(event) => { setMonth(event.target.value); setPage(0); }} />
+      <input aria-label="Месяц" type="month" value={month} disabled={pending} onChange={(event) => setMonth(event.target.value)} />
     </label>
+    <nav className={personal.monthNav} aria-label="Навигация по месяцам">
+      <button type="button" disabled={!validMonth || pending} aria-label="Предыдущий месяц" onClick={() => setMonth((current) => {
+        const [year, number] = current.split("-").map(Number); const next = new Date(year, number - 2, 1); return localMonthValue(next);
+      })}>← Предыдущий</button>
+      <button type="button" disabled={!validMonth || pending} aria-label="Следующий месяц" onClick={() => setMonth((current) => {
+        const [year, number] = current.split("-").map(Number); const next = new Date(year, number, 1); return localMonthValue(next);
+      })}>Следующий →</button>
+    </nav>
     {query.isLoading && <p className={styles.state}>Загружаем календарь…</p>}
     {query.isError && <ReadError error={query.error} retry={() => void query.refetch()} />}
     {!validMonth && <p className={styles.state}>Выберите месяц для просмотра календаря.</p>}
-    {!query.isError && query.data?.length === 0 && page > 0 && <p className={styles.state}>На этой странице нет записей. Вернитесь назад.</p>}
-    {!query.isError && query.data?.length === 0 && page === 0 && <section className={styles.empty}><h2>Планов на этот месяц пока нет</h2>
+    {!query.isError && query.data?.length === 0 && <section className={styles.empty}><h2>Планов на этот месяц пока нет</h2>
       <p>Добавьте образ на выбранную дату.</p><Link className={styles.create} to="/calendar/new" aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>Добавить образ</Link></section>}
-    {!query.isError && grouped.map(([date, entries]) => <section className={styles.photoSection} key={date}>
-      <h2>{new Date(`${date}T12:00:00`).toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long" })}</h2>
-      {entries.map((entry) => <article className={styles.personRow} key={entry.id}>
-        <span>{statusLabel(entry.status)} · <Link to={`/outfits/${entry.outfitId}`} aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>Образ №{entry.outfitId}</Link></span>
-        <Link to={`/calendar/${entry.id}`} aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>Изменить</Link>
-      </article>)}
-    </section>)}
-    {(query.data?.length || page > 0) ? <div className={styles.pages}><span>Страница {page + 1}</span><div>
-      <button type="button" disabled={!page || pending} onClick={() => setPage((current) => current - 1)}>← Назад</button>
-      <button type="button" disabled={!query.data || query.data.length < size || pending} onClick={() => setPage((current) => current + 1)}>Далее →</button>
-    </div></div> : null}
+    {validMonth && !query.isError && !query.isLoading && <table className={personal.calendar} aria-label={`Календарь на ${month}`}>
+      <thead><tr>{["Пн", "Вт", "Ср", "Чт", "Пт", "Сб", "Вс"].map((weekday) => <th className={personal.weekday} scope="col" key={weekday}>{weekday}</th>)}</tr></thead>
+      <tbody>{Array.from({ length: days.length / 7 }, (_, week) => <tr key={days[week * 7].date}>{days.slice(week * 7, week * 7 + 7).map(({ date, day, inMonth }) => <td
+        className={`${personal.day} ${inMonth ? "" : personal.out} ${date === localDate(new Date()) && inMonth ? personal.today : ""}`}
+        aria-label={new Date(`${date}T12:00:00`).toLocaleDateString("ru-RU", { weekday: "long", day: "numeric", month: "long" })} key={date}>
+        <span className={personal.dayNumber}>{day}</span>
+        {(byDate.get(date) ?? []).map((entry) => {
+          const outfitQuery = outfitNames.get(entry.outfitId);
+          const name = outfitQuery?.data?.name ?? `Образ №${entry.outfitId}`;
+          return <article className={personal.event} key={entry.id} title={`${name} · ${statusLabel(entry.status)}`}>
+            <Link to={`/outfits/${entry.outfitId}`} aria-label={`Образ №${entry.outfitId}: ${name}, ${statusLabel(entry.status)}`} aria-disabled={pending}
+              title={name} onClick={(event) => { if (pending) event.preventDefault(); }}>{name}</Link>
+            <span className={personal.eventStatus}>{statusLabel(entry.status)}</span>
+            {outfitQuery?.isError && <span className={personal.nameFallback} role="status">Имя образа недоступно, показан номер.</span>}
+            <Link className={personal.editEntry} to={`/calendar/${entry.id}`} aria-label={`Изменить запись ${entry.id}`} aria-disabled={pending}
+              onClick={(event) => { if (pending) event.preventDefault(); }}>✎</Link>
+          </article>;
+        })}
+      </td>)}</tr>)}</tbody>
+    </table>}
   </main>;
 }
+
+function localMonthValue(date: Date) { return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}`; }
 
 type Draft = { date: string; outfitId: string; status: CalendarEntry["status"] };
 const initialDraft = (entry?: CalendarEntry): Draft => ({ date: entry?.date ?? "", outfitId: entry ? String(entry.outfitId) : "", status: entry?.status ?? "PLANNED" });

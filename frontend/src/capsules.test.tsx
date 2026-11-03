@@ -80,7 +80,7 @@ describe("Ручные капсулы", () => {
     fireEvent.click(screen.getByRole("button", { name: /Сохранить капсулу/ }));
     await waitFor(() => expect(finishFirst).toBeDefined());
     expect((screen.getByRole("button", { name: "Сменить аккаунт" }) as HTMLButtonElement).disabled).toBe(true);
-    fireEvent.click(screen.getByRole("link", { name: "Капсулы ↗" }));
+    fireEvent.click(screen.getByRole("link", { name: "Капсулы" }));
     expect(screen.getByRole("heading", { name: "Новая капсула" })).toBeTruthy();
     expect(switched).not.toHaveBeenCalled();
     await act(async () => { finishFirst(fail(503)); });
@@ -349,6 +349,7 @@ describe("Ручные капсулы", () => {
     expect(screen.getByText("Ручной набор")).toBeTruthy();
     cleanup();
     mount("/capsules/5");
+    await screen.findByRole("heading", { name: "Вещи в капсуле" });
     expect(await screen.findByText(explanation)).toBeTruthy();
     const section = screen.getByRole("heading", { name: "Почему этот набор" }).parentElement!;
     expect(section.textContent).toContain(explanation);
@@ -356,6 +357,8 @@ describe("Ручные капсулы", () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith(hostileUrl))).toBe(false);
     expect(screen.getByText("4.5 °C · ветер 2 м/с · осадки: ID 77")).toBeTruthy();
     expect(screen.getByText("Повод: Поездка")).toBeTruthy();
+    expect(screen.getAllByRole("heading", { name: "Почему этот набор" })).toHaveLength(1);
+    expect(screen.getAllByText("Стиль: Спокойный")).toHaveLength(1);
     expect(screen.queryByRole("alert")).toBeNull();
   });
 
@@ -367,7 +370,7 @@ describe("Ручные капсулы", () => {
     </QueryClientProvider>);
 
     // when / then
-    await waitFor(() => expect(screen.queryByRole("link", { name: "Капсулы ↗" })).toBeNull());
+    await waitFor(() => expect(screen.queryByRole("link", { name: "Капсулы" })).toBeNull());
     expect(screen.queryByRole("heading", { name: "Капсулы" })).toBeNull();
   });
 });

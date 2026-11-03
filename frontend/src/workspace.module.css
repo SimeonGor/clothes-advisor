@@ -1,0 +1,57 @@
+.tableWrap { overflow-x: auto; margin: 28px 0; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.accountTable { width: 100%; border-collapse: collapse; text-align: left; }
+.accountTable th { padding: 15px 18px; color: var(--muted); font-size: 10px; font-weight: 650; letter-spacing: .1em; text-transform: uppercase; }
+.accountTable td { padding: 16px 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 13px; white-space: nowrap; }
+.accountTable td:first-child a { display: inline-flex; max-width: 100%; align-items: center; gap: 11px; color: var(--ink); text-decoration: none; font-weight: 600; overflow-wrap: anywhere; white-space: normal; }
+.accountTable td:last-child a { color: var(--olive); text-decoration: none; }
+.avatar { display: inline-grid; width: 34px; height: 34px; flex: 0 0 auto; place-items: center; border-radius: 50%; background: var(--tint); color: var(--accent); font-size: 13px; font-weight: 650; }
+.activeStatus, .blockedStatus { display: inline-block; border-radius: 99px; padding: 5px 10px; background: #edf0e8; color: #536045; font-size: 11px; }
+.blockedStatus { background: #f4e8e0; color: #88583f; }
+.personGrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; margin: 28px 0; }
+.personCard { min-height: 116px; display: flex; flex-direction: column; justify-content: space-between; gap: 10px; border: 1px solid var(--line); border-radius: 14px; padding: 20px; background: var(--surface); color: var(--ink); text-decoration: none; }
+.personCard span { font-size: 17px; font-weight: 600; overflow-wrap: anywhere; }
+.personCard small { color: var(--olive); font-size: 12px; }
+.grantPanel { max-width: 760px; margin: 22px 0 34px; border: 1px solid var(--line); border-radius: 14px; padding: 22px; background: var(--surface); }
+.grantPanel h2, .grantList h2 { margin: 0 0 8px; font-size: 18px; font-weight: 600; }
+.grantPanel > p { margin: 0 0 16px; color: var(--muted); font-size: 13px; }
+.grantList { max-width: 900px; border-top: 1px solid var(--line); padding: 28px 0; }
+.accessRow { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; border-bottom: 1px solid var(--line); padding: 16px 0; }
+.accessRow > span { font-size: 14px; font-weight: 550; }
+.accessRow small { color: var(--muted); font-weight: 400; }
+.contextBand { margin-left: 218px; padding: 22px 40px 20px; background: #edf0e8; border-bottom: 1px solid #dce1d3; color: #536045; }
+.contextBand > p { margin: 12px 0; overflow-wrap: anywhere; }
+.contextBand a { color: #536045; }
+.requestCard { display: grid; gap: 7px; margin: 12px 0; border: 1px solid var(--line); border-radius: 14px; padding: 18px 20px; background: var(--surface); color: var(--ink); text-decoration: none; }
+.requestTitle { font-size: 16px; font-weight: 600; }
+.requestMeta { color: var(--muted); font-size: 12px; }
+.requestWishes { display: -webkit-box; overflow: hidden; color: #4d4c45; font-size: 13px; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.requestLayout { display: grid; grid-template-columns: minmax(0, .92fr) minmax(0, 1.08fr); gap: 22px; max-width: 1120px; margin: 24px 0; align-items: start; }
+.requestSummary, .requestActions { min-width: 0; border: 1px solid var(--line); border-radius: 14px; padding: 22px; background: var(--surface); }
+.requestSummary h2 { margin: 22px 0 8px; font-size: 15px; font-weight: 600; }
+.requestSummary h2:first-of-type { margin-top: 18px; }
+.requestSummary p { color: #4d4c45; font-size: 13px; white-space: pre-wrap; overflow-wrap: anywhere; }
+.requestActions > form { max-width: none; }
+.requestActions > section { border-top: 0; padding-top: 0; }
+.accountPicker { max-height: 56vh; overflow: auto; }
+.accountPicker > p:first-child { color: var(--muted); font-size: 10px; letter-spacing: .1em; }
+.accountChoice { width: 100%; display: grid; grid-template-columns: 36px 1fr auto; align-items: center; gap: 12px; margin: 8px 0; border: 1px solid var(--line); border-radius: 12px; padding: 12px; background: white; color: var(--ink); text-align: left; cursor: pointer; }
+.accountChoice > span:first-child { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 50%; background: var(--tint); color: var(--accent); font-weight: 650; }
+.accountChoice > span:nth-child(2) { overflow-wrap: anywhere; }
+.accountChoice small { color: var(--muted); font-size: 11px; }
+@media (max-width: 1020px) { .contextBand { margin-left: 185px; padding-right: 28px; padding-left: 28px; } }
+@media (max-width: 760px) {
+  .tableWrap { overflow: visible; border: 0; background: transparent; }
+  .accountTable, .accountTable tbody { display: grid; gap: 10px; }
+  .accountTable thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; }
+  .accountTable tr { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 11px; border: 1px solid var(--line); border-radius: 14px; padding: 15px; background: var(--surface); }
+  .accountTable td { min-width: 0; padding: 0; border: 0; white-space: normal; }
+  .accountTable td:first-child, .accountTable td:last-child { grid-column: 1 / -1; }
+  .personGrid { grid-template-columns: 1fr; }
+  .contextBand { margin: 0; padding: 20px 18px; }
+  .contextBand .contextTabs { gap: 8px 14px; }
+  .grantPanel { padding: 18px; }
+  .accountChoice { grid-template-columns: 36px 1fr; }
+  .accountChoice small { grid-column: 2; }
+  .requestLayout { grid-template-columns: 1fr; gap: 12px; }
+  .requestSummary, .requestActions { padding: 18px; }
+}

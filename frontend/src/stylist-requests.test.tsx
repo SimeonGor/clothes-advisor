@@ -100,7 +100,7 @@ describe("Запросы стилисту владельца", () => {
     fireEvent.click(screen.getByRole("button", { name: "Отправить запрос" }));
     await waitFor(() => expect(finish).toBeDefined());
     fireEvent.click(screen.getByRole("link", { name: "← К запросам" }));
-    fireEvent.click(screen.getByRole("link", { name: "Предпочтения ↗" }));
+    fireEvent.click(screen.getByRole("link", { name: "Предпочтения" }));
     fireEvent.click(screen.getByRole("button", { name: "Сменить аккаунт" }));
 
     // then
@@ -125,7 +125,7 @@ describe("Запросы стилисту владельца", () => {
 
     // then
     await screen.findByRole("heading", { name: role === "STYLIST" ? "Клиенты" : "Аккаунты" });
-    expect(screen.queryByRole("link", { name: "Запросы стилисту ↗" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Запросы стилисту" })).toBeNull();
     expect(fetchMock.mock.calls.some((call) => String(call[0]).startsWith("/api/me/stylist-requests"))).toBe(false);
   });
 

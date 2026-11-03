@@ -46,19 +46,21 @@ describe("Календарь пользователя", () => {
   it("показывает записи по датам и использует локальный месяц без UTC-сдвига", async () => {
     // given
     const calls = fixture(({ url }) => url.startsWith("/api/me/calendar?")
-      ? ok([row(1, "2026-03-01"), row(2, "2026-03-01", 1, "WORN"), row(3, "2026-03-31")]) : fail(404));
+      ? ok([row(1, "2026-03-01"), row(2, "2026-03-01", 1, "WORN"), row(3, "2026-03-31")])
+      : url === "/api/outfits/7" ? ok(outfit) : fail(404));
     mount();
 
     // when
-    await screen.findAllByRole("link", { name: "Образ №7" });
     fireEvent.change(screen.getByLabelText("Месяц"), { target: { value: "2026-03" } });
-    await waitFor(() => expect(calls.some((call) => call.url === "/api/me/calendar?from=2026-03-01&to=2026-03-31&page=0&size=12")).toBe(true));
-    await screen.findAllByText("Запланирован ·");
+    await waitFor(() => expect(calls.some((call) => call.url === "/api/me/calendar?from=2026-03-01&to=2026-03-31&page=0&size=50")).toBe(true));
+    await screen.findAllByText("Запланирован");
 
     // then
-    expect(screen.getAllByRole("link", { name: "Образ №7" })).toHaveLength(3);
-    expect(screen.getAllByRole("link", { name: "Изменить" })).toHaveLength(3);
-    expect(screen.getAllByText("Запланирован ·")[0].textContent).toContain("Образ №7");
+    expect(screen.getAllByRole("link", { name: /Образ №7/ })).toHaveLength(3);
+    expect(screen.getAllByRole("link", { name: /Изменить запись/ })).toHaveLength(3);
+    expect(screen.getByRole("table", { name: "Календарь на 2026-03" })).toBeTruthy();
+    expect(screen.getAllByRole("cell")).toHaveLength(42);
+    expect(screen.getAllByText("Запланирован")[0]).toBeTruthy();
   });
 
   it.each([stylist, admin])("прячет пункт и перенаправляет чужую роль с /calendar без calendar API: $role", async (actor) => {
@@ -100,7 +102,7 @@ describe("Календарь пользователя", () => {
     const first = calls.find((call) => call.init?.method === "POST")!;
     fireEvent.click(screen.getByRole("button", { name: "Добавить в календарь" }));
     await waitFor(() => expect(calls.filter((call) => call.init?.method === "POST")).toHaveLength(2));
-    fireEvent.click(screen.getByRole("link", { name: "Гардероб ↗" }));
+    fireEvent.click(screen.getByRole("link", { name: "Гардероб" }));
 
     // then
     const writes = calls.filter((call) => call.init?.method === "POST");
@@ -193,24 +195,53 @@ describe("Календарь пользователя", () => {
     expect(calls.filter((call) => call.init?.method === "PUT")).toHaveLength(1);
   });
 
-  it("оставляет возврат на предыдущую страницу при ошибке загрузки страницы", async () => {
+  it("показывает записи со второй страницы после полной загрузки месяца", async () => {
     // given
     const calls = fixture(({ url }) => {
-      if (url.includes("page=1")) return fail(503);
-      if (url.startsWith("/api/me/calendar?")) return ok(Array.from({ length: 12 }, (_, index) => row(index + 1, "2026-03-01")));
+      if (url.startsWith("/api/me/calendar?")) {
+        const second = url.includes("page=1");
+        const response = new Response(JSON.stringify(second ? [row(51, "2026-03-31")] : Array.from({ length: 50 }, (_, index) => row(index + 1, "2026-03-01"))), {
+          status: 200, headers: { "X-Total-Count": "51" },
+        });
+        return response;
+      }
+      if (url.startsWith("/api/outfits/")) return fail(404);
       return fail(404);
     });
     mount();
-    await screen.findByRole("button", { name: "Далее →" });
-
-    // when
-    fireEvent.click(screen.getByRole("button", { name: "Далее →" }));
+    fireEvent.change(screen.getByLabelText("Месяц"), { target: { value: "2026-03" } });
 
     // then
-    await screen.findByRole("alert");
-    expect(screen.getByRole("button", { name: "← Назад" })).toBeTruthy();
-    expect(screen.queryByText("Планов на этот месяц пока нет")).toBeNull();
+    await screen.findByRole("cell", { name: /31 марта/ });
+    expect(screen.getAllByRole("link", { name: /Образ №7/ })).toHaveLength(51);
     expect(calls.some((call) => call.url.includes("page=1"))).toBe(true);
+  });
+
+  it("не показывает неполный календарь при ошибке второй страницы и оставляет повтор", async () => {
+    const calls = fixture(({ url }) => url.includes("page=1") ? fail(503)
+      : url.startsWith("/api/me/calendar?") ? new Response(JSON.stringify(Array.from({ length: 50 }, (_, index) => row(index + 1, "2026-03-01"))), {
+        status: 200, headers: { "X-Total-Count": "51" },
+      }) : fail(404));
+    mount();
+    await screen.findByRole("alert");
+    expect(screen.queryByRole("table")).toBeNull();
+    expect(screen.getByLabelText("Месяц")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Повторить загрузку" })).toBeTruthy();
+    expect(calls.some((call) => call.url.includes("page=1"))).toBe(true);
+  });
+
+  it("строит понедельник-первым календарь високосного февраля и переключает месяц без старых записей", async () => {
+    const calls = fixture(({ url }) => url.startsWith("/api/me/calendar?")
+      ? ok(url.includes("2024-02") ? [row(1, "2024-02-29")] : []) : fail(404));
+    mount();
+    fireEvent.change(screen.getByLabelText("Месяц"), { target: { value: "2024-02" } });
+    await screen.findByRole("table", { name: "Календарь на 2024-02" });
+    expect(screen.getAllByRole("cell")).toHaveLength(35);
+    expect(screen.getByRole("cell", { name: /четверг, 29 февраля/ })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Следующий месяц" }));
+    await screen.findByRole("table", { name: "Календарь на 2024-03" });
+    expect(screen.queryByRole("link", { name: /Образ №7/ })).toBeNull();
+    expect(calls.some((call) => call.url.includes("from=2024-03-01&to=2024-03-31"))).toBe(true);
   });
 
   it("не запрашивает календарь для некорректного ID или очищенного месяца", async () => {

@@ -5,6 +5,7 @@ import { allPages, ApiError, request, resourceErrorMessage, type Actor, type Pre
 import { createRequest, NewAttempt } from "./idempotency";
 import { WardrobeItemPicker } from "./wardrobe-item-picker";
 import styles from "./site.module.css";
+import workspaceStyles from "./workspace.module.css";
 
 const pageSize = 12;
 type StylistGrant = { id: number; login: string };
@@ -49,11 +50,13 @@ export function StylistRequests({ actor, pending, ownerId }: Props) {
     {query.isSuccess && query.data.length === 0 && page === 0 && <section className={styles.empty}><h2>Пока нет запросов</h2>
       <p>Создайте запрос, чтобы попросить стилиста подобрать образ.</p></section>}
     <section aria-label="Список запросов">
-      {query.isSuccess && query.data.map((row) => <Link className={styles.account} key={row.id} to={`${pagePath(ownerId)}/${row.id}`} aria-disabled={pending}
+      {query.isSuccess && query.data.map((row) => <Link className={workspaceStyles.requestCard} key={row.id} to={`${pagePath(ownerId)}/${row.id}`} aria-disabled={pending}
+        aria-label={`Запрос №${row.id} · стилист №${row.stylistId} · ${statusLabel(row.status)}`}
         onClick={(event) => { if (pending) event.preventDefault(); }}>
-        <span>Запрос №{row.id} · стилист №{row.stylistId}</span>
-        <small>{statusLabel(row.status)} · {new Date(row.createdAt).toLocaleDateString("ru-RU")}</small>
-        <small>{types.data ? <Weather row={row} types={types.data} /> : `${row.weather.temperatureC} °C · ветер ${row.weather.windSpeedMps} м/с · Осадки`}</small>
+        <span className={workspaceStyles.requestTitle}>Запрос №{row.id}</span>
+        <span className={workspaceStyles.requestMeta}>Стилист №{row.stylistId} · {new Date(row.createdAt).toLocaleDateString("ru-RU")}</span>
+        <span className={workspaceStyles.requestMeta}>{statusLabel(row.status)} · {types.data ? <Weather row={row} types={types.data} /> : `${row.weather.temperatureC} °C · ветер ${row.weather.windSpeedMps} м/с · Осадки`}</span>
+        {row.wishes && <span className={workspaceStyles.requestWishes}>{row.wishes}</span>}
       </Link>)}
     </section>
     {(query.isSuccess && query.data.length || page > 0) ? <div className={styles.pages}><span>Страница {page + 1}</span><div>
@@ -201,12 +204,16 @@ export function StylistRequestDetail({ actor, pending, onPending, ownerId }: Pro
   if (accessBlocked) return <main className={styles.main}><ReadError error={new ApiError(403)} retry={() => void reload()} /><Link to={pagePath(ownerId)}>← К запросам</Link></main>;
   if (query.isError || !query.data) return <main className={styles.main}><ReadError error={query.error ?? new ApiError(404)} retry={() => void reload()} /><Link to={pagePath(ownerId)}>← К запросам</Link></main>;
   const row = query.data;
-  return <main className={styles.main}>
+  return <main className={`${styles.main} ${workspaceStyles.requestDetail}`}>
     <Intro title={`Запрос №${row.id}`} description={`Стилист №${row.stylistId} · ${statusLabel(row.status)}`} />
-    <p className={styles.muted}>Создан: {new Date(row.createdAt).toLocaleString("ru-RU")}</p>
-    <section className={styles.photoSection}><h2>Погода</h2>{types.data ? <Weather row={row} types={types.data} /> : <span>{row.weather.temperatureC} °C · ветер {row.weather.windSpeedMps} м/с · Осадки</span>}</section>
-    {types.isError && <ReadError error={types.error} retry={() => void types.refetch()} />}
-    <section className={styles.photoSection}><h2>Пожелания</h2><p>{row.wishes || "Пожеланий нет."}</p></section>
+    <div className={workspaceStyles.requestLayout}>
+    <section className={workspaceStyles.requestSummary} aria-label="Сводка запроса">
+      <p className={styles.muted}>Создан: {new Date(row.createdAt).toLocaleString("ru-RU")}</p>
+      <h2>Погода</h2><p>{types.data ? <Weather row={row} types={types.data} /> : `${row.weather.temperatureC} °C · ветер ${row.weather.windSpeedMps} м/с · Осадки`}</p>
+      {types.isError && <ReadError error={types.error} retry={() => void types.refetch()} />}
+      <h2>Пожелания</h2><p>{row.wishes || "Пожеланий нет."}</p>
+    </section>
+    <section className={workspaceStyles.requestActions} aria-label="Действия по запросу">
     {failure && <div className={styles.error} role="alert"><p>{failure}</p></div>}
     {conflict && ownerId === undefined && <div className={styles.error}><p>Состояние могло измениться. Перечитайте запрос, прежде чем продолжить.</p>
       <button type="button" disabled={pending} onClick={() => void reload()}>Перечитать запрос</button></div>}
@@ -225,6 +232,8 @@ export function StylistRequestDetail({ actor, pending, onPending, ownerId }: Pro
     {row.status === "ANSWERED" && row.answer && <section className={styles.photoSection}>
       <h2>Ответ стилиста</h2><p>{row.answer.explanation}</p><Link className={styles.create} to={ownerId === undefined ? `/outfits/${row.answer.outfitId}` : `/clients/${ownerId}/outfits/${row.answer.outfitId}`} aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>Открыть образ №{row.answer.outfitId} ↗</Link>
     </section>}
+    </section>
+    </div>
     <p><Link className={styles.textButton} to={pagePath(ownerId)} aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>← К запросам</Link></p>
   </main>;
 }
@@ -272,7 +281,6 @@ function AnswerForm({ actor, ownerId, row, pending, conflict, attemptFailed, new
 
   return <section className={styles.photoSection}>
     <h2>Ответить на запрос</h2>
-    <p>Погода из запроса: <Weather row={row} types={[]} /></p>
     {items.isFetching && <p className={styles.state}>Загружаем гардероб клиента…</p>}
     {items.isError && <ReadError error={items.error} retry={() => void items.refetch()} />}
     {(failure || attemptFailed) && <div className={styles.error} role="alert">{failure && <p>{failure}</p>}

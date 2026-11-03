@@ -12,15 +12,14 @@ import {
   wardrobeItemsPath,
   type Actor,
   type Outfit,
-  type Photo,
   type Precipitation,
   type WardrobeItem,
   type WorkspaceContext,
 } from "./api";
-import { PhotoImage } from "./site";
-import { WardrobeItemCard } from "./wardrobe-item-card";
 import { WardrobeItemPicker } from "./wardrobe-item-picker";
 import styles from "./site.module.css";
+import collectionStyles from "./collection.module.css";
+import { WardrobeComposition } from "./wardrobe-composition";
 
 const size = 12;
 type HistoryRow = {
@@ -62,7 +61,7 @@ export function Outfits({ actor, context = { kind: "own" }, pending }: { actor: 
 
   return (
     <main className={styles.main}>
-      <header className={styles.top}><span>ПЕРСОНАЛЬНЫЙ СТИЛЬ</span><span>СОХРАНЁННЫЕ ОБРАЗЫ</span></header>
+      <header className={`${styles.top} ${collectionStyles.compactTop}`}><span>ПЕРСОНАЛЬНЫЙ СТИЛЬ</span><span>СОХРАНЁННЫЕ ОБРАЗЫ</span></header>
       <section className={styles.intro}>
         <div>
           <p className={styles.eyebrow}>{context.kind === "own" ? "ВАШИ СОЧЕТАНИЯ" : "СОЧЕТАНИЯ ВЛАДЕЛЬЦА"}</p>
@@ -81,7 +80,7 @@ export function Outfits({ actor, context = { kind: "own" }, pending }: { actor: 
           {canAdd && <Link className={styles.create} to={`${routeBase(context)}/new`} aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>Создать первый образ <span>↗</span></Link>}
         </section>
       )}
-      <div className={styles.grid}>
+      <div className={collectionStyles.catalog}>
         {query.data?.map((outfit) => <OutfitCard key={outfit.id} actor={actor} context={context} outfit={outfit} pending={pending} />)}
       </div>
       {(query.data?.length || page > 0) ? (
@@ -104,20 +103,12 @@ function OutfitCard({ actor, context, outfit, pending }: { actor: Actor; context
     enabled: outfit.itemIds.length > 0,
     queryFn: ({ signal }) => Promise.all(outfit.itemIds.map((id) => request<WardrobeItem>(`${base}/${id}`, actor.id, { signal }))),
   });
-  const firstItem = items.data?.[0];
-  const photos = useQuery({
-    queryKey: ["outfit-photo-list", actor.id, contextKey(context), firstItem?.id],
-    enabled: !!firstItem,
-    queryFn: ({ signal }) => request<Photo[]>(`${base}/${firstItem?.id}/photos`, actor.id, { signal }),
-  });
   return (
-    <Link className={styles.card} to={`${routeBase(context)}/${outfit.id}`} aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>
-      <span className={styles.image}>
-        {photos.data?.[0] && firstItem ? <PhotoImage actor={actor} item={firstItem} photo={photos.data[0]} itemsBase={base} /> : <span className={styles.photoEmpty}>{photos.isError || items.isError ? "Фото не загрузилось" : photos.data || !outfit.itemIds.length ? "Нет фото" : "Загружаем образ…"}</span>}
-      </span>
-      <span className={styles.cardInfo}>
-        <span className={styles.itemName}>{outfit.name}</span>
-        <small>{items.data?.map((item) => item.name).join(" · ") || ""}</small>
+    <Link className={collectionStyles.card} to={`${routeBase(context)}/${outfit.id}`} aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>
+      <WardrobeComposition actor={actor} items={items.data?.slice(0, 4) ?? []} context={context} itemsBase={base} />
+      <span className={collectionStyles.details}>
+        <span className={collectionStyles.title}>{outfit.name}</span>
+        <small>{items.isError ? "Не удалось загрузить вещи" : items.isLoading ? "Загружаем вещи…" : items.data?.map((item) => item.name).join(" · ") || "Нет вещей"}</small>
         <small>{sourceName(outfit.source)} · {outfit.likes} нравится · {outfit.dislikes} не нравится</small>
       </span>
     </Link>
@@ -191,7 +182,7 @@ export function OutfitEditor({ actor, context = { kind: "own" }, onPending, pend
 
   return (
     <main className={styles.main}>
-      <header className={styles.top}><span>ПЕРСОНАЛЬНЫЙ СТИЛЬ</span><span>НОВЫЙ ОБРАЗ</span></header>
+      <header className={`${styles.top} ${collectionStyles.compactTop}`}><span>ПЕРСОНАЛЬНЫЙ СТИЛЬ</span><span>НОВЫЙ ОБРАЗ</span></header>
       <section className={styles.intro}>
         <div>
           <p className={styles.eyebrow}>СОБЕРИТЕ СОЧЕТАНИЕ</p>
@@ -199,7 +190,7 @@ export function OutfitEditor({ actor, context = { kind: "own" }, onPending, pend
           <p className={styles.muted}>Выберите вещи и сохраните погоду, в которой образ пригодится.</p>
         </div>
       </section>
-      <form onSubmit={(event) => void submit(event)}>
+      <form className={collectionStyles.formPanel} onSubmit={(event) => void submit(event)}>
         <section className={styles.formTop}>
           <label className={styles.nameField}>НАЗВАНИЕ ОБРАЗА
             <input required maxLength={300} value={name} onChange={(event) => setName(event.target.value)} disabled={pending} />
@@ -316,33 +307,40 @@ export function OutfitDetail({ actor, context = { kind: "own" }, onPending, pend
   const precipitationName = precipitation.data?.find((type) => type.id === row.weather.precipitationTypeId)?.name;
   return (
     <main className={styles.main}>
-      <header className={styles.top}><span>ПЕРСОНАЛЬНЫЙ СТИЛЬ</span><span>ОБРАЗ №{row.id}</span></header>
+      <header className={`${styles.top} ${collectionStyles.compactTop}`}><span>ПЕРСОНАЛЬНЫЙ СТИЛЬ</span><span>ОБРАЗ №{row.id}</span></header>
       <section className={styles.intro}>
         <div>
           <p className={styles.eyebrow}>{sourceName(row.source)} · {new Date(row.createdAt).toLocaleDateString("ru-RU")}</p>
           <h1>{row.name}</h1>
-          {row.occasion && <p>Повод: {row.occasion}</p>}
-          {row.preferredStyle && <p>Стиль: {row.preferredStyle}</p>}
-          {row.explanation && (
-            <section aria-label="Почему этот образ">
-              <h2>Почему этот образ</h2>
-              <p>{row.explanation}</p>
-            </section>
-          )}
-          <p className={styles.muted}>
-            {row.weather.temperatureC} °C · ветер {row.weather.windSpeedMps} м/с · {precipitationName ?? "Осадки"}
-            {` · нравится ${row.likes} · не нравится ${row.dislikes}`}
-          </p>
-          {precipitation.isError && <ReadError error={precipitation.error} retry={() => void precipitation.refetch()} />}
         </div>
         <Link className={styles.textButton} to={routeBase(context)} aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>← К образам</Link>
       </section>
-      {items.isLoading && <p className={styles.state}>Загружаем вещи…</p>}
-      {items.isError && <ReadError error={items.error} retry={() => void items.refetch()} />}
-      {items.data?.length === 0 && <p className={styles.state}>В этом образе нет вещей.</p>}
-      <div className={styles.grid}>
-        {items.data?.map((item) => <WardrobeItemCard key={item.id} actor={actor} item={item} base={itemsBase} context={context} />)}
+      <div className={collectionStyles.detailLayout}>
+        <section>
+          {items.isLoading && <p className={styles.state}>Загружаем вещи…</p>}
+          {items.isError && <ReadError error={items.error} retry={() => void items.refetch()} />}
+          {items.data?.length === 0 && <p className={styles.state}>В этом образе нет вещей.</p>}
+          {items.data && <>
+      <WardrobeComposition actor={actor} items={items.data} context={context} itemsBase={itemsBase} />
+            <div className={collectionStyles.itemList} aria-label="Вещи в образе">
+              {items.data.map((item) => <div className={collectionStyles.item} key={item.id}>{item.name}<small>{item.color} · {item.material}</small></div>)}
+            </div>
+          </>}
+        </section>
+        <section className={collectionStyles.description}>
+          {row.explanation && <section aria-label="Почему этот образ"><h2>Почему этот образ</h2><p>{row.explanation}</p></section>}
+          <div className={collectionStyles.weather}>
+            <span>{row.weather.temperatureC} °C</span><span>Ветер {row.weather.windSpeedMps} м/с</span><span>{precipitationName ?? "Осадки"}</span>
+          </div>
+          {row.occasion && <p className={styles.muted}>Повод: {row.occasion}</p>}
+          {row.preferredStyle && <p className={styles.muted}>Стиль: {row.preferredStyle}</p>}
+          <div className={collectionStyles.ratings} aria-label="Оценки образа">
+            <span className={collectionStyles.ratingCount}>{row.likes} нравится</span>
+            <span className={collectionStyles.ratingCount}>{row.dislikes} не нравится</span>
+          </div>
+        </section>
       </div>
+      {precipitation.isError && <ReadError error={precipitation.error} retry={() => void precipitation.refetch()} />}
       {context.kind === "own" && actor.role === "USER" && items.data && (
         <OutfitReplacement
           key={`${actor.id}:${row.id}`}
@@ -358,14 +356,14 @@ export function OutfitDetail({ actor, context = { kind: "own" }, onPending, pend
         Данные изменились. Обновите образ, затем решите, нужно ли повторить действие.
         <button type="button" disabled={pending} onClick={() => void refresh()}>Обновить</button>
       </div>}
-      {canRate && <section className={styles.photoSection}>
+      {canRate && <section className={`${styles.photoSection} ${collectionStyles.section}`}>
         <h2>Оценка стилиста</h2>
         <p className={styles.muted}>Оценить можно только образ другого автора.</p>
         <button type="button" disabled={pending || row.myRating?.vote === "LIKE"} onClick={() => void rate("LIKE")}>Нравится</button>{" "}
         <button type="button" disabled={pending || row.myRating?.vote === "DISLIKE"} onClick={() => void rate("DISLIKE")}>Не нравится</button>
         {row.myRating && <button type="button" disabled={pending} onClick={() => void cancelRating()}>Отменить оценку</button>}
       </section>}
-      {context.kind !== "admin" && <section className={styles.photoSection}>
+      {context.kind !== "admin" && <section className={`${styles.photoSection} ${collectionStyles.section}`}>
         <h2>История оценок</h2>
         {history.isLoading && <p className={styles.state}>Загружаем историю…</p>}
         {history.isError && <ReadError error={history.error} retry={() => void history.refetch()} />}
