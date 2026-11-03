@@ -125,7 +125,7 @@ export async function allPages<T>(
 ): Promise<T[]> {
   const all: T[] = [];
   for (let page = 0; ; page += 1) {
-    const url = `${path}?page=${page}&size=50`;
+    const url = `${path}${path.includes("?") ? "&" : "?"}page=${page}&size=50`;
     const response = await fetch(url, {
       headers: actorId === undefined ? {} : { "X-User-Id": String(actorId) },
       credentials: "same-origin",
