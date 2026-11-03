@@ -88,10 +88,11 @@ internal class RefresherTest {
     private fun refresher() = Refresher(privateRecords, output, OAuth(token = tokenUri, jwks = jwksUri), clock)
     private fun success() = mapOf<String, Any>("access_token" to "new-access", "refresh_token" to "new-refresh",
         "token_type" to "Bearer", "expires_in" to 3600)
-    private fun login(expires: Instant = clock.instant().plusSeconds(30), access: String = "old-access") {
+    private fun login(expires: Instant = clock.instant().plusSeconds(30), access: String = "old-access",
+        refresh: String = "old-refresh") {
         privateRecords.write("registration.json", mapOf("host_id" to "urn:uuid:00000000-0000-4000-8000-000000000000", "client_id" to "issued"))
         privateRecords.write("credentials.json", mapOf("client_id" to "issued", "issuer" to ISSUER, "subject" to "same-user",
-            "access_token" to access, "refresh_token" to "old-refresh", "id_token" to "old-verified-id",
+            "access_token" to access, "refresh_token" to refresh, "id_token" to "old-verified-id",
             "expires_at" to expires.toString(), "scopes" to (requiredScopes + "openid").sorted()))
     }
 
@@ -219,20 +220,52 @@ internal class RefresherTest {
         assertEquals("login_required", refresher().cycle())
     }
 
-    @Test fun `transient explicit HTTP error retries while retaining only unexpired projection`() {
+    @ParameterizedTest
+    @ValueSource(ints = [429, 500, 502, 503, 504])
+    fun `ambiguous HTTP response blocks generation across cycles and restart until fresh login`(status: Int) {
         // given
-        login()
-        tokenStatus = 429
-        // when / then
-        assertEquals("retry_later", refresher().cycle())
+        login(expires = clock.instant().plusSeconds(90))
+        val original = privateRecords.read("credentials.json")!!
+        val running = refresher()
+        assertEquals("waiting", running.cycle())
         assertEquals("old-access", output.read("credentials.json")!!.text("access_token"))
+        assertNotNull(output.read("registration.json"))
+        assertEquals(0, tokenCalls)
         clock.now = clock.now.plusSeconds(31)
-        tokenStatus = 503
-        assertEquals("retry_later", refresher().cycle())
+        tokenStatus = status
+        // when
+        assertEquals("ambiguous_response", running.cycle())
+        // then: even the still-valid published access token is withdrawn
+        assertEquals(original, privateRecords.read("credentials.json"))
         assertNull(output.read("credentials.json"))
+        assertNull(output.read("registration.json"))
+        val blocked = privateRecords.read("refresh-state.json")!!
+        assertEquals("blocked", blocked.text("phase"))
+        assertEquals(1, tokenCalls)
+        assertEquals("old-refresh", lastForm["refresh_token"])
+
+        // when: the provider recovers, the same process and a restarted one must not replay
         tokenStatus = 200
+        assertEquals("login_required", running.cycle())
+        assertEquals("login_required", refresher().cycle())
+        // then
+        assertEquals(1, tokenCalls)
+        assertEquals(blocked, privateRecords.read("refresh-state.json"))
+        assertEquals(original, privateRecords.read("credentials.json"))
+        assertNull(output.read("credentials.json"))
+        assertNull(output.read("registration.json"))
+
+        // when: a fresh login creates a different credential generation
+        login(access = "new-login-access", refresh = "new-login-refresh")
         assertEquals("refreshed", refresher().cycle())
-        assertEquals(3, tokenCalls)
+        // then
+        assertEquals(2, tokenCalls)
+        assertEquals("new-login-refresh", lastForm["refresh_token"])
+        assertEquals("new-refresh", privateRecords.read("credentials.json")!!.text("refresh_token"))
+        assertEquals("new-access", output.read("credentials.json")!!.text("access_token"))
+        assertNotNull(output.read("registration.json"))
+        assertNull(privateRecords.read("refresh-state.json"))
+        assertEquals(0, jwksCalls)
     }
 
     @Test fun `request marker after crash prevents replay of unknown provider outcome`() {

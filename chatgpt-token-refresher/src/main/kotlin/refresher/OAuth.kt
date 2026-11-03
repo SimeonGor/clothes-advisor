@@ -71,7 +71,7 @@ internal class OAuth(
             future.cancel(true)
             fail("ambiguous_transport")
         }
-        if (response.statusCode() == 429 || response.statusCode() in 500..599) fail("retry_later")
+        if (response.statusCode() == 429 || response.statusCode() in 500..599) fail("ambiguous_response")
         if (response.statusCode() !in 200..299) fail("authorization_rejected")
         return try { json.readTree(response.body())?.takeIf { it.isObject } ?: fail("invalid_response") }
         catch (_: Exception) { fail("invalid_response") }

@@ -53,11 +53,6 @@ internal class Refresher(
         privateRecords.write("refresh-state.json", mapOf("generation" to generation, "phase" to "requesting"))
         val response = try { oauth.refresh(credentials) }
         catch (e: Failure) {
-            if (e.category == "retry_later") {
-                privateRecords.delete("refresh-state.json")
-                publish(credentials)
-                return "retry_later"
-            }
             block(generation)
             throw e
         }
