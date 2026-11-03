@@ -4,9 +4,10 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { createRequest, NewAttempt } from "./idempotency";
 import { allPages, ApiError, request, resourceErrorMessage, type Actor, type Capsule, type WardrobeItem, wardrobeItemsPath } from "./api";
 import { WardrobeItemPicker } from "./wardrobe-item-picker";
-import { WardrobeItemCard } from "./wardrobe-item-card";
 import { CapsuleAiContext } from "./ai-capsule";
 import styles from "./site.module.css";
+import collectionStyles from "./collection.module.css";
+import { WardrobeComposition } from "./wardrobe-composition";
 
 const pageSize = 12;
 const capsulesKey = (actorId: number, page: number) => ["capsules", actorId, page] as const;
@@ -31,7 +32,7 @@ export function Capsules({ actor, pending }: { actor: Actor; pending: boolean })
   });
   if (actor.role !== "USER") return <Denied />;
   return <main className={styles.main}>
-    <header className={styles.top}><span>ПЕРСОНАЛЬНЫЙ СТИЛЬ</span><span>НАБОРЫ</span></header>
+    <header className={`${styles.top} ${collectionStyles.compactTop}`}><span>ПЕРСОНАЛЬНЫЙ СТИЛЬ</span><span>НАБОРЫ</span></header>
     <section className={styles.intro}><div><p className={styles.eyebrow}>ВАШ ГАРДЕРОБ</p><h1>Капсулы</h1>
       <p className={styles.muted}>Ручные наборы вещей и подборки, созданные с помощью ИИ.</p></div>
       <div><Link className={styles.create} to="/capsules/ai" aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>Подобрать с ИИ <span>↗</span></Link>{" "}
@@ -46,16 +47,33 @@ export function Capsules({ actor, pending }: { actor: Actor; pending: boolean })
       <Link className={styles.create} to="/capsules/ai" aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>Подобрать с ИИ <span>↗</span></Link>{" "}
       <Link className={styles.textButton} to="/capsules/new" aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>Создать вручную</Link>
     </section>}
-    {!query.isError && <div className={styles.grid}>{query.data?.map((capsule) => <Link className={styles.card} key={capsule.id} to={`/capsules/${capsule.id}`} aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>
-      <span className={styles.cardInfo}><span className={styles.itemName}>{capsule.name}</span>
-        <small>{capsule.source === "AI" ? "Подбор с ИИ" : "Ручной набор"}</small>
-        <small>{new Date(capsule.createdAt).toLocaleDateString("ru-RU")}</small><small>{capsule.itemIds.length} вещей</small></span>
-    </Link>)}</div>}
+    {!query.isError && <div className={collectionStyles.catalog}>{query.data?.map((capsule) => <CapsuleCard key={capsule.id} actor={actor} capsule={capsule} pending={pending} />)}</div>}
     {(query.data?.length || page > 0) && !query.isError && <div className={styles.pages}><span>Страница {page + 1}</span><div>
       <button type="button" disabled={!page || pending} onClick={() => setPage((value) => value - 1)}>← Назад</button>
       <button type="button" disabled={!query.data || query.data.length < pageSize || pending} onClick={() => setPage((value) => value + 1)}>Далее →</button>
     </div></div>}
   </main>;
+}
+
+function CapsuleCard({ actor, capsule, pending }: { actor: Actor; capsule: Capsule; pending: boolean }) {
+  const context = { kind: "own" } as const;
+  const itemsBase = wardrobeItemsPath(context);
+  const previewItems = useQuery({
+    queryKey: ["capsule-preview-items", actor.id, capsule.id],
+    enabled: capsule.itemIds.length > 0,
+    queryFn: ({ signal }) => Promise.all(capsule.itemIds.slice(0, 4).map((id) => request<WardrobeItem>(`${itemsBase}/${id}`, actor.id, { signal }))),
+  });
+  return <Link className={collectionStyles.card} to={`/capsules/${capsule.id}`} aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>
+    <WardrobeComposition actor={actor} items={previewItems.data ?? []} context={context} itemsBase={itemsBase} />
+    <span className={collectionStyles.details}>
+      <span className={collectionStyles.title}>{capsule.name}</span>
+      <small>{capsule.source === "AI" ? "Подбор с ИИ" : "Ручной набор"}</small>
+      <small>{new Date(capsule.createdAt).toLocaleDateString("ru-RU")}</small>
+      <small>{capsule.itemIds.length} вещей</small>
+      {previewItems.isError && <small>Не удалось загрузить вещи</small>}
+      {previewItems.isLoading && <small>Загружаем вещи…</small>}
+    </span>
+  </Link>;
 }
 
 export function CapsuleEditor({ actor, onPending, pending }: { actor: Actor; onPending: (value: boolean) => void; pending: boolean }) {
@@ -147,11 +165,11 @@ export function CapsuleEditor({ actor, onPending, pending }: { actor: Actor; onP
   }
 
   return <main className={styles.main}>
-    <header className={styles.top}><span>ПЕРСОНАЛЬНЫЙ СТИЛЬ</span><span>НОВАЯ КАПСУЛА</span></header>
+    <header className={`${styles.top} ${collectionStyles.compactTop}`}><span>ПЕРСОНАЛЬНЫЙ СТИЛЬ</span><span>НОВАЯ КАПСУЛА</span></header>
     <section className={styles.intro}><div><p className={styles.eyebrow}>РУЧНОЙ НАБОР</p><h1>Новая капсула</h1>
       <p className={styles.muted}>Состав нельзя изменить после сохранения. Для другого набора создайте новую капсулу.</p></div></section>
     <p className={styles.muted}><Link to="/capsules/ai">Подобрать капсулу с ИИ</Link></p>
-    <form onSubmit={(event) => void submit(event)}>
+    <form className={collectionStyles.formPanel} onSubmit={(event) => void submit(event)}>
       <section className={styles.formTop}><label className={styles.nameField}>НАЗВАНИЕ КАПСУЛЫ
         <input required maxLength={300} value={name} onChange={(event) => setName(event.target.value)} disabled={pending || attemptFailed} />
       </label></section>
@@ -231,18 +249,26 @@ export function CapsuleDetail({ actor, onPending, pending }: { actor: Actor; onP
     <Link className={styles.textButton} to="/capsules">← К капсулам</Link></main>;
   const row = capsule.data;
   return <main className={styles.main}>
-    <header className={styles.top}><span>ПЕРСОНАЛЬНЫЙ СТИЛЬ</span><span>КАПСУЛА №{row.id}</span></header>
+    <header className={`${styles.top} ${collectionStyles.compactTop}`}><span>ПЕРСОНАЛЬНЫЙ СТИЛЬ</span><span>КАПСУЛА №{row.id}</span></header>
     <section className={styles.intro}><div><p className={styles.eyebrow}>СОЗДАНА {new Date(row.createdAt).toLocaleDateString("ru-RU")}</p>
       <h1>{row.name}</h1><p className={styles.muted}>{row.source === "AI" ? "Подбор с ИИ" : "Ручной набор"} · {row.itemIds.length} вещей · состав нельзя изменить. Для другого набора создайте новую капсулу.</p></div>
       <Link className={styles.textButton} to="/capsules" aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>← К капсулам</Link>
     </section>
-    {row.source === "AI" && <CapsuleAiContext actor={actor} capsule={row} />}
-    {items.isLoading && <p className={styles.state}>Загружаем вещи…</p>}
-    {items.isError && <ReadError error={items.error} retry={() => void items.refetch()} />}
-    {items.data?.length === 0 && <p className={styles.state}>В капсуле нет вещей.</p>}
-    {!items.isError && <div className={styles.grid}>{items.data?.map((item) => <WardrobeItemCard key={item.id} actor={actor} item={item}
-      base={wardrobeItemsPath({ kind: "own" })} context={{ kind: "own" }} to={`/wardrobe/${item.id}`} />)}</div>
-    }
+    <div className={collectionStyles.detailLayout}>
+      <section>
+        {items.isLoading && <p className={styles.state}>Загружаем вещи…</p>}
+        {items.isError && <ReadError error={items.error} retry={() => void items.refetch()} />}
+        {items.data?.length === 0 && <p className={styles.state}>В капсуле нет вещей.</p>}
+        {items.data && <WardrobeComposition actor={actor} items={items.data} context={{ kind: "own" }} itemsBase={wardrobeItemsPath({ kind: "own" })} />}
+      </section>
+      <section className={collectionStyles.description}>
+        {row.source === "AI" && <CapsuleAiContext actor={actor} capsule={row} />}
+        {items.data && <div className={collectionStyles.itemList} aria-label="Вещи в капсуле">
+          <h2>Вещи в капсуле</h2>
+          {items.data.map((item) => <Link className={collectionStyles.item} key={item.id} to={`/wardrobe/${item.id}`}>{item.name}<small>{item.color} · {item.material}</small></Link>)}
+        </div>}
+      </section>
+    </div>
     {failure && <div className={styles.error} role="alert">{failure}</div>}
     <section className={styles.deleteSection}>{confirmDelete ? <div role="group" aria-label="Подтверждение удаления">
       <p>Удалить капсулу? Вещи останутся в гардеробе.</p>
