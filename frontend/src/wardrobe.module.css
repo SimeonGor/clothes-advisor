@@ -1,0 +1,288 @@
+.catalog {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 28px 20px;
+}
+
+.card {
+  display: block;
+  min-width: 0;
+  color: inherit;
+  text-decoration: none;
+}
+
+.image {
+  position: relative;
+  display: grid;
+  place-items: center;
+  aspect-ratio: 1;
+  overflow: hidden;
+  border-radius: 11px;
+  background: #efeae3;
+}
+
+.image img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.cardInfo {
+  display: grid;
+  gap: 4px;
+  padding-top: 11px;
+}
+
+.itemName {
+  overflow: hidden;
+  font-size: 16px;
+  font-weight: 550;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+}
+
+.cardInfo small {
+  color: #77756d;
+  font-size: 13px;
+}
+
+.availability {
+  width: fit-content;
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: #e8ecdd;
+  color: #3f5536 !important;
+}
+
+.laundry {
+  background: #f1e4d8;
+  color: #79432f !important;
+}
+
+.stored {
+  background: #ebe9e4;
+  color: #615e55 !important;
+}
+
+.pageSummary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 9px;
+  margin: 0 0 25px;
+}
+
+.pageSummary span {
+  padding: 6px 10px;
+  border-radius: 6px;
+  background: #efebe3;
+  color: #575447;
+  font-size: 12px;
+}
+
+.pageSummary span:first-child {
+  background: #e8ecdd;
+}
+
+.intro {
+  padding: 34px 0 28px;
+}
+
+.editor {
+  display: grid;
+  width: 100%;
+  max-width: none;
+  grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr);
+  align-items: start;
+  gap: 32px;
+  padding: 0 0 35px;
+}
+
+.uploadColumn {
+  min-width: 0;
+}
+
+.dropzone {
+  padding: 34px 24px;
+  border: 1.5px dashed #afa494;
+  border-radius: 12px;
+  background: #f3ede3;
+  text-align: center;
+}
+
+.dragging {
+  border-color: #79432f;
+  background: #ece1d4;
+}
+
+.uploadIcon {
+  display: inline-grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  margin-bottom: 12px;
+  border-radius: 50%;
+  background: #e8ddd0;
+  color: #79432f;
+  font-size: 25px;
+}
+
+.dropzone h2 {
+  margin: 0;
+  font-size: 21px;
+}
+
+.dropzone p {
+  max-width: 340px;
+  margin: 10px auto 18px;
+  color: #77756d;
+  font-size: 14px;
+}
+
+.dropzone > small {
+  display: block;
+  margin-top: 15px;
+  color: #77756d;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.chooseFiles {
+  position: relative;
+  display: inline-flex;
+  min-height: 42px;
+  align-items: center;
+  justify-content: center;
+  padding: 9px 15px;
+  border: 1px solid #9d9588;
+  border-radius: 8px;
+  background: #fffdfa;
+  color: #292a25;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.chooseFiles:focus-within {
+  outline: 2px solid #79432f;
+  outline-offset: 2px;
+}
+
+.chooseFiles input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  clip-path: inset(50%);
+}
+
+.previewGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 9px;
+  margin-top: 18px;
+}
+
+.preview {
+  min-width: 0;
+  margin: 0;
+}
+
+.preview img {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  border-radius: 8px;
+  background: #efeae3;
+  object-fit: cover;
+}
+
+.preview figcaption {
+  overflow: hidden;
+  margin-top: 5px;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.preview button {
+  margin-top: 4px;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: #79432f;
+  cursor: pointer;
+  font-size: 11px;
+  text-decoration: underline;
+}
+
+.helper {
+  margin-top: 20px;
+  padding: 18px;
+  border-radius: 12px;
+  background: #ebede2;
+}
+
+.helper h3 {
+  margin: 0;
+  font-size: 15px;
+}
+
+.helper p {
+  margin: 8px 0 0;
+  color: #53604c;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.fields {
+  display: grid;
+  min-width: 0;
+  gap: 18px;
+  padding: 24px;
+  border: 1px solid #e1ddd4;
+  border-radius: 12px;
+  background: #fffdfa;
+}
+
+.fields > label {
+  display: grid;
+  gap: 7px;
+  color: #4d4b43;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.fields input,
+.fields select {
+  width: 100%;
+  min-width: 0;
+}
+
+.fields .submitRow {
+  margin-top: 6px;
+}
+
+@media (max-width: 800px) {
+  .catalog {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 23px 14px;
+  }
+
+  .itemName {
+    font-size: 14px;
+  }
+
+  .cardInfo small {
+    font-size: 12px;
+  }
+
+  .editor {
+    grid-template-columns: 1fr;
+    gap: 22px;
+  }
+
+  .fields {
+    padding: 20px;
+  }
+}

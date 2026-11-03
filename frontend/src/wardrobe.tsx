@@ -21,6 +21,7 @@ import {
 import { PhotoImage } from "./site";
 import { createRequest, NewAttempt } from "./idempotency";
 import styles from "./site.module.css";
+import wardrobeStyles from "./wardrobe.module.css";
 
 const pageSize = 12;
 const maxPhotoSize = 10_000_000;
@@ -102,6 +103,9 @@ export function Wardrobe({ actor, context = { kind: "own" }, pending }: {
   });
   const categoryNames = new Map((categories.data ?? []).map((category) => [category.id, category.name]));
   const writable = canEditWardrobe(context);
+  const pageItems = items.data ?? [];
+  const availableCount = pageItems.filter((item) => item.availability !== "IN_LAUNDRY" && item.availability !== "STORED").length;
+  const laundryCount = pageItems.filter((item) => item.availability === "IN_LAUNDRY").length;
 
   return (
     <main className={styles.main}>
@@ -127,7 +131,12 @@ export function Wardrobe({ actor, context = { kind: "own" }, pending }: {
         </section>
       )}
       {items.data?.length === 0 && page > 0 && <p className={styles.state}>На этой странице вещей нет.</p>}
-      <div className={styles.grid}>
+      {items.data && items.data.length > 0 && <section className={wardrobeStyles.pageSummary} aria-label="Сводка вещей на этой странице">
+        <span>Вещей на странице: {pageItems.length}</span>
+        <span>{availableCount} доступны</span>
+        <span>{laundryCount} в стирке</span>
+      </section>}
+      <div className={wardrobeStyles.catalog}>
         {items.data?.map((item) => <WardrobeCard
           key={item.id} actor={actor} item={item} category={categoryNames.get(item.categoryId) ?? "Вещь"}
           base={base} route={wardrobeRoute(context)} pending={pending} />)}
@@ -149,14 +158,16 @@ function WardrobeCard({ actor, item, category, base, route, pending }: {
     queryKey: ["photos", actor.id, item.id, base],
     queryFn: ({ signal }) => request<Photo[]>(`${base}/${item.id}/photos`, actor.id, { signal }),
   });
-  return <Link className={styles.card} to={`${route}/${item.id}`} aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>
-    <span className={styles.image}>
+  return <Link className={wardrobeStyles.card} to={`${route}/${item.id}`} aria-disabled={pending} onClick={(event) => { if (pending) event.preventDefault(); }}>
+    <span className={wardrobeStyles.image}>
       {photos.data?.[0] ? <PhotoImage actor={actor} item={item} photo={photos.data[0]} itemsBase={base} />
         : photos.isError ? <span className={styles.photoRetry}>Фото не загрузилось</span>
           : <span className={styles.photoEmpty}>{photos.data ? "Нет фото" : "Загружаем фото…"}</span>}
     </span>
-    <span className={styles.cardInfo}><span className={styles.itemName}>{item.name}</span>
-      <small>{category} · {item.color}</small><small>{availabilityLabel(item)}</small></span>
+    <span className={wardrobeStyles.cardInfo}><span className={wardrobeStyles.itemName}>{item.name}</span>
+      <small>{category} · {item.color}</small><small className={`${wardrobeStyles.availability} ${
+        item.availability === "IN_LAUNDRY" ? wardrobeStyles.laundry : item.availability === "STORED" ? wardrobeStyles.stored : ""
+      }`}>{availabilityLabel(item)}</small></span>
   </Link>;
 }
 
@@ -258,13 +269,16 @@ export function WardrobeEditor({ actor, onPending, pending }: {
   const [previews, setPreviews] = React.useState<string[]>([]);
   const [failure, setFailure] = React.useState("");
   const [success, setSuccess] = React.useState("");
+  const [photoSelectionError, setPhotoSelectionError] = React.useState("");
   const [versionConflict, setVersionConflict] = React.useState(false);
   const [attemptPath, setAttemptPath] = React.useState<string | null>(null);
   const [reloadingItem, setReloadingItem] = React.useState(false);
   const [confirmDelete, setConfirmDelete] = React.useState(false);
   const [confirmPhotoId, setConfirmPhotoId] = React.useState<number | null>(null);
+  const [draggingFiles, setDraggingFiles] = React.useState(false);
   const { busy, run } = useWrite(onPending);
   const draftVersion = React.useRef<number | null>(null);
+  const photoDropDisabled = pending || busy || (editing && (!photos.isSuccess || (photos.data?.length ?? 0) >= 5));
 
   React.useEffect(() => {
     const urls = files.map((file) => URL.createObjectURL(file));
@@ -318,6 +332,7 @@ export function WardrobeEditor({ actor, onPending, pending }: {
     const fields: ItemFields = { name: name.trim(), categoryId: Number(categoryId), color: color.trim(), material: material.trim() };
     const fieldError = validateFields(fields, categories.data ?? []);
     if (fieldError) { setFailure(fieldError); return; }
+    if (photoSelectionError) { setFailure(photoSelectionError); return; }
     if (!editing) {
       const photoError = validatePhotos(files);
       if (photoError) { setFailure(photoError); return; }
@@ -363,6 +378,7 @@ export function WardrobeEditor({ actor, onPending, pending }: {
   }
 
   async function uploadPhotos(selected: File[]) {
+    if (pending || busy) return;
     const photoError = validatePhotos(selected, photos.data?.length ?? 0);
     if (photoError) { setFailure(photoError); return; }
     if (!selected.length) return;
@@ -379,6 +395,18 @@ export function WardrobeEditor({ actor, onPending, pending }: {
         setFailure(writeError(error, "Не удалось загрузить фото"));
       }
     });
+  }
+
+  function selectCreatePhotos(selected: File[]) {
+    if (pending || busy) return;
+    if (!selected.length) { setPhotoSelectionError(""); setFailure(""); return; }
+    const next = [...files, ...selected];
+    const photoError = validatePhotos(next);
+    if (photoError) { setPhotoSelectionError(photoError); setFailure(photoError); return; }
+    setFiles(next);
+    setPhotoSelectionError("");
+    setFailure("");
+    setSuccess("");
   }
 
   async function removePhoto(photo: Photo) {
@@ -417,9 +445,12 @@ export function WardrobeEditor({ actor, onPending, pending }: {
   return <main className={styles.main}>
     <header className={styles.top}><span>ПЕРСОНАЛЬНЫЙ СТИЛЬ</span><Link to="/wardrobe" aria-disabled={pending}
       onClick={(event) => pending && event.preventDefault()}>← Гардероб</Link></header>
-    <section className={styles.intro}><div><p className={styles.eyebrow}>{editing ? "ВАША ВЕЩЬ" : "НОВАЯ ВЕЩЬ"}</p>
+    <section className={`${styles.intro} ${wardrobeStyles.intro}`}><div><p className={styles.eyebrow}>{editing ? "ВАША ВЕЩЬ" : "НОВАЯ ВЕЩЬ"}</p>
       <h1>{editing ? "Изменить вещь" : "Добавить вещь"}</h1></div></section>
     {failure && <div className={styles.error} role="alert"><p>{failure}</p>
+      {photoSelectionError && <button type="button" disabled={pending || busy} onClick={() => {
+        setPhotoSelectionError(""); setFailure("");
+      }}>Продолжить без этих файлов</button>}
       {versionConflict && <button type="button" disabled={pending || reloadingItem} onClick={() => void reloadItem()}>
         {reloadingItem ? "Обновляем…" : "Обновить данные"}
       </button>}
@@ -428,38 +459,73 @@ export function WardrobeEditor({ actor, onPending, pending }: {
     {categories.isError && <ReadError error={categories.error} retry={() => void categories.refetch()} />}
     {failure && attemptPath && <NewAttempt actorId={actor.id} path={attemptPath}
       disabled={pending} onReset={() => setFailure("")} />}
-    <form className={styles.itemForm} onSubmit={(event) => void submit(event)}>
-      <label className={styles.nameField}>НАЗВАНИЕ
+    <form className={`${styles.itemForm} ${wardrobeStyles.editor}`} onSubmit={(event) => void submit(event)}>
+      <section className={wardrobeStyles.uploadColumn}>
+        {editing && itemQuery.data && <>
+          <h2>Фотографии</h2>
+          <p className={styles.muted}>До пяти фотографий JPEG или PNG, не более 10 МБ каждая.</p>
+          {photos.isLoading && <p className={styles.state}>Загружаем фотографии…</p>}
+          {photos.isError && <ReadError error={photos.error} retry={() => void photos.refetch()} />}
+          {photos.data?.length === 0 && <p className={styles.state}>У этой вещи пока нет фотографий.</p>}
+          <div className={styles.grid}>{photos.data?.map((photo) => <article className={styles.card} key={photo.id}>
+            <span className={styles.image}><PhotoImage actor={actor} item={itemQuery.data!} photo={photo} /></span>
+            {canDeleteWardrobePhoto({ kind: "own" }) && (confirmPhotoId === photo.id
+              ? <div role="group" aria-label="Подтверждение удаления фото">
+                  <span>Удалить это фото?</span>
+                  <button type="button" disabled={pending || busy} onClick={() => void removePhoto(photo)}>Да, удалить</button>
+                  <button type="button" disabled={pending || busy} onClick={() => setConfirmPhotoId(null)}>Оставить</button>
+                </div>
+              : <button type="button" className={styles.photoRetry} disabled={pending || busy} onClick={() => setConfirmPhotoId(photo.id)}>Удалить фото</button>)}
+          </article>)}</div>
+        </>}
+        <div className={`${wardrobeStyles.dropzone} ${draggingFiles ? wardrobeStyles.dragging : ""}`}
+          aria-disabled={photoDropDisabled}
+          onDragOver={(event) => { event.preventDefault(); if (!photoDropDisabled) setDraggingFiles(true); }}
+          onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDraggingFiles(false); }}
+          onDrop={(event) => { event.preventDefault(); setDraggingFiles(false); if (photoDropDisabled) return;
+            const selected = Array.from(event.dataTransfer.files); if (editing) void uploadPhotos(selected); else selectCreatePhotos(selected); }}>
+          <span className={wardrobeStyles.uploadIcon} aria-hidden="true">↑</span>
+          <h2>{editing ? "Добавить фотографии" : "Начните с фотографии"}</h2>
+          <p>Перетащите снимки сюда или выберите файлы на компьютере.</p>
+          <label className={wardrobeStyles.chooseFiles}>{editing ? "Выбрать фото для загрузки" : "Выбрать фотографии"}
+            <input aria-label="Фотографии · JPEG или PNG, до 10 МБ каждая" type="file" accept="image/jpeg,image/png" multiple
+              disabled={photoDropDisabled}
+              onChange={(event) => { const selected = Array.from(event.target.files ?? []); event.currentTarget.value = "";
+                if (editing) void uploadPhotos(selected); else selectCreatePhotos(selected); }} />
+          </label>
+          <small>JPEG или PNG · до 10 МБ каждый<br />Не больше 5 фотографий одной вещи</small>
+        </div>
+        {!editing && files.length > 0 && <div className={wardrobeStyles.previewGrid} aria-label="Предпросмотр фотографий">
+          {files.map((file, index) => <figure className={wardrobeStyles.preview} key={`${file.name}-${index}`}>
+            {previews[index] && <img src={previews[index]} alt={`Предпросмотр: ${file.name}`} />}
+            <figcaption>{file.name}</figcaption>
+            <button type="button" aria-label={`Удалить фото ${file.name}`} disabled={pending || busy}
+              onClick={() => { setFiles((current) => current.filter((_, currentIndex) => currentIndex !== index));
+                setPhotoSelectionError(""); setFailure(""); }}>Удалить</button>
+          </figure>)}
+        </div>}
+        <aside className={wardrobeStyles.helper}><h3>Вещь должна быть хорошо видна</h3>
+          <p>Сфотографируйте её целиком при ровном свете. Снимок сохраняется без автоматической обработки.</p></aside>
+      </section>
+      <section className={wardrobeStyles.fields}>
+      <label className={styles.nameField}>Название
         <input required maxLength={300} value={fieldValues.name} onChange={(event) => { setName(event.target.value); setSuccess(""); }} disabled={pending} />
       </label>
-      <label className={styles.nameField}>КАТЕГОРИЯ
+      <label className={styles.nameField}>Категория
         <select required value={fieldValues.categoryId} onChange={(event) => { setCategoryId(event.target.value); setSuccess(""); }} disabled={pending || categories.isLoading || categories.isError}>
           <option value="">Выберите категорию</option>{categories.data?.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
         </select>
       </label>
-      <label className={styles.nameField}>ЦВЕТ
+      <label className={styles.nameField}>Цвет
         <input required maxLength={100} value={fieldValues.color} onChange={(event) => { setColor(event.target.value); setSuccess(""); }} disabled={pending} />
       </label>
-      <label className={styles.nameField}>МАТЕРИАЛ
+      <label className={styles.nameField}>Материал
         <input required maxLength={100} value={fieldValues.material} onChange={(event) => { setMaterial(event.target.value); setSuccess(""); }} disabled={pending} />
       </label>
-      {editing && <label className={styles.nameField}>ДОСТУПНОСТЬ
+      {editing && <label className={styles.nameField}>Доступность
         <select value={availability} onChange={(event) => { setAvailability(event.target.value as WardrobeItemAvailability); setSuccess(""); }} disabled={pending}>
           <option value="AVAILABLE">Доступна</option><option value="IN_LAUNDRY">В стирке</option><option value="STORED">Убрана</option>
         </select>
-      </label>}
-      {!editing && <label className={styles.nameField}>ФОТОГРАФИИ · JPEG ИЛИ PNG, ДО 10 МБ КАЖДАЯ
-        <input type="file" accept="image/jpeg,image/png" multiple disabled={pending}
-          onChange={(event) => { setFiles(Array.from(event.target.files ?? [])); setFailure(""); }} />
-        <small>До пяти фото. Можно добавить фотографии позже.</small>
-        {files.length > 0 && <><span>{files.map((file) => file.name).join(", ")}</span>
-          <div className={styles.grid}>{files.map((file, index) => <figure className={styles.card} key={`${file.name}-${index}`}>
-            <span className={styles.image}>
-              {previews[index] && <img className={styles.photo} src={previews[index]} alt={`Предпросмотр: ${file.name}`} />}
-            </span>
-            <figcaption className={styles.photoCaption}>{file.name}</figcaption>
-          </figure>)}</div>
-        </>}
       </label>}
       <div className={styles.submitRow}><Link className={styles.textButton} to="/wardrobe" aria-disabled={pending}
         onClick={(event) => pending && event.preventDefault()}>Отмена</Link>
@@ -467,28 +533,8 @@ export function WardrobeEditor({ actor, onPending, pending }: {
           {pending ? "Сохраняем…" : editing ? "Сохранить изменения" : "Добавить вещь"}<span>↗</span>
         </button>
       </div>
+      </section>
     </form>
-    {editing && itemQuery.data && <section className={styles.photoSection}>
-      <h2>Фотографии</h2>
-      <p className={styles.muted}>До пяти фотографий JPEG или PNG, не более 10 МБ каждая.</p>
-      {photos.isLoading && <p>Загружаем фотографии…</p>}
-      {photos.isError && <ReadError error={photos.error} retry={() => void photos.refetch()} />}
-      {photos.data?.length === 0 && <p className={styles.state}>У этой вещи пока нет фотографий.</p>}
-      <div className={styles.grid}>{photos.data?.map((photo) => <article className={styles.card} key={photo.id}>
-        <span className={styles.image}><PhotoImage actor={actor} item={itemQuery.data!} photo={photo} /></span>
-        {canDeleteWardrobePhoto({ kind: "own" }) && (confirmPhotoId === photo.id
-          ? <div role="group" aria-label="Подтверждение удаления фото">
-              <span>Удалить это фото?</span>
-              <button type="button" disabled={pending} onClick={() => void removePhoto(photo)}>Да, удалить</button>
-              <button type="button" disabled={pending} onClick={() => setConfirmPhotoId(null)}>Оставить</button>
-            </div>
-          : <button type="button" className={styles.photoRetry} disabled={pending} onClick={() => setConfirmPhotoId(photo.id)}>Удалить фото</button>)}
-      </article>)}</div>
-      {photos.isSuccess && photos.data.length < 5 && <label className={styles.nameField}>ДОБАВИТЬ ФОТО
-        <input type="file" accept="image/jpeg,image/png" multiple disabled={pending || !photos.isSuccess}
-          onChange={(event) => { const selected = Array.from(event.target.files ?? []); event.currentTarget.value = ""; void uploadPhotos(selected); }} />
-      </label>}
-    </section>}
     {editing && <section className={styles.deleteSection}>
       {!confirmDelete ? <button className={styles.deleteButton} type="button" disabled={pending} onClick={() => setConfirmDelete(true)}>Удалить вещь</button>
         : <div role="group" aria-label="Подтверждение удаления вещи"><p>Удалить «{itemQuery.data?.name}»? Это действие нельзя отменить.</p>
