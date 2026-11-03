@@ -69,10 +69,12 @@ class LiveClientPollingTests {
                 // when
                 remote.publish(Response(values = LiveClientSettingsTests.remoteValues() + mapOf(
                     "app.recommendation-client.read-timeout" to "3s", "app.account-client.read-timeout" to "4s",
+                    "app.recommendation-client.write-timeout" to "2s",
                 )))
 
                 // then
-                assertThat(settings.recommendationOptions().readTimeoutMillis()).isEqualTo(3_000)
+                assertThat(settings.recommendationProperties().readTimeout.toMillis()).isEqualTo(3_000)
+                assertThat(settings.recommendationProperties().writeTimeout.toMillis()).isEqualTo(2_000)
                 assertThat(imported.uri).containsExactly(uri)
                 assertThat(imported.profile).isEqualTo(originalProfile)
                 assertThat(remote.paths.takeLast(2)).containsOnly("/wardrobe-service/$profile")
@@ -83,20 +85,25 @@ class LiveClientPollingTests {
                 listOf(
                     Response(status = 503), Response(values = emptyMap()),
                     Response(values = LiveClientSettingsTests.remoteValues() + mapOf("app.account-client.read-timeout" to "bad")),
+                    Response(values = LiveClientSettingsTests.remoteValues() + mapOf("app.recommendation-client.write-timeout" to "0s")),
+                    Response(values = LiveClientSettingsTests.remoteValues() - "app.recommendation-client.write-timeout"),
                 ).forEach { failure ->
                     remote.publish(failure)
 
                     // then
-                    assertThat(settings.recommendationOptions().readTimeoutMillis()).isEqualTo(3_000)
+                    assertThat(settings.recommendationProperties().readTimeout.toMillis()).isEqualTo(3_000)
+                    assertThat(settings.recommendationProperties().writeTimeout.toMillis()).isEqualTo(2_000)
                 }
 
                 // when
                 remote.publish(Response(values = LiveClientSettingsTests.remoteValues() + mapOf(
                     "app.recommendation-client.read-timeout" to "7s",
+                    "app.recommendation-client.write-timeout" to "6s",
                 )))
 
                 // then
-                assertThat(settings.recommendationOptions().readTimeoutMillis()).isEqualTo(7_000)
+                assertThat(settings.recommendationProperties().readTimeout.toMillis()).isEqualTo(7_000)
+                assertThat(settings.recommendationProperties().writeTimeout.toMillis()).isEqualTo(6_000)
                 assertThat(context.getBean(AccountClient::class.java)).isSameAs(client)
             }
         } finally {

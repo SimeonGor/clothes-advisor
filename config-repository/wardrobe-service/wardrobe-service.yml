@@ -26,6 +26,7 @@ app:
   recommendation-client:
     connect-timeout: 5s
     read-timeout: 90s
+    write-timeout: 30s
 
 resilience4j:
   circuitbreaker:
