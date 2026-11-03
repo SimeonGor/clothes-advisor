@@ -1,0 +1,31 @@
+.monthNav { display: flex; justify-content: space-between; gap: 12px; margin: 16px 0; }
+.monthNav button { min-height: 40px; border: 1px solid var(--line); border-radius: 8px; padding: 0 14px; background: var(--surface); color: var(--ink); cursor: pointer; }
+.calendar { width: 100%; table-layout: fixed; border: 1px solid var(--line); border-collapse: collapse; border-radius: 12px; }
+.weekday { padding: 10px 4px; background: #EEE8DD; color: var(--muted); text-align: center; font-size: 12px; }
+.day { height: 116px; min-width: 0; padding: 8px; border: 1px solid var(--line); background: var(--surface); vertical-align: top; }
+.day:last-child { border-right: 0; }
+.out { background: #F1EDE5; color: #8A8376; }
+.today .dayNumber { display: grid; width: 25px; height: 25px; place-items: center; border-radius: 50%; background: var(--accent); color: white; }
+.dayNumber { display: inline-grid; min-width: 25px; height: 25px; place-items: center; font-size: 13px; }
+.event { display: grid; min-width: 0; gap: 2px; margin-top: 6px; border-radius: 6px; padding: 5px 6px; background: #E8EDDF; color: #47563A; font-size: 10px; line-height: 1.35; overflow-wrap: anywhere; }
+.event > a:first-child { display: block; min-width: 0; overflow: hidden; color: inherit; font-weight: 600; text-decoration: none; text-overflow: ellipsis; white-space: nowrap; }
+.eventStatus { opacity: .8; }
+.editEntry { display: grid; width: 22px; min-height: 22px; place-items: center; color: inherit; text-decoration: none; }
+.nameFallback { color: #765A40; font-size: 9px; }
+.preferenceCards { max-width: 900px; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.preferenceCard { min-width: 0; border: 1px solid var(--line); border-radius: 12px; padding: 16px; background: var(--surface); }
+.preferenceCard textarea { min-height: 118px; }
+.preferenceCards > button { grid-column: 1 / -1; justify-self: start; }
+.readOnlyCards { max-width: 900px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+.readOnlyCard { min-width: 0; border: 1px solid var(--line); border-radius: 12px; padding: 18px; background: var(--surface); }
+.readOnlyCard dt { margin-bottom: 9px; }
+.readOnlyCard dd { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+@media (max-width: 760px) {
+  .weekday { padding: 7px 1px; font-size: 10px; }
+  .day { min-height: 84px; padding: 4px 3px; }
+  .event { margin-top: 4px; padding: 4px; font-size: 9px; }
+  .editEntry { width: 22px; min-height: 22px; font-size: 10px; }
+  .nameFallback { font-size: 8px; }
+  .preferenceCards, .readOnlyCards { grid-template-columns: 1fr; }
+  .preferenceCards > button { grid-column: auto; width: 100%; }
+}

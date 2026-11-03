@@ -2,6 +2,7 @@ import React from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { ApiError, request, resourceErrorMessage, type Actor, type StylePreferences } from "./api";
 import styles from "./site.module.css";
+import personal from "./personal.module.css";
 
 type Props = { actor: Actor; pending: boolean; onPending: (value: boolean) => void };
 type Draft = Pick<StylePreferences, "preferredColorsAndMaterials" | "avoidances" | "additionalWishes"> & { version: number | null };
@@ -113,8 +114,8 @@ function PreferencesEditor({ actor, pending, onPending, initial, loading, loadEr
 
   return <>
     <p className={styles.muted}>Все поля необязательны. До 2000 символов в каждом.</p>
-    <form className={`${styles.itemForm} ${styles.preferencesForm}`} onSubmit={(event) => void submit(event)}>
-      {fields.map(({ key, label }) => <label className={styles.nameField} key={key}>{label}
+    <form className={`${styles.itemForm} ${styles.preferencesForm} ${personal.preferenceCards}`} onSubmit={(event) => void submit(event)}>
+      {fields.map(({ key, label }) => <label className={`${styles.nameField} ${personal.preferenceCard}`} key={key}>{label}
         <textarea value={draft[key]} maxLength={2000} rows={4} disabled={disabled || Boolean(loadError)}
           onChange={(event) => { setDraft({ ...draft, [key]: event.target.value }); setSuccess(""); }} />
       </label>)}
@@ -139,8 +140,8 @@ export function ClientPreferences({ actor, ownerId }: { actor: Actor; ownerId: n
     {query.isFetching ? <p className={styles.state}>Загружаем предпочтения…</p>
       : query.isError ? <div className={styles.error} role="alert"><p>{resourceErrorMessage(query.error)}</p>
         <button type="button" onClick={() => void query.refetch()}>Повторить загрузку</button></div>
-      : query.data && <dl className={styles.preferencesReadOnly}>
-        {fields.map(({ key, label }) => <div key={key}><dt>{label}</dt><dd>{query.data[key] || "Не указано"}</dd></div>)}
+      : query.data && <dl className={`${styles.preferencesReadOnly} ${personal.readOnlyCards}`}>
+        {fields.map(({ key, label }) => <div className={personal.readOnlyCard} key={key}><dt>{label}</dt><dd>{query.data[key] || "Не указано"}</dd></div>)}
       </dl>}
   </main>;
 }
