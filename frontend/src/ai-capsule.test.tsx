@@ -11,7 +11,7 @@ const item = (id: number): WardrobeItem => ({ id, name: `Вещь ${id}`, catego
 const unavailableItem = (id: number, availability: "IN_LAUNDRY" | "STORED"): WardrobeItem => ({ ...item(id), availability });
 const capsule = (extra: Partial<Capsule> = {}): Capsule => ({ id: 5, ownerId: user.id, name: "На каждый день", itemIds: [1], createdAt: "2026-01-01T00:00:00Z", source: "AI", weather: { temperatureC: 15, windSpeedMps: 0, precipitationTypeId: 1 }, explanation: "Сочетание подходит для прохладной погоды.", ...extra });
 const ok = (data: unknown, status = 200) => ({ ok: true, status, headers: new Headers(), json: async () => data } as Response);
-const fail = (status: number) => ({ ok: false, status, headers: new Headers(), json: async () => ({}) } as Response);
+const fail = (status: number, error?: string) => ({ ok: false, status, headers: new Headers(), json: async () => error ? { error } : {} } as Response);
 
 function mount() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -24,7 +24,7 @@ function mount() {
 }
 
 beforeEach(() => { sessionStorage.clear(); vi.stubGlobal("fetch", vi.fn()); });
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
+afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("AI-капсулы", () => {
   it("показывает для ручного выбора только доступные вещи", async () => {
@@ -170,6 +170,66 @@ describe("AI-капсулы", () => {
     expect(posts).toHaveLength(2);
     expect(posts[1]).toEqual(posts[0]);
     expect(posts[0].body).toEqual({ name: "На каждый день", weather: { temperatureC: 15, windSpeedMps: 0, precipitationTypeId: 1 }, candidateItemIds: [1] });
+  });
+
+  it.each([502, 503, 504])("после HTTP %s сохраняет ключ и запускает новую команду только с подтверждением", async (status) => {
+    // given
+    const posts: Array<{ body: unknown; key: string | null }> = [];
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.startsWith("/api/weather/precipitation-types?")) return ok([{ id: 1, name: "Дождь", code: "RAIN" }]);
+      if (path.startsWith("/api/wardrobe/items?page=")) return ok([item(1)]);
+      if (path === "/api/me/capsules/ai" && init?.method === "POST") {
+        posts.push({ body: JSON.parse(String(init.body)), key: new Headers(init.headers).get("Idempotency-Key") });
+        if (posts.length === 1) return fail(status);
+        if (posts.length === 2) return fail(409, "idempotency_failed");
+        return ok(capsule(), 201);
+      }
+      if (path === "/api/me/capsules/5") return ok(capsule());
+      if (path === "/api/wardrobe/items/1") return ok(item(1));
+      if (path.endsWith("/photos")) return ok([]);
+      return fail(404);
+    }));
+    mount();
+    await screen.findByRole("option", { name: "Дождь" });
+    await screen.findByText("Весь гардероб");
+    fireEvent.change(screen.getByLabelText("НАЗВАНИЕ КАПСУЛЫ"), { target: { value: "На каждый день" } });
+    fireEvent.change(screen.getByLabelText("ОСАДКИ"), { target: { value: "1" } });
+
+    // when: a gateway or provider error leaves the command outcome uncertain.
+    fireEvent.click(screen.getByRole("button", { name: /Создать AI-капсулу/ }));
+    const alert = await screen.findByRole("alert");
+
+    // then
+    expect(alert.textContent).toContain("Проверьте сохранённые капсулы: действие могло выполниться");
+    expect(alert.textContent).toContain("Повтор с тем же ключом не запускает уже принятую команду заново");
+    expect(alert.textContent).not.toContain("позже");
+    expect(posts).toHaveLength(1);
+
+    // when: the server confirms that this key belongs to a failed command.
+    fireEvent.click(screen.getByRole("button", { name: /Повторить ту же попытку/ }));
+    await screen.findByText(/Предыдущая попытка завершилась ошибкой.*Для нового запуска выберите «Новая попытка»/);
+    fireEvent.click(screen.getByRole("button", { name: "Новая попытка" }));
+
+    // then: rejecting the confirmation preserves the draft and the retry state.
+    expect(posts).toHaveLength(2);
+    expect(posts[1]).toEqual(posts[0]);
+    expect((screen.getByLabelText("НАЗВАНИЕ КАПСУЛЫ") as HTMLInputElement).disabled).toBe(true);
+    expect(screen.getByRole("button", { name: /Повторить ту же попытку/ })).toBeTruthy();
+
+    // when
+    confirm.mockReturnValue(true);
+    fireEvent.click(screen.getByRole("button", { name: "Новая попытка" }));
+    fireEvent.click(screen.getByRole("button", { name: /Создать AI-капсулу/ }));
+
+    // then
+    expect(await screen.findByText("Сочетание подходит для прохладной погоды.")).toBeTruthy();
+    expect(confirm).toHaveBeenCalledTimes(2);
+    expect(confirm.mock.calls[0][0]).toMatch(/дубликаты.*лимит AI/);
+    expect(posts).toHaveLength(3);
+    expect(posts[2].body).toEqual(posts[0].body);
+    expect(posts[2].key).not.toBe(posts[0].key);
   });
 
   it("после конфликта запрещает обход refresh и только NewAttempt меняет тело", async () => {
