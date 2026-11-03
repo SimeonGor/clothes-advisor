@@ -2,12 +2,6 @@ spring:
   reactor:
     context-propagation: auto
   cloud:
-    openfeign:
-      circuitbreaker:
-        enabled: true
-      httpclient:
-        hc5:
-          enabled: false
     loadbalancer:
       retry:
         enabled: false

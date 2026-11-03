@@ -30,8 +30,6 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.cloud.client.discovery.simple.reactive.SimpleReactiveDiscoveryProperties
 import org.springframework.cloud.client.discovery.simple.InstanceProperties
-import org.springframework.cloud.openfeign.FeignClientFactory
-import org.springframework.cloud.openfeign.loadbalancer.FeignBlockingLoadBalancerClient
 import org.springframework.context.ApplicationContext
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Import
