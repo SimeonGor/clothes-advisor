@@ -12,7 +12,7 @@ import tools.jackson.databind.DeserializationFeature
 import tools.jackson.databind.JsonNode
 import tools.jackson.databind.json.JsonMapper
 
-// The login utility owns these records. Never retain, print, or rewrite the credentials.
+// The refresher publishes these access-only records. Never retain, print, or rewrite them.
 internal class ChatGptCredentials(
     private val mapper: JsonMapper,
     private val clock: Clock,
