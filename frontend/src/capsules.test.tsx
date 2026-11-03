@@ -349,6 +349,7 @@ describe("Ручные капсулы", () => {
     expect(screen.getByText("Ручной набор")).toBeTruthy();
     cleanup();
     mount("/capsules/5");
+    await screen.findByRole("heading", { name: "Вещи в капсуле" });
     expect(await screen.findByText(explanation)).toBeTruthy();
     const section = screen.getByRole("heading", { name: "Почему этот набор" }).parentElement!;
     expect(section.textContent).toContain(explanation);
@@ -356,6 +357,8 @@ describe("Ручные капсулы", () => {
     expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith(hostileUrl))).toBe(false);
     expect(screen.getByText("4.5 °C · ветер 2 м/с · осадки: ID 77")).toBeTruthy();
     expect(screen.getByText("Повод: Поездка")).toBeTruthy();
+    expect(screen.getAllByRole("heading", { name: "Почему этот набор" })).toHaveLength(1);
+    expect(screen.getAllByText("Стиль: Спокойный")).toHaveLength(1);
     expect(screen.queryByRole("alert")).toBeNull();
   });
 

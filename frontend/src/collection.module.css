@@ -1,0 +1,70 @@
+.catalog {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 24px;
+}
+
+.card {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  color: inherit;
+  text-decoration: none;
+}
+
+.composition {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  padding: 12px;
+  background: #efe9df;
+}
+
+.tile {
+  display: grid;
+  min-width: 0;
+  aspect-ratio: 1;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 8px;
+  background: #e9e3d9;
+}
+
+.tile img { width: 100%; height: 100%; object-fit: cover; }
+.emptyPhoto { padding: 8px; color: var(--muted); font-size: 11px; text-align: center; }
+
+.details { display: grid; gap: 7px; padding: 18px 20px 20px; }
+.details small { color: var(--muted); font-size: 12px; }
+.title { margin: 0; font-size: 19px; font-weight: 550; }
+
+.detailLayout {
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, .95fr);
+  gap: 30px;
+  padding-top: 28px;
+}
+
+.description { min-width: 0; }
+.description h2 { margin: 8px 0 12px; font-size: 25px; font-weight: 500; }
+.description p { line-height: 1.7; }
+.itemList { display: grid; gap: 0; margin-top: 18px; }
+.item { border-bottom: 1px solid var(--line); padding: 11px 2px; }
+.item, .item:visited { color: inherit; text-decoration: none; }
+.item small { display: block; color: var(--muted); }
+.weather { display: flex; flex-wrap: wrap; gap: 9px 16px; margin: 20px 0; color: var(--muted); font-size: 13px; }
+.ratings { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-top: 12px; }
+.ratingCount { border-radius: 7px; padding: 7px 10px; background: #f0ece4; font-size: 13px; }
+.section { margin-top: 26px; border-top: 1px solid var(--line); padding-top: 22px; }
+.compactTop { height: auto; padding: 18px 0 14px; }
+.formPanel { margin-top: 20px; border: 1px solid var(--line); border-radius: 14px; padding: 24px; background: var(--surface); }
+
+@media (max-width: 720px) {
+  .compactTop { padding: 14px 0 12px; }
+  .formPanel { padding: 16px; }
+  .catalog { grid-template-columns: 1fr; gap: 16px; }
+  .composition { gap: 7px; padding: 8px; }
+  .detailLayout { grid-template-columns: 1fr; gap: 22px; padding-top: 20px; }
+  .description h2 { font-size: 22px; }
+}
