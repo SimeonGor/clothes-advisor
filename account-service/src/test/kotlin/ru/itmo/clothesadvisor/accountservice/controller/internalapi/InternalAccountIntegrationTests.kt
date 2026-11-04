@@ -334,15 +334,16 @@ class InternalAccountIntegrationTests : PostgresIntegrationTest() {
     fun `public errors retain error key and OpenAPI exposes public operations only`() {
         // given
         val publicPaths = listOf("/api/admin/users", "/api/admin/users/{id}",
-            "/api/me/stylist-access", "/api/me/stylist-access/{stylistId}", "/api/stylist/clients")
+            "/api/me/stylist-access", "/api/me/stylist-access/{stylistId}", "/api/stylist/clients",
+            "/api/auth/login", "/api/auth/me", "/api/stylists")
 
         // when
         val publicError = get("/api/me/stylist-access", "invalid")
         val schema = get("/v3/api-docs")
 
         // then
-        assertThat(publicError.statusCode()).isEqualTo(400)
-        assertThat(publicError.body()).isEqualTo("""{"error":"invalid_request"}""")
+        assertThat(publicError.statusCode()).isEqualTo(401)
+        assertThat(publicError.body()).isEqualTo("""{"error":"unauthorized"}""")
         assertThat(schema.statusCode()).isEqualTo(200)
         val paths: Map<String, Any?> = JsonPath.read(schema.body(), "$.paths")
         assertThat(paths.keys).containsExactlyInAnyOrderElementsOf(publicPaths)

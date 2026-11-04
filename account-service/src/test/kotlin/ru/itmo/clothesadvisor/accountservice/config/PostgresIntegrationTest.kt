@@ -30,6 +30,8 @@ abstract class PostgresIntegrationTest {
         @JvmStatic
         @DynamicPropertySource
         fun postgresProperties(registry: DynamicPropertyRegistry) {
+            registry.add("app.jwt.private-key") { TestJwt.privateKeyLocation }
+            registry.add("app.jwt.public-key") { TestJwt.publicKeyLocation }
             registry.add("spring.r2dbc.url") {
                 "r2dbc:postgresql://${postgres.host}:${postgres.firstMappedPort}/" +
                     postgres.databaseName

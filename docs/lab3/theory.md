@@ -37,6 +37,13 @@ Account подписывает токен закрытым RSA-ключом. Gat
 наш endpoint входа не объявляется реализацией OAuth/OIDC. Для внешних клиентов, SSO
 и сложного жизненного цикла сессий нужен отдельный выбор провайдера идентификации.
 
+Код этапа 03: [JwtConfiguration](../../account-service/src/main/kotlin/ru/itmo/clothesadvisor/accountservice/config/JwtConfiguration.kt),
+[SecurityConfiguration](../../account-service/src/main/kotlin/ru/itmo/clothesadvisor/accountservice/config/SecurityConfiguration.kt),
+[AuthenticationService](../../account-service/src/main/kotlin/ru/itmo/clothesadvisor/accountservice/service/auth/AuthenticationService.kt).
+Срок токена — 15 минут; допустимое расхождение часов — 30 секунд. Проверка требует
+исходный `iat`: стандартный конвертер Spring способен восстановить его из `exp`.
+Отдельный HTTP-сценарий проверяет отсутствие `iat` у токена с близким сроком истечения.
+
 ## Почему актуальные права остаются в account
 
 JWT подтверждает личность до окончания срока, но роль и статус могли измениться после
@@ -80,6 +87,10 @@ Argon2id, а для PBKDF2 приводит указанный порог. Ст�
 Автоматических auth cookies нет; CSRF-защиту отключаем именно для такого API,
 не как универсальную рекомендацию. При переходе к cookie-сессии решение нужно пересмотреть.
 Защита от XSS остаётся необходимой даже при хранении токена только в памяти.
+
+При будущем обновлении удалённого стенда Basic Auth обратного прокси нельзя оставлять
+перед теми же API: он использует тот же заголовок Authorization и конфликтует с Bearer.
+ЛР3 пока не меняет удалённый сервер; административные интерфейсы можно защищать отдельно.
 
 Источники: [Spring Security CSRF](https://docs.spring.io/spring-security/reference/features/exploits/csrf.html),
 [Bearer Token Usage, RFC 6750](https://www.rfc-editor.org/rfc/rfc6750.html).

@@ -1,7 +1,6 @@
 package ru.itmo.clothesadvisor.accountservice.controller.user
 
 import io.swagger.v3.oas.annotations.Operation
-import io.swagger.v3.oas.annotations.Parameter
 import io.swagger.v3.oas.annotations.headers.Header
 import io.swagger.v3.oas.annotations.media.Content
 import io.swagger.v3.oas.annotations.media.Schema
@@ -16,11 +15,11 @@ import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
 import org.springframework.web.bind.annotation.PutMapping
 import org.springframework.web.bind.annotation.RequestBody
-import org.springframework.web.bind.annotation.RequestHeader
+import org.springframework.security.core.annotation.AuthenticationPrincipal
+import org.springframework.security.oauth2.jwt.Jwt
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
-import ru.itmo.clothesadvisor.accountservice.controller.currentUserId
 import ru.itmo.clothesadvisor.accountservice.controller.pageRequest
 import ru.itmo.clothesadvisor.accountservice.dto.ApiErrorResponse
 import ru.itmo.clothesadvisor.accountservice.dto.user.UpdateUserRoleAndStatusRequest
@@ -28,7 +27,7 @@ import ru.itmo.clothesadvisor.accountservice.service.user.AdminUserService
 
 @Tag(
     name = "Пользователи",
-    description = "Чтение публичное; изменение требует X-User-Id активного администратора.",
+    description = "Требуется активный администратор.",
 )
 @RestController
 @RequestMapping("/api/admin/users")
@@ -78,7 +77,7 @@ internal class AdminUserController(private val users: AdminUserService) {
     @ApiResponses(
         ApiResponse(responseCode = "200", description = "Успешно", useReturnTypeSchema = true),
         ApiResponse(
-            responseCode = "400", description = "Некорректные данные или X-User-Id",
+            responseCode = "400", description = "Некорректные данные",
             content = [Content(schema = Schema(implementation = ApiErrorResponse::class))],
         ),
         ApiResponse(
@@ -95,17 +94,11 @@ internal class AdminUserController(private val users: AdminUserService) {
         ),
     )
     fun update(
-        @Parameter(
-            name = "X-User-Id",
-            required = true,
-            description = "ID действующего пользователя",
-            schema = Schema(type = "integer", format = "int64", minimum = "1"),
-        )
-        @RequestHeader("X-User-Id", required = false) actor: String?,
+        @AuthenticationPrincipal actor: Jwt,
         @PathVariable id: Long,
         @Valid @RequestBody request: UpdateUserRoleAndStatusRequest,
     ) = users.update(
-        currentUserId(actor),
+        actor.subject!!.toLong(),
         id,
         request,
     )

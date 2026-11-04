@@ -17,6 +17,7 @@ import org.springframework.context.ApplicationListener
 import org.springframework.context.ConfigurableApplicationContext
 import ru.itmo.clothesadvisor.accountservice.AccountServiceApplication
 import ru.itmo.clothesadvisor.accountservice.config.PostgresIntegrationTest
+import ru.itmo.clothesadvisor.accountservice.config.TestJwt
 
 class LocalAccountsTests : PostgresIntegrationTest() {
     @Test
@@ -138,6 +139,8 @@ class LocalAccountsTests : PostgresIntegrationTest() {
             })
         }.run(
             "--server.port=0",
+            "--app.jwt.private-key=${TestJwt.privateKeyLocation}",
+            "--app.jwt.public-key=${TestJwt.publicKeyLocation}",
             "--spring.profiles.active=${if (local) "test,local" else "test"}",
             "--spring.r2dbc.url=r2dbc:postgresql://${postgres.host}:" +
                 "${postgres.firstMappedPort}/${postgres.databaseName}",
