@@ -434,7 +434,7 @@ class StylistRequestAnswerIntegrationTests : AccountBackedIntegrationTest() {
 
     private fun http(method: String, actor: Long, body: String? = null, path: String, key: String? = null): HttpResponse<String> {
         val request = HttpRequest.newBuilder(URI("http://localhost:$port$path"))
-            .timeout(Duration.ofSeconds(25)).header("X-User-Id", actor.toString())
+            .timeout(Duration.ofSeconds(25)).header("Authorization", bearer(actor.toString()))
             .method(method, body?.let(HttpRequest.BodyPublishers::ofString) ?: HttpRequest.BodyPublishers.noBody())
         if (body != null) request.header("Content-Type", "application/json")
         if (key != null) request.header("Idempotency-Key", key)

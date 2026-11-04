@@ -28,7 +28,7 @@ import ru.itmo.clothesadvisor.service.wardrobe.ReactiveWardrobeService
 
 @Tag(
     name = "Фотографии владельца",
-    description = "Действующий пользователь; владелец определяется по X-User-Id.",
+    description = "Действующий пользователь; владелец определяется по проверенному JWT.",
 )
 @RestController
 @RequestMapping("/api/wardrobe/items/{itemId}/photos")

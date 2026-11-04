@@ -72,7 +72,15 @@ import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemPhotoService
     properties = ["spring.config.name=application-transport"],
 )
 @ActiveProfiles("transport-server")
+@Import(RecommendationPayloadTests.TransportSecurity::class)
 class RecommendationPayloadTests {
+    @TestConfiguration
+    class TransportSecurity {
+        @Bean
+        fun transportSecurity(http: org.springframework.security.config.web.server.ServerHttpSecurity) =
+            http.csrf { it.disable() }.authorizeExchange { it.anyExchange().permitAll() }.build()
+    }
+
     @SpringBootConfiguration
     @EnableAutoConfiguration
     @Import(ExternalClientsConfiguration::class)

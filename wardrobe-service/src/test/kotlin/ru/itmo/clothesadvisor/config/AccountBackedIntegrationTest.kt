@@ -1,5 +1,6 @@
 package ru.itmo.clothesadvisor.config
 
+import java.time.Clock
 import org.assertj.core.api.Assertions.assertThat
 import org.junit.jupiter.api.BeforeEach
 import org.mockito.ArgumentMatchers.anyLong
@@ -20,6 +21,10 @@ import ru.itmo.clothesadvisor.service.blockingCall
 
 // JDBC rows represent the remote account fixture; transport is tested by AccountClientTests.
 abstract class AccountBackedIntegrationTest : PostgresIntegrationTest() {
+    @Autowired protected lateinit var clock: Clock
+
+    protected fun bearer(subject: String): String = "Bearer ${TestJwt.sign(subject, clock.instant())}"
+
     @Autowired private lateinit var accountFixtures: JdbcTemplate
     @MockitoBean internal lateinit var accounts: BlockingAccountClient
     @MockitoBean internal lateinit var reactiveAccounts: ReloadableAccountClient

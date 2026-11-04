@@ -1,6 +1,7 @@
 package ru.itmo.clothesadvisor.config
 
 import java.time.Duration
+import java.time.Instant
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.catchThrowable
 import org.junit.jupiter.api.Test
@@ -8,6 +9,8 @@ import org.mockito.Mockito.mock
 import org.mockito.Mockito.verifyNoInteractions
 import org.mockito.Mockito.`when`
 import org.springframework.core.MethodParameter
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException
+import org.springframework.security.oauth2.jwt.Jwt
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest
 import org.springframework.mock.web.server.MockServerWebExchange
 import org.springframework.web.reactive.BindingContext
@@ -16,7 +19,6 @@ import reactor.core.scheduler.Schedulers
 import ru.itmo.clothesadvisor.client.account.AccountClient
 import ru.itmo.clothesadvisor.dto.account.AccountUserResponse
 import ru.itmo.clothesadvisor.dto.user.CurrentUser
-import ru.itmo.clothesadvisor.model.AccessDeniedException
 import ru.itmo.clothesadvisor.model.EntityNotFoundException
 import ru.itmo.clothesadvisor.model.access.AccountUnavailableException
 import ru.itmo.clothesadvisor.model.user.UserRole
@@ -25,36 +27,50 @@ import ru.itmo.clothesadvisor.service.user.ReactiveCurrentUserService
 
 class CurrentUserArgumentResolverTests {
     private val users = mock(AccountClient::class.java)
-    private val resolver = CurrentUserArgumentResolver(ReactiveCurrentUserService(users))
+    private val converter = CurrentUserJwtConverter(ReactiveCurrentUserService(users))
+    private val resolver = CurrentUserArgumentResolver()
     private val parameter = mock(MethodParameter::class.java)
 
     @Test
-    fun `invalid actor headers do not query accounts`() {
-        listOf(null, "", "x", "0", "-1", "9223372036854775808").forEach { value ->
+    fun `resolver consumes authenticated user and ignores legacy header`() {
+        // given
+        val actor = CurrentUser(7, "user", UserRole.USER)
+        val authentication = CurrentUserJwtAuthentication(jwt(), actor)
+        val exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/")
+            .header("X-User-Id", "99")).mutate().principal(Mono.just(authentication)).build()
 
-            // given: an invalid actor header value
-            val result = resolvePublisher(value)
+        // when
+        val result = resolver.resolveArgument(parameter, BindingContext(), exchange).block()
 
-            // when
-            val failure = catchThrowable { result.block(Duration.ofSeconds(5)) }
+        // then
+        assertThat(result).isSameAs(actor)
+        verifyNoInteractions(users)
+    }
 
-            // then
-            assertThat(failure).isInstanceOf(InvalidCurrentUserException::class.java)
-        }
+    @Test
+    fun `resolver does not accept header without principal`() {
+        // given
+        val exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/").header("X-User-Id", "7"))
+
+        // when
+        val failure = catchThrowable { resolver.resolveArgument(parameter, BindingContext(), exchange).block() }
+
+        // then
+        assertThat(failure).isInstanceOf(OAuth2AuthenticationException::class.java)
         verifyNoInteractions(users)
     }
 
     @Test
     fun `missing and blocked actors map to separate domain errors`() {
 
-        // given: no actor exists for the header
+        // given: no actor exists for the token
         `when`(users.getUser(7)).thenReturn(Mono.error(EntityNotFoundException()))
 
         // when
         val missing = catchThrowable { resolve("7") }
 
         // then
-        assertThat(missing).isInstanceOf(EntityNotFoundException::class.java)
+        assertThat((missing as OAuth2AuthenticationException).error.errorCode).isEqualTo("invalid_token")
 
         // given
         `when`(users.getUser(7)).thenReturn(
@@ -65,7 +81,7 @@ class CurrentUserArgumentResolverTests {
         val blocked = catchThrowable { resolve("7") }
 
         // then
-        assertThat(blocked).isInstanceOf(AccessDeniedException::class.java)
+        assertThat((blocked as OAuth2AuthenticationException).error.errorCode).isEqualTo("account_blocked")
     }
 
     @Test
@@ -94,7 +110,7 @@ class CurrentUserArgumentResolverTests {
         val failure = catchThrowable { resolve("7") }
 
         // then
-        assertThat(failure).isInstanceOf(AccountUnavailableException::class.java)
+        assertThat((failure as OAuth2AuthenticationException).error.errorCode).isEqualTo("account_unavailable")
     }
 
     @Test
@@ -108,7 +124,7 @@ class CurrentUserArgumentResolverTests {
         val failure = catchThrowable { resolve("7") }
 
         // then
-        assertThat(failure).isSameAs(error)
+        assertThat((failure as OAuth2AuthenticationException).error.errorCode).isEqualTo("account_unavailable")
     }
 
     @Test
@@ -142,11 +158,10 @@ class CurrentUserArgumentResolverTests {
     private fun resolve(value: String?): CurrentUser =
         resolvePublisher(value).block(Duration.ofSeconds(5)) as CurrentUser
 
-    private fun resolvePublisher(value: String?): Mono<Any> {
-        val request = MockServerHttpRequest.get("/")
-        if (value != null) request.header("X-User-Id", value)
-        return resolver.resolveArgument(
-            parameter, BindingContext(), MockServerWebExchange.from(request),
-        )
-    }
+    private fun resolvePublisher(value: String?): Mono<Any> =
+        converter.convert(jwt(value!!)).map { (it as CurrentUserJwtAuthentication).user }
+
+    private fun jwt(subject: String = "7"): Jwt = Jwt.withTokenValue("verified")
+        .header("alg", "RS256").subject(subject).issuedAt(Instant.EPOCH)
+        .expiresAt(Instant.EPOCH.plusSeconds(900)).build()
 }

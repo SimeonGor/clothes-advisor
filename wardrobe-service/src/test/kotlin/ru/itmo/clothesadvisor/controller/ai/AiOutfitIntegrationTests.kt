@@ -594,8 +594,8 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         jdbc.updateUserRoleAndStatus(blocked.id, blocked.role, UserStatus.BLOCKED)
         for ((callerId, status) in
             listOf(
-                null to 400,
-                "invalid" to 400,
+                null to 401,
+                "invalid" to 401,
                 blockedActorId to 403,
                 actorId(user(UserRole.STYLIST)) to 403,
                 actorId(user(UserRole.ADMIN)) to 403,
@@ -1502,7 +1502,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         key: String? = null,
     ): HttpResponse<String> {
         val builder = HttpRequest.newBuilder(URI("http://localhost:$port$path"))
-        if (actorId != null) builder.header("X-User-Id", "$actorId")
+        if (actorId != null) builder.header("Authorization", bearer(actorId))
         if (body != null) builder.header("Content-Type", "application/json")
         if (key != null) builder.header("Idempotency-Key", key)
         return http.send(

@@ -41,7 +41,7 @@ import ru.itmo.clothesadvisor.service.wardrobe.ReactiveWardrobeService
 
 @Tag(
     name = "Гардероб владельца",
-    description = "Действующий пользователь; владелец определяется по X-User-Id.",
+    description = "Действующий пользователь; владелец определяется по проверенному JWT.",
 )
 @RestController
 @RequestMapping("/api/wardrobe/items")
@@ -197,7 +197,7 @@ internal class WardrobeItemController(
         items.list(user.id, toPageRequest(page, size))
 
     @GetMapping("/{id}")
-    @Operation(summary = "Карточка вещи", description = "Владелец определяется по X-User-Id.")
+    @Operation(summary = "Карточка вещи", description = "Владелец определяется по проверенному JWT.")
     @ApiResponses(
         ApiResponse(responseCode = "200", description = "Успешно", useReturnTypeSchema = true),
         ApiResponse(

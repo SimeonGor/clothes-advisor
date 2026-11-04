@@ -386,8 +386,8 @@ internal class AdminModerationIntegrationTests : AccountBackedIntegrationTest() 
                 assertThat(deniedStatus).`as`("$method $path").isEqualTo(status)
             }
         }
-        denied(null, 400)
-        denied("invalid-actorId", 400)
+        denied(null, 401)
+        denied("invalid-actorId", 401)
         denied(actorId(fixtureState.owner), 403)
         denied(actorId(user(UserRole.STYLIST)), 403)
         val actorId = actorId(fixtureState.admin)
@@ -933,7 +933,7 @@ internal class AdminModerationIntegrationTests : AccountBackedIntegrationTest() 
                         ?: HttpRequest.BodyPublishers.noBody(),
                 )
         if (body != null) request.header("Content-Type", "application/json")
-        if (actorId != null) request.header("X-User-Id", "$actorId")
+        if (actorId != null) request.header("Authorization", bearer(actorId))
         return client.send(request.build(), HttpResponse.BodyHandlers.ofByteArray())
     }
 
