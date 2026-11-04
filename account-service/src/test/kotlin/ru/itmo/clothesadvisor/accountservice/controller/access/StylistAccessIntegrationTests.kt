@@ -18,6 +18,7 @@ import org.junit.jupiter.params.ParameterizedTest
 import org.junit.jupiter.params.provider.CsvSource
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
+import ru.itmo.clothesadvisor.accountservice.config.TestJwt
 import ru.itmo.clothesadvisor.accountservice.config.PostgresIntegrationTest
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -28,7 +29,7 @@ class StylistAccessIntegrationTests : PostgresIntegrationTest() {
     @AfterEach fun closeClient() = client.close()
 
     @Test
-    fun `grant and revoke are idempotent and owner comes only from header`() {
+    fun `grant and revoke are idempotent and owner comes only from JWT`() {
         // given
         val owner = user()
         val other = user()
@@ -105,9 +106,8 @@ class StylistAccessIntegrationTests : PostgresIntegrationTest() {
         val owner = user()
         val stylist = user("STYLIST")
         val blocked = user(status = "BLOCKED")
-        val actors = listOf(null to 400, "" to 400, "bad" to 400, "0" to 400, "-1" to 400,
-            "1.0" to 400, "1,2" to 400, "9223372036854775808" to 400,
-            Long.MAX_VALUE.toString() to 404, blocked.toString() to 403)
+        val actors = listOf(null to 401, "bad" to 401,
+            Long.MAX_VALUE.toString() to 401, blocked.toString() to 403)
         val operations = listOf("PUT" to "$ACCESS/$stylist", "DELETE" to "$ACCESS/$stylist",
             "GET" to ACCESS, "GET" to CLIENTS)
         storeGrant(owner, stylist)
@@ -125,55 +125,34 @@ class StylistAccessIntegrationTests : PostgresIntegrationTest() {
     }
 
     @Test
-    fun `actor is reloaded on each request and active non user roles manage their own grants`() {
+    fun `same JWT follows current role and status while retaining stored grants`() {
         // given
-        val actor = user("ADMIN")
+        val actor = user()
         val stylist = user("STYLIST")
-        val header = "+0$actor"
+        val token = TestJwt.sign(actor)
+        assertEmpty(send("PUT", "$ACCESS/$stylist", token), 204)
+
+        for ((role, status) in listOf("ADMIN" to "ACTIVE", "USER" to "BLOCKED",
+            "STYLIST" to "ACTIVE")) {
+            // when
+            change(actor, role, status)
+
+            // then
+            assertError(send("PUT", "$ACCESS/$stylist", token), 403)
+            assertError(send("DELETE", "$ACCESS/$stylist", token), 403)
+            assertError(send("GET", ACCESS, token), 403)
+            assertThat(pairs()).hasSize(1)
+        }
 
         // when
-        val granted = send("PUT", "$ACCESS/$stylist", header)
-
-        // then
-        assertEmpty(granted, 204)
-
-        // when
-        val recipients = send("GET", ACCESS, header)
-
-        // then
-        assertThat(ids(recipients)).containsExactly(stylist)
-
-        // when
-        val adminRevoked = send("DELETE", "$ACCESS/$stylist", header)
-
-        // then
-        assertEmpty(adminRevoked, 204)
-        assertThat(pairs()).isEmpty()
-
-        // when
-        val regranted = send("PUT", "$ACCESS/$stylist", header)
-        change(actor, "ADMIN", "BLOCKED")
-
-        // then
-        assertEmpty(regranted, 204)
-        assertError(send("PUT", "$ACCESS/$stylist", header), 403)
-        assertError(send("DELETE", "$ACCESS/$stylist", header), 403)
-        assertError(send("GET", ACCESS, header), 403)
-        assertError(send("GET", CLIENTS, header), 403)
-        assertThat(pairs()).hasSize(1)
-
-        // when
-        change(actor, "STYLIST")
-        val restored = send("GET", ACCESS, header)
-        val revoked = send("DELETE", "$ACCESS/$stylist", header)
-        val selfGranted = send("PUT", "$ACCESS/$actor", header)
+        change(actor, "USER")
+        val restored = send("GET", ACCESS, token)
+        val revoked = send("DELETE", "$ACCESS/$stylist", token)
 
         // then
         assertThat(ids(restored)).containsExactly(stylist)
         assertEmpty(revoked, 204)
-        assertEmpty(selfGranted, 204)
-        assertThat(pairs()).containsExactly(mapOf("owner_id" to actor, "stylist_id" to actor))
-        assertThat(ids(send("GET", CLIENTS, header))).isEmpty()
+        assertThat(pairs()).isEmpty()
     }
 
     @ParameterizedTest
@@ -251,8 +230,7 @@ class StylistAccessIntegrationTests : PostgresIntegrationTest() {
             val restored = send("GET", CLIENTS, stylist.toString())
 
             // then
-            if (status == "BLOCKED") assertError(suspended, 403)
-            else assertThat(ids(suspended)).isEmpty()
+            assertError(suspended, 403)
             assertThat(rows(recipients)).containsExactly(stylistIdentity)
             assertThat(rows(restoredRecipients)).containsExactly(stylistIdentity)
             assertThat(rows(restored)).containsExactly(ownerIdentity)
@@ -315,7 +293,8 @@ class StylistAccessIntegrationTests : PostgresIntegrationTest() {
     @Test
     fun `invalid pagination and path ids return sanitized bad request`() {
         // given
-        val actor = user("STYLIST").toString()
+        val actor = user().toString()
+        val stylist = user("STYLIST").toString()
         val queries = listOf("page=-1", "size=0", "size=-1", "size=51", "page=no", "size=no",
             "page=1.5", "page=0&size=1.5",
             "page=2147483647&size=50", "page=2147483648", "size=2147483648")
@@ -323,7 +302,7 @@ class StylistAccessIntegrationTests : PostgresIntegrationTest() {
         for (path in listOf(ACCESS, CLIENTS)) {
             for (query in queries) {
                 // when
-                val response = send("GET", "$path?$query", actor)
+                val response = send("GET", "$path?$query", if (path == CLIENTS) stylist else actor)
 
                 // then
                 assertError(response, 400)
@@ -342,7 +321,7 @@ class StylistAccessIntegrationTests : PostgresIntegrationTest() {
     }
 
     @Test
-    fun `OpenAPI declares a required positive int64 actor header on all access operations`() {
+    fun `OpenAPI access operations do not expose identity headers`() {
         // given
         val operations = listOf("$ACCESS/{stylistId}" to "put", "$ACCESS/{stylistId}" to "delete",
             ACCESS to "get", CLIENTS to "get")
@@ -355,14 +334,7 @@ class StylistAccessIntegrationTests : PostgresIntegrationTest() {
         for ((path, method) in operations) {
             val parameters: List<Map<String, Any?>> =
                 JsonPath.read(response.body(), "$.paths['$path'].$method.parameters")
-            val header = parameters.single { it["name"] == "X-User-Id" }
-            assertThat(header["in"]).isEqualTo("header")
-            assertThat(header["required"]).isEqualTo(true)
-            @Suppress("UNCHECKED_CAST")
-            val schema = header["schema"] as Map<String, Any?>
-            assertThat(schema["type"]).isEqualTo("integer")
-            assertThat(schema["format"]).isEqualTo("int64")
-            assertThat((schema["minimum"] as Number).toLong()).isEqualTo(1)
+            assertThat(parameters.map { it["name"] }).doesNotContain("X-User-Id")
         }
     }
 
@@ -394,7 +366,9 @@ class StylistAccessIntegrationTests : PostgresIntegrationTest() {
     ): HttpResponse<String> {
         val request = HttpRequest.newBuilder(URI("http://localhost:$port$path"))
             .timeout(Duration.ofSeconds(15))
-        actor?.let { request.header("X-User-Id", it) }
+        actor?.let { request.header("Authorization", "Bearer " +
+            (it.toLongOrNull()?.let(TestJwt::sign) ?: it)) }
+        request.header("X-User-Id", "9223372036854775807")
         if (body != null) request.header("Content-Type", "application/json")
         request.method(method, body?.let { HttpRequest.BodyPublishers.ofString(it) }
             ?: HttpRequest.BodyPublishers.noBody())
@@ -427,6 +401,7 @@ class StylistAccessIntegrationTests : PostgresIntegrationTest() {
     private fun assertError(response: HttpResponse<String>, status: Int) {
         assertThat(response.statusCode()).isEqualTo(status)
         when (status) {
+            401 -> assertThat(response.body()).isEqualTo("""{"error":"unauthorized"}""")
             400 -> assertThat(response.body()).isEqualTo("""{"error":"invalid_request"}""")
             403 -> assertThat(response.body()).isEqualTo("""{"error":"forbidden"}""")
             404 -> assertThat(response.body()).isEmpty()

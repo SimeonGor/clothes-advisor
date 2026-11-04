@@ -14,6 +14,10 @@ internal interface AppUserRepository : Repository<AppUser, Long> {
 
     fun findByLogin(login: String): Mono<AppUser>
 
+    @Query("""SELECT * FROM app_user WHERE role = 'STYLIST' AND status = 'ACTIVE'
+        ORDER BY id LIMIT :limit OFFSET :offset""")
+    fun findActiveStylists(limit: Int, offset: Int): Flux<AppUser>
+
     @Query("SELECT * FROM app_user ORDER BY id DESC LIMIT :limit OFFSET :offset")
     fun findPage(limit: Int, offset: Int): Flux<AppUser>
 
