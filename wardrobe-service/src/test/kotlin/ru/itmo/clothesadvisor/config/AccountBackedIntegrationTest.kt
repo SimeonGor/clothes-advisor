@@ -10,19 +10,27 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean
 import org.springframework.transaction.support.TransactionSynchronizationManager
 import reactor.core.scheduler.Schedulers
 import ru.itmo.clothesadvisor.client.account.BlockingAccountClient
+import ru.itmo.clothesadvisor.client.account.ReloadableAccountClient
 import ru.itmo.clothesadvisor.dto.account.AccountUserResponse
 import ru.itmo.clothesadvisor.model.AccessDeniedException
 import ru.itmo.clothesadvisor.model.EntityNotFoundException
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
+import ru.itmo.clothesadvisor.service.blockingCall
 
 // JDBC rows represent the remote account fixture; transport is tested by AccountClientTests.
 abstract class AccountBackedIntegrationTest : PostgresIntegrationTest() {
     @Autowired private lateinit var accountFixtures: JdbcTemplate
     @MockitoBean internal lateinit var accounts: BlockingAccountClient
+    @MockitoBean internal lateinit var reactiveAccounts: ReloadableAccountClient
 
     @BeforeEach
     fun configureAccountFixture() {
+        doAnswer { call ->
+                val id = call.getArgument<Long>(0)
+                blockingCall { accounts.getUser(id) }
+            }
+            .`when`(reactiveAccounts).getUser(anyLong())
         doAnswer { call ->
                 assertThat(Schedulers.isInNonBlockingThread()).isFalse()
                 assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()

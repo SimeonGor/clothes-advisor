@@ -4,7 +4,6 @@ import java.time.Duration
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.catchThrowable
 import org.junit.jupiter.api.Test
-import org.mockito.Mockito.doReturn
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.verifyNoInteractions
 import org.mockito.Mockito.`when`
@@ -14,18 +13,19 @@ import org.springframework.mock.web.server.MockServerWebExchange
 import org.springframework.web.reactive.BindingContext
 import reactor.core.publisher.Mono
 import reactor.core.scheduler.Schedulers
-import ru.itmo.clothesadvisor.client.account.BlockingAccountClient
+import ru.itmo.clothesadvisor.client.account.AccountClient
 import ru.itmo.clothesadvisor.dto.account.AccountUserResponse
 import ru.itmo.clothesadvisor.dto.user.CurrentUser
 import ru.itmo.clothesadvisor.model.AccessDeniedException
 import ru.itmo.clothesadvisor.model.EntityNotFoundException
+import ru.itmo.clothesadvisor.model.access.AccountUnavailableException
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
-import ru.itmo.clothesadvisor.service.user.CurrentUserService
+import ru.itmo.clothesadvisor.service.user.ReactiveCurrentUserService
 
 class CurrentUserArgumentResolverTests {
-    private val users = mock(BlockingAccountClient::class.java)
-    private val resolver = CurrentUserArgumentResolver(CurrentUserService(users))
+    private val users = mock(AccountClient::class.java)
+    private val resolver = CurrentUserArgumentResolver(ReactiveCurrentUserService(users))
     private val parameter = mock(MethodParameter::class.java)
 
     @Test
@@ -33,9 +33,10 @@ class CurrentUserArgumentResolverTests {
         listOf(null, "", "x", "0", "-1", "9223372036854775808").forEach { value ->
 
             // given: an invalid actor header value
+            val result = resolvePublisher(value)
 
             // when
-            val failure = catchThrowable { resolve(value) }
+            val failure = catchThrowable { result.block(Duration.ofSeconds(5)) }
 
             // then
             assertThat(failure).isInstanceOf(InvalidCurrentUserException::class.java)
@@ -47,7 +48,7 @@ class CurrentUserArgumentResolverTests {
     fun `missing and blocked actors map to separate domain errors`() {
 
         // given: no actor exists for the header
-        `when`(users.getUser(7)).thenThrow(EntityNotFoundException())
+        `when`(users.getUser(7)).thenReturn(Mono.error(EntityNotFoundException()))
 
         // when
         val missing = catchThrowable { resolve("7") }
@@ -56,8 +57,9 @@ class CurrentUserArgumentResolverTests {
         assertThat(missing).isInstanceOf(EntityNotFoundException::class.java)
 
         // given
-        doReturn(AccountUserResponse(7, "user", UserRole.USER, UserStatus.BLOCKED))
-            .`when`(users).getUser(7)
+        `when`(users.getUser(7)).thenReturn(
+            Mono.just(AccountUserResponse(7, "user", UserRole.USER, UserStatus.BLOCKED)),
+        )
 
         // when
         val blocked = catchThrowable { resolve("7") }
@@ -72,7 +74,7 @@ class CurrentUserArgumentResolverTests {
 
             // given
             `when`(users.getUser(7))
-                .thenReturn(AccountUserResponse(7, "user", role, UserStatus.ACTIVE))
+                .thenReturn(Mono.just(AccountUserResponse(7, "user", role, UserStatus.ACTIVE)))
 
             // when
             val actor = resolve("7")
@@ -83,22 +85,58 @@ class CurrentUserArgumentResolverTests {
     }
 
     @Test
-    fun `account lookup is deferred and runs on a blocking worker`() {
+    fun `empty account response fails instead of producing an empty actor`() {
+
+        // given
+        `when`(users.getUser(7)).thenReturn(Mono.empty())
+
+        // when
+        val failure = catchThrowable { resolve("7") }
+
+        // then
+        assertThat(failure).isInstanceOf(AccountUnavailableException::class.java)
+    }
+
+    @Test
+    fun `account unavailability is propagated`() {
+
+        // given
+        val error = AccountUnavailableException()
+        `when`(users.getUser(7)).thenReturn(Mono.error(error))
+
+        // when
+        val failure = catchThrowable { resolve("7") }
+
+        // then
+        assertThat(failure).isSameAs(error)
+    }
+
+    @Test
+    fun `account lookup is deferred and stays on the nonblocking subscriber thread`() {
 
         // given
         `when`(users.getUser(7)).thenAnswer {
-            assertThat(Schedulers.isInNonBlockingThread()).isFalse()
-            assertThat(Thread.currentThread().name).startsWith("boundedElastic-")
-            AccountUserResponse(7, "user", UserRole.USER, UserStatus.ACTIVE)
+            assertThat(Schedulers.isInNonBlockingThread()).isTrue()
+            assertThat(Thread.currentThread().name).startsWith("parallel-")
+            val callerThread = Thread.currentThread()
+            Mono.defer {
+                assertThat(Thread.currentThread()).isSameAs(callerThread)
+                Mono.just(AccountUserResponse(7, "user", UserRole.USER, UserStatus.ACTIVE))
+            }
         }
+        val result = resolvePublisher("7")
+        verifyNoInteractions(users)
 
         // when
-        val result = resolvePublisher("7")
+        val actor = Mono.defer {
+            val subscriberThread = Thread.currentThread()
+            result.doOnNext {
+                assertThat(Thread.currentThread()).isSameAs(subscriberThread)
+            }
+        }.subscribeOn(Schedulers.parallel()).block(Duration.ofSeconds(5))
 
         // then
-        verifyNoInteractions(users)
-        assertThat(result.block(Duration.ofSeconds(5)))
-            .isEqualTo(CurrentUser(7, "user", UserRole.USER))
+        assertThat(actor).isEqualTo(CurrentUser(7, "user", UserRole.USER))
     }
 
     private fun resolve(value: String?): CurrentUser =

@@ -139,7 +139,7 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
             )
             .isZero()
         assertThat(objects).hasSize(1)
-        verify(currentUsers, times(3)).requireActive(ownerId)
+        verify(currentUsers, times(2)).requireActive(ownerId)
     }
 
     @Test
@@ -171,7 +171,7 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
         assertThat(String(response.body())).isEqualTo("{\"error\":\"forbidden\"}")
         assertThat(count("wardrobe_item_photo", "wardrobe_item_id", itemId)).isEqualTo(1)
         assertThat(objects).hasSize(1)
-        verify(currentUsers, times(3)).requireActive(ownerId)
+        verify(currentUsers, times(2)).requireActive(ownerId)
     }
 
     @Test
