@@ -66,6 +66,13 @@ Argon2id, а для PBKDF2 приводит указанный порог. Ст�
 [OWASP Password Storage](https://cheatsheetseries.owasp.org/cheatsheets/Password_Storage_Cheat_Sheet.html).
 Хеши нельзя возвращать даже администратору; пароль задаётся заново, а не восстанавливается.
 
+Код этапа 02: [PasswordConfiguration](../../account-service/src/main/kotlin/ru/itmo/clothesadvisor/accountservice/config/PasswordConfiguration.kt),
+[PasswordService](../../account-service/src/main/kotlin/ru/itmo/clothesadvisor/accountservice/service/auth/PasswordService.kt),
+[CredentialAuthenticationService](../../account-service/src/main/kotlin/ru/itmo/clothesadvisor/accountservice/service/auth/CredentialAuthenticationService.kt).
+Формат хеша содержит идентификатор параметров. Заглушка `!` и неизвестные форматы
+не принимаются; для такого аккаунта понадобится назначение пароля администратором.
+Публичный вход добавляется следующим этапом.
+
 ## Browser, CSRF и транспорт
 
 Предварительный вариант — короткий access token в памяти вкладки. HTTP-клиент явно
