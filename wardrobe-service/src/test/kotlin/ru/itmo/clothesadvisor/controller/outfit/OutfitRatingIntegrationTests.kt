@@ -636,7 +636,7 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
             assertEmpty(missingClient, 404)
             for ((credential, status) in
                 listOf(
-                    null to 400,
+                    null to 401,
                     actorId(fixtureState.owner) to 404,
                     actorId(user(UserRole.ADMIN)) to 404,
                 )) {
@@ -827,7 +827,7 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
         val missingActorHistory = request("GET", ownerPath)
 
         // then
-        assertThat(missingActorHistory.statusCode()).isEqualTo(400)
+        assertThat(missingActorHistory.statusCode()).isEqualTo(401)
 
         // when
         val ownerClientHistory =
@@ -1511,7 +1511,7 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
                         ?: HttpRequest.BodyPublishers.noBody(),
                 )
         if (body != null) request.header("Content-Type", "application/json")
-        if (actorId != null) request.header("X-User-Id", "$actorId")
+        if (actorId != null) request.header("Authorization", bearer(actorId))
         return client.send(request.build(), HttpResponse.BodyHandlers.ofString())
     }
 

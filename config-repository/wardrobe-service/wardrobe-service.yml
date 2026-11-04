@@ -13,6 +13,8 @@ spring:
         disable-thread-pool: true
 
 app:
+  jwt:
+    public-key: ${JWT_PUBLIC_KEY_LOCATION:file:/run/secrets/app-jwt-public-key}
   account-client:
     connect-timeout: 2s
     read-timeout: 5s

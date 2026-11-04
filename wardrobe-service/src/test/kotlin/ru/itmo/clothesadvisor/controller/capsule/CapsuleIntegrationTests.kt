@@ -168,7 +168,7 @@ class CapsuleIntegrationTests : AccountBackedIntegrationTest() {
         val request = payload(listOf(item(owner)))
         val id = id(http("POST", owner, request, key = "access"))
         val expected = when (state) {
-            "MISSING" -> { jdbc.update("DELETE FROM app_user WHERE id = ?", owner); 404 }
+            "MISSING" -> { jdbc.update("DELETE FROM app_user WHERE id = ?", owner); 401 }
             "UNAVAILABLE" -> { doThrow(AccountUnavailableException()).`when`(accounts).getUser(owner); 503 }
             "BLOCKED" -> { jdbc.update("UPDATE app_user SET status = 'BLOCKED' WHERE id = ?", owner); 403 }
             else -> { jdbc.update("UPDATE app_user SET role = ?::user_role WHERE id = ?", state, owner); 403 }
@@ -437,7 +437,7 @@ class CapsuleIntegrationTests : AccountBackedIntegrationTest() {
     private fun payload(ids: List<Long>, name: String = "Daily") = """{"name":"$name","itemIds":[${ids.joinToString(",")}]}"""
     private fun http(method: String, actor: Long, body: String? = null, target: String = path, key: String? = null): HttpResponse<String> {
         val request = HttpRequest.newBuilder(URI("http://localhost:$port$target"))
-            .timeout(Duration.ofSeconds(25)).header("X-User-Id", actor.toString())
+            .timeout(Duration.ofSeconds(25)).header("Authorization", bearer(actor.toString()))
             .method(method, body?.let(HttpRequest.BodyPublishers::ofString) ?: HttpRequest.BodyPublishers.noBody())
         if (body != null) request.header("Content-Type", "application/json")
         if (key != null) request.header("Idempotency-Key", key)

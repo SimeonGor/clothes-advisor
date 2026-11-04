@@ -16,7 +16,7 @@ import ru.itmo.clothesadvisor.controller.toPageRequest
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeCategoryResponse
 import ru.itmo.clothesadvisor.service.wardrobe.ReactiveWardrobeCategoryService
 
-@Tag(name = "Справочники", description = "Публичное чтение; X-User-Id не требуется.")
+@Tag(name = "Справочники", description = "Чтение для действующего пользователя с JWT.")
 @RestController
 @RequestMapping("/api/wardrobe/categories")
 internal class WardrobeCategoryController(

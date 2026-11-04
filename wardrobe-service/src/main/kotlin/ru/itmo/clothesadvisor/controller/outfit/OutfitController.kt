@@ -32,7 +32,7 @@ import ru.itmo.clothesadvisor.service.outfit.ReactiveOutfitService
 
 @Tag(
     name = "Образы владельца",
-    description = "Действующий пользователь; владелец определяется по X-User-Id.",
+    description = "Действующий пользователь; владелец определяется по проверенному JWT.",
 )
 @RestController
 @RequestMapping("/api/outfits")
@@ -127,7 +127,7 @@ internal class OutfitController(
         }
 
     @GetMapping("/{id}")
-    @Operation(summary = "Карточка образа", description = "Владелец определяется по X-User-Id.")
+    @Operation(summary = "Карточка образа", description = "Владелец определяется по проверенному JWT.")
     @ApiResponses(
         ApiResponse(responseCode = "200", description = "Успешно", useReturnTypeSchema = true),
         ApiResponse(

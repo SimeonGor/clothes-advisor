@@ -317,7 +317,7 @@ class WardrobeItemIntegrationTests : AccountBackedIntegrationTest() {
         val ownerActorId = actorId(owner)
         val id = number(dto(request("POST", actorId = ownerActorId, body = body())), "id")
         jdbc.updateUserRoleAndStatus(owner.id, owner.role, UserStatus.BLOCKED)
-        for ((actorId, expected) in listOf(null to 400, ownerActorId to 403)) {
+        for ((actorId, expected) in listOf(null to 401, ownerActorId to 403)) {
 
             // when
             val listStatus = request("GET", actorId = actorId).statusCode()
@@ -695,7 +695,7 @@ class WardrobeItemIntegrationTests : AccountBackedIntegrationTest() {
                         ?: HttpRequest.BodyPublishers.noBody(),
                 )
         if (body != null) request.header("Content-Type", "application/json")
-        if (actorId != null) request.header("X-User-Id", "$actorId")
+        if (actorId != null) request.header("Authorization", bearer(actorId))
         return client.send(request.build(), HttpResponse.BodyHandlers.ofString())
     }
 

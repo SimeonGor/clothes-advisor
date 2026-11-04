@@ -23,7 +23,7 @@ import ru.itmo.clothesadvisor.service.ai.ReactiveAiOutfitService
 
 @Tag(
     name = "Подбор AI",
-    description = "Действующий пользователь; владелец определяется по X-User-Id.",
+    description = "Действующий пользователь; владелец определяется по проверенному JWT.",
 )
 @RestController
 internal class AiOutfitController(private val outfits: ReactiveAiOutfitService) {

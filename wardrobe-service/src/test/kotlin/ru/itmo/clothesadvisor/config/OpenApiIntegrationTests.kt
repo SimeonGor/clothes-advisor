@@ -29,7 +29,7 @@ class OpenApiIntegrationTests : PostgresIntegrationTest() {
     fun closeHttpClient() = client.close()
 
     @Test
-    fun `generated wardrobe spec retains public requests responses and actor headers`() {
+    fun `generated wardrobe spec retains requests responses and requires bearer authentication`() {
         // given
         val request = HttpRequest.newBuilder(URI("http://localhost:$port/v3/api-docs"))
             .timeout(Duration.ofSeconds(15)).GET().build()
@@ -48,6 +48,8 @@ class OpenApiIntegrationTests : PostgresIntegrationTest() {
         assertThat(response.statusCode()).isEqualTo(200)
         val spec = JsonPath.parse(response.body())
         assertThat(spec.read<String>("$.info.title")).isEqualTo("Wardrobe API")
+        assertThat(spec.read<String>("$.components.securitySchemes.bearerAuth.scheme")).isEqualTo("bearer")
+        assertThat(spec.read<List<Map<String, Any?>>>("$.security")).containsExactly(mapOf("bearerAuth" to emptyList<String>()))
         assertThat(spec.read<List<String>>("$.servers[*].url")).containsExactly("/")
         val paths = spec.read<Map<String, Map<String, Any?>>>("$.paths")
         assertThat(paths.keys).isNotEmpty().allMatch { it.startsWith("/api/") }
@@ -59,15 +61,11 @@ class OpenApiIntegrationTests : PostgresIntegrationTest() {
         paths.forEach { (path, operations) ->
             operations.keys.forEach { method ->
                 val headers = spec.read<List<Map<String, Any?>>>(
-                    "$.paths['$path'].$method.parameters[?(@.name == 'X-User-Id')]",
+                    "$.paths['$path'].$method..parameters[?(@.name == 'X-User-Id')]",
                 )
-                if (path in publicDictionaries) {
-                    assertThat(headers).`as`("$method $path has no actor").isEmpty()
-                } else {
-                    assertThat(headers).`as`("$method $path requires one actor").hasSize(1)
-                    assertThat(headers.single()).containsEntry("in", "header")
-                        .containsEntry("required", true)
-                }
+                assertThat(headers).`as`("$method $path has no actor header").isEmpty()
+                assertThat(spec.read<Map<String, Any?>>("$.paths['$path'].$method.responses").keys)
+                    .contains("401", "403", "503")
             }
         }
 

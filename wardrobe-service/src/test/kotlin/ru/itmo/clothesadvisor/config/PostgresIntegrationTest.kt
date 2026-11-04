@@ -39,6 +39,7 @@ abstract class PostgresIntegrationTest {
         @JvmStatic
         @DynamicPropertySource
         fun postgresProperties(registry: DynamicPropertyRegistry) {
+            registry.add("app.jwt.public-key") { TestJwt.publicKeyLocation }
             registry.add("spring.datasource.url", postgres::getJdbcUrl)
             registry.add("spring.datasource.username", postgres::getUsername)
             registry.add("spring.datasource.password", postgres::getPassword)
