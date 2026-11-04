@@ -14,6 +14,18 @@ internal interface AppUserRepository : Repository<AppUser, Long> {
 
     fun findByLogin(login: String): Mono<AppUser>
 
+    @Query("SELECT * FROM app_user WHERE login = :login FOR UPDATE")
+    fun findByLoginForUpdate(login: String): Mono<AppUser>
+
+    @Query(
+        """
+        INSERT INTO app_user (login, password_hash, role, status, version)
+        VALUES (:login, :passwordHash, 'ADMIN', 'ACTIVE', 1)
+        ON CONFLICT (login) DO NOTHING RETURNING *
+        """,
+    )
+    fun createBootstrapAdmin(login: String, passwordHash: String): Mono<AppUser>
+
     @Query("""SELECT * FROM app_user WHERE role = 'STYLIST' AND status = 'ACTIVE'
         ORDER BY id LIMIT :limit OFFSET :offset""")
     fun findActiveStylists(limit: Int, offset: Int): Flux<AppUser>
@@ -59,4 +71,13 @@ internal interface AppUserRepository : Repository<AppUser, Long> {
         """,
     )
     fun updateRow(id: Long, version: Long, role: UserRole, status: UserStatus): Mono<AppUser>
+
+    @Query(
+        """
+        UPDATE app_user SET password_hash = :passwordHash,
+            modified_at = CURRENT_TIMESTAMP, version = version + 1
+        WHERE id = :id AND version = :version RETURNING *
+        """,
+    )
+    fun updatePassword(id: Long, version: Long, passwordHash: String): Mono<AppUser>
 }

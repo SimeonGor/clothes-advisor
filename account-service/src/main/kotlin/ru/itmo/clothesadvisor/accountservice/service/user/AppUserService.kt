@@ -42,6 +42,25 @@ internal class AppUserService(
     fun findByLogin(login: String): Mono<AppUser> = Mono.defer { users.findByLogin(login) }
 
     @Transactional
+    fun changePassword(id: Long, expectedVersion: Long, passwordHash: String): Mono<AppUser> =
+        Mono.defer {
+            users.findById(id)
+                .switchIfEmpty(Mono.error(EntityNotFoundException("User $id not found")))
+                .flatMap { user ->
+                    if (user.version != expectedVersion) {
+                        return@flatMap Mono.error(
+                            OptimisticLockingFailureException("User $id version conflict"),
+                        )
+                    }
+                    users.updatePassword(id, expectedVersion, passwordHash)
+                        .switchIfEmpty(
+                            Mono.error(OptimisticLockingFailureException("User $id version conflict")),
+                        )
+                        .flatMap { saved -> history.insert(AppUserHistory(user)).thenReturn(saved) }
+                }
+        }
+
+    @Transactional
     fun changeRoleAndStatus(
         id: Long,
         expectedVersion: Long,
