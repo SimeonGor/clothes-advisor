@@ -12,13 +12,14 @@ spring:
         webflux:
           default-filters:
             - PreserveHostHeader
+            - RemoveRequestHeader=X-User-Id
           httpclient:
             connect-timeout: 5000
           routes:
             - id: account-api
               uri: lb://account-service
               predicates:
-                - Path=/api/admin/users,/api/admin/users/*,/api/me/stylist-access,/api/me/stylist-access/*,/api/stylist/clients
+                - Path=/api/auth/**,/api/stylists,/api/admin/users,/api/admin/users/*,/api/admin/users/*/password,/api/me/stylist-access,/api/me/stylist-access/*,/api/stylist/clients
             - id: wardrobe-api
               uri: lb://wardrobe-service
               predicates:
@@ -39,6 +40,10 @@ spring:
               uri: ${FRONTEND_URL:http://localhost:8082}
               predicates:
                 - Path=/,/index.html,/app,/app/**
+
+app:
+  jwt:
+    public-key: ${JWT_PUBLIC_KEY_LOCATION:file:/run/secrets/app-jwt-public-key}
 
 springdoc:
   swagger-ui:
