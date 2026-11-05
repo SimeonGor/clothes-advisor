@@ -38,6 +38,298 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
+describe("Создание аккаунта и назначение пароля", () => {
+  it.each(["USER", "STYLIST", "ADMIN"])("создаёт аккаунт с ролью %s, сохраняет только карточку и открывает её", async (role) => {
+    // given: администратор открывает создание из каталога, роль по умолчанию USER.
+    const created = details({ id: 44, login: " new-user ", role });
+    const calls: Call[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); calls.push({ url, init });
+      if (init?.method === "POST") return ok(created, 201);
+      if (url === "/api/admin/users/44") return ok(created);
+      return ok([]);
+    }));
+    const view = mount(admin, "/accounts");
+    await screen.findByText("Аккаунтов пока нет.");
+    fireEvent.click(screen.getByRole("link", { name: "Создать аккаунт ↗" }));
+    const password = screen.getByLabelText("ПАРОЛЬ") as HTMLInputElement;
+    expect((screen.getByLabelText("РОЛЬ") as HTMLSelectElement).value).toBe("USER");
+    expect(password.type).toBe("password");
+    const rawPassword = "  initial-password  ";
+    fireEvent.change(screen.getByLabelText("ЛОГИН"), { target: { value: created.login } });
+    fireEvent.change(password, { target: { value: rawPassword } });
+    if (role !== "USER") fireEvent.change(screen.getByLabelText("РОЛЬ"), { target: { value: role } });
+    // when: сервер возвращает 201 и безопасную карточку.
+    fireEvent.click(screen.getByRole("button", { name: "Создать аккаунт" }));
+    await screen.findByRole("heading", { name: "new-user" });
+    // then: пароль передан без trim, отсутствует в кешах, URL и хранилищах.
+    const writes = calls.filter((call) => call.init?.method);
+    expect(writes).toHaveLength(1);
+    expect(writes[0].url).toBe("/api/admin/users");
+    expect(JSON.parse(String(writes[0].init?.body))).toEqual({ login: created.login, password: rawPassword, role });
+    expect(new Headers(writes[0].init?.headers).get("Authorization")).toBe("Bearer test-token-33");
+    expect(new Headers(writes[0].init?.headers).has("Idempotency-Key")).toBe(false);
+    expect(password.value).toBe("");
+    expect(view.client.getQueryData(["account", 33, 44])).toEqual(created);
+    expect(view.client.getQueryState(["account-directory", 33])?.isInvalidated).toBe(true);
+    expect(JSON.stringify(view.client.getQueryCache().getAll().map((query) => query.state.data))).not.toContain(rawPassword);
+    expect(view.client.getMutationCache().getAll()).toHaveLength(0);
+    expect(calls.every((call) => !call.url.includes(rawPassword))).toBe(true);
+    expect(JSON.stringify(localStorage)).not.toContain(rawPassword);
+    expect(JSON.stringify(sessionStorage)).not.toContain(rawPassword);
+  });
+
+  it.each([
+    { login: " ", password: "valid-password" },
+    { login: "x".repeat(101), password: "valid-password" },
+    { login: "valid", password: "" },
+    { login: "valid", password: " ".repeat(12) },
+    { login: "valid", password: "x".repeat(11) },
+    { login: "valid", password: "x".repeat(129) },
+  ])("не отправляет некорректные поля создания: %j", async ({ login, password }) => {
+    // given: значения выходят за ограничения backend.
+    const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
+    mount(admin, "/accounts/new");
+    const input = screen.getByLabelText("ПАРОЛЬ");
+    fireEvent.change(screen.getByLabelText("ЛОГИН"), { target: { value: login } });
+    fireEvent.change(input, { target: { value: password } });
+    // when: отправляется даже прямой submit в обход HTML-валидации.
+    fireEvent.submit(input.closest("form")!);
+    // then: сеть не используется.
+    expect((await screen.findByRole("alert")).textContent).toContain("Укажите логин");
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each([409, 400, 403, 503, "network"])("очищает пароль после ошибки создания %s без повторной записи", async (failure) => {
+    // given: backend отказывает либо результат записи неизвестен.
+    const fetch = vi.fn(async () => { if (failure === "network") throw new TypeError("offline"); return fail(Number(failure)); });
+    vi.stubGlobal("fetch", fetch);
+    const view = mount(admin, "/accounts/new");
+    const password = screen.getByLabelText("ПАРОЛЬ") as HTMLInputElement;
+    fireEvent.change(screen.getByLabelText("ЛОГИН"), { target: { value: "candidate" } });
+    fireEvent.change(password, { target: { value: "initial-password" } });
+    // when
+    fireEvent.click(screen.getByRole("button", { name: "Создать аккаунт" }));
+    const alert = await screen.findByRole("alert");
+    // then
+    expect(alert.textContent).toContain(failure === 409 ? "логин уже занят"
+      : failure === 400 ? "Проверьте введённые данные" : failure === 403 ? "Недостаточно прав" : "действие могло выполниться");
+    expect(password.value).toBe("");
+    expect((screen.getByLabelText("ЛОГИН") as HTMLInputElement).value).toBe("candidate");
+    await act(async () => { await view.client.invalidateQueries(); });
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(view.client.getQueryData(["account", 33, 44])).toBeUndefined();
+  });
+
+  it("блокирует повторное создание, ссылки и выход до ответа", async () => {
+    // given: запись ещё не завершилась.
+    let finish!: (response: Response) => void;
+    const fetch = vi.fn(() => new Promise<Response>((resolve) => { finish = resolve; }));
+    vi.stubGlobal("fetch", fetch); mount(admin, "/accounts/new");
+    const input = screen.getByLabelText("ПАРОЛЬ") as HTMLInputElement;
+    fireEvent.change(screen.getByLabelText("ЛОГИН"), { target: { value: "new" } });
+    fireEvent.change(input, { target: { value: "initial-password" } });
+    // when: двойной submit и переход назад.
+    fireEvent.submit(input.closest("form")!);
+    fireEvent.submit(input.closest("form")!);
+    fireEvent.click(screen.getByRole("link", { name: "← К аккаунтам" }));
+    // then: сохраняется текущая форма и единственная запись.
+    expect(screen.getByRole("heading", { name: "Создать аккаунт" })).toBeTruthy();
+    expect(input.disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Выйти" }) as HTMLButtonElement).disabled).toBe(true);
+    expect(fetch).toHaveBeenCalledTimes(1);
+    await act(async () => finish(fail(503)));
+    expect(input.value).toBe("");
+    expect(input.disabled).toBe(false);
+  });
+
+  it("очищает пароль при уходе и не открывает карточку по запоздавшему ответу", async () => {
+    // given: POST ожидает ответ, переход инициируется вне ссылок интерфейса.
+    let finish!: (response: Response) => void;
+    vi.stubGlobal("fetch", vi.fn(async (_input: RequestInfo | URL, init?: RequestInit) => init?.method === "POST"
+      ? new Promise<Response>((resolve) => { finish = resolve; }) : ok([])));
+    const view = mount(admin, "/accounts/new");
+    const input = screen.getByLabelText("ПАРОЛЬ") as HTMLInputElement;
+    fireEvent.change(screen.getByLabelText("ЛОГИН"), { target: { value: "new" } });
+    fireEvent.change(input, { target: { value: "initial-password" } });
+    fireEvent.submit(input.closest("form")!);
+    // when
+    view.go("/accounts");
+    await act(async () => finish(ok(details({ id: 44, login: "new", role: "USER" }), 201)));
+    // then
+    expect(input.value).toBe("");
+    expect(screen.getByRole("heading", { name: "Аккаунты" })).toBeTruthy();
+    expect(view.client.getQueryData(["account", 33, 44])).toBeUndefined();
+    view.go("/accounts/new");
+    expect((screen.getByLabelText("ПАРОЛЬ") as HTMLInputElement).value).toBe("");
+  });
+
+  it.each([12, 128])("задаёт пароль длиной %s без trim и передаёт новую версию следующему изменению роли", async (length) => {
+    // given: пароль и карточка хранятся отдельно, текущая версия 7.
+    let saved = details(user, 7);
+    const writes: Call[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "PUT") {
+        writes.push({ url: String(input), init });
+        saved = { ...saved, version: saved.version + 1, ...(String(input).endsWith("/password") ? {} : { role: "STYLIST" }) };
+      }
+      return ok(saved);
+    }));
+    const view = mount(admin, "/accounts/11");
+    const password = await screen.findByLabelText("НОВЫЙ ПАРОЛЬ") as HTMLInputElement;
+    const rawPassword = ` ${"x".repeat(length - 2)} `;
+    fireEvent.change(password, { target: { value: rawPassword } });
+    // when
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить пароль" }));
+    await screen.findByText("Пароль сохранён.");
+    expect(view.client.getQueryData(["account", 33, 11])).toEqual(saved);
+    fireEvent.change(screen.getByLabelText("РОЛЬ"), { target: { value: "STYLIST" } });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить роль и статус" }));
+    await screen.findByText("Роль и статус сохранены.");
+    // then: версия 8 из ответа пароля используется для следующей записи.
+    expect(writes.map(({ url, init }) => [url, JSON.parse(String(init?.body))])).toEqual([
+      ["/api/admin/users/11/password", { password: rawPassword, version: 7 }],
+      ["/api/admin/users/11", { role: "STYLIST", status: "ACTIVE", version: 8 }],
+    ]);
+    expect(new Headers(writes[0].init?.headers).get("Authorization")).toBe("Bearer test-token-33");
+    expect(new Headers(writes[0].init?.headers).has("Idempotency-Key")).toBe(false);
+    expect(password.value).toBe("");
+    expect(JSON.stringify(view.client.getQueryCache().getAll().map((query) => query.state.data))).not.toContain(rawPassword);
+    expect(view.client.getMutationCache().getAll()).toHaveLength(0);
+    expect(JSON.stringify(localStorage)).not.toContain(rawPassword);
+    expect(JSON.stringify(sessionStorage)).not.toContain(rawPassword);
+  });
+
+  it.each(["", " ".repeat(12), "x".repeat(11), "x".repeat(129)])("не отправляет некорректный новый пароль длиной %s", async (value) => {
+    // given
+    const fetch = vi.fn(async () => ok(details(user))); vi.stubGlobal("fetch", fetch);
+    mount(admin, "/accounts/11");
+    const password = await screen.findByLabelText("НОВЫЙ ПАРОЛЬ");
+    fireEvent.change(password, { target: { value } });
+    // when
+    fireEvent.submit(password.closest("form")!);
+    // then
+    expect((await screen.findByRole("alert")).textContent).toContain("Укажите пароль");
+    expect(fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["password", "role"])("делит pending и busy между формами при первой записи %s", async (first) => {
+    // given: обе формы заполнены, сервер задерживает ответ.
+    let finish!: (response: Response) => void;
+    const writes: Call[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "PUT") { writes.push({ url: String(input), init }); return new Promise<Response>((resolve) => { finish = resolve; }); }
+      return ok(details(user));
+    }));
+    mount(admin, "/accounts/11");
+    const password = await screen.findByLabelText("НОВЫЙ ПАРОЛЬ") as HTMLInputElement;
+    const role = screen.getByLabelText("РОЛЬ") as HTMLSelectElement;
+    fireEvent.change(password, { target: { value: "new-password" } });
+    fireEvent.change(role, { target: { value: "STYLIST" } });
+    // when: первая запись, повтор и отправка соседней формы.
+    fireEvent.submit((first === "password" ? password : role).closest("form")!);
+    fireEvent.submit(password.closest("form")!);
+    fireEvent.submit(role.closest("form")!);
+    fireEvent.click(screen.getByRole("link", { name: "Гардероб владельца" }));
+    fireEvent.click(screen.getByRole("link", { name: "← К аккаунтам" }));
+    // then: общий lock не допускает параллельных записей или перехода.
+    expect(writes).toHaveLength(1);
+    expect(writes[0].url).toBe(`/api/admin/users/11${first === "password" ? "/password" : ""}`);
+    expect(password.disabled).toBe(true); expect(role.disabled).toBe(true);
+    expect(screen.getByRole("heading", { name: "owner" })).toBeTruthy();
+    expect((screen.getByRole("button", { name: "Выйти" }) as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => finish(ok(details(user, 2))));
+    await screen.findByText(first === "password" ? "Пароль сохранён." : "Роль и статус сохранены.");
+    expect(password.disabled).toBe(false);
+  });
+
+  it.each(["password", "role"])("блокирует обе записи после 409 в форме %s до явного обновления", async (first) => {
+    // given: сервер версии 8, черновик версии 1 сохранён при фоновом чтении.
+    let version = 1;
+    const writes: Call[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "PUT") { writes.push({ url: String(input), init }); return writes.length === 1 ? fail(409) : ok(details(user, 9)); }
+      return ok(details(user, version));
+    }));
+    const view = mount(admin, "/accounts/11");
+    const password = await screen.findByLabelText("НОВЫЙ ПАРОЛЬ") as HTMLInputElement;
+    const role = screen.getByLabelText("РОЛЬ");
+    version = 8;
+    await act(async () => { await view.client.invalidateQueries({ queryKey: ["account", 33, 11] }); });
+    fireEvent.change(password, { target: { value: "new-password" } });
+    // when
+    fireEvent.submit((first === "password" ? password : role).closest("form")!);
+    await screen.findByRole("alert");
+    fireEvent.submit(password.closest("form")!); fireEvent.submit(role.closest("form")!);
+    expect(writes).toHaveLength(1);
+    expect(JSON.parse(String(writes[0].init?.body)).version).toBe(1);
+    expect((screen.getByRole("button", { name: "Сохранить роль и статус" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Сохранить пароль" }) as HTMLButtonElement).disabled).toBe(true);
+    if (first === "password") expect(password.value).toBe("");
+    fireEvent.click(screen.getByRole("button", { name: "Обновить данные" }));
+    await screen.findByText("Данные обновлены.");
+    fireEvent.change(password, { target: { value: "new-password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить пароль" }));
+    // then: новая версия пришла только после явного обновления; повтор вручную.
+    await screen.findByText("Пароль сохранён.");
+    expect(writes).toHaveLength(2);
+    expect(JSON.parse(String(writes[1].init?.body))).toEqual({ password: "new-password", version: 8 });
+  });
+
+  it.each([400, 403, 503, "network"])("очищает пароль после сбоя сброса %s и не повторяет запись", async (failure) => {
+    // given
+    const writes: Call[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method === "PUT") {
+        writes.push({ url: String(input), init });
+        if (failure === "network") throw new TypeError("offline");
+        return fail(Number(failure));
+      }
+      return ok(details(user));
+    }));
+    const view = mount(admin, "/accounts/11");
+    const password = await screen.findByLabelText("НОВЫЙ ПАРОЛЬ") as HTMLInputElement;
+    fireEvent.change(password, { target: { value: "new-password" } });
+    // when
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить пароль" }));
+    const alert = await screen.findByRole("alert");
+    await act(async () => { await view.client.invalidateQueries(); });
+    // then
+    expect(alert.textContent).toContain(failure === 400 ? "Проверьте введённые данные"
+      : failure === 403 ? "Недостаточно прав" : "действие могло выполниться");
+    expect(password.value).toBe("");
+    expect(writes).toHaveLength(1);
+    expect(view.client.getQueryData(["account", 33, 11])).toEqual(details(user));
+    expect(screen.queryByText("Пароль сохранён.")).toBeNull();
+  });
+
+  it("разрешает собственный сброс, сохраняет защиту роли и очищает пароль при уходе", async () => {
+    // given: администратор на собственной карточке.
+    const writes: Call[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      if (init?.method) writes.push({ url: String(input), init });
+      return ok(details(admin, init?.method ? 2 : 1));
+    }));
+    const view = mount(admin, "/accounts/33");
+    const password = await screen.findByLabelText("НОВЫЙ ПАРОЛЬ") as HTMLInputElement;
+    expect((screen.getByLabelText("РОЛЬ") as HTMLSelectElement).disabled).toBe(true);
+    expect((screen.getByLabelText("СТАТУС") as HTMLSelectElement).disabled).toBe(true);
+    fireEvent.change(password, { target: { value: "my-new-password" } });
+    // when
+    fireEvent.click(screen.getByRole("button", { name: "Сохранить пароль" }));
+    await screen.findByText("Пароль сохранён.");
+    // then: собственный сброс не вызывает logout; новый несохранённый пароль исчезает при уходе.
+    expect(writes.map((call) => call.url)).toEqual(["/api/admin/users/33/password"]);
+    expect(password.value).toBe("");
+    expect((screen.getByRole("button", { name: "Сохранить роль и статус" }) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.change(password, { target: { value: "unsaved-password" } });
+    view.go("/accounts/33/wardrobe");
+    expect(password.value).toBe("");
+    view.go("/accounts/33");
+    expect((await screen.findByLabelText("НОВЫЙ ПАРОЛЬ") as HTMLInputElement).value).toBe("");
+  });
+});
+
 describe("Рабочие пространства ролей", () => {
   it("выдаёт доступ только активному стилисту и отзывает старый доступ после смены роли", async () => {
     // given: старый получатель заблокирован и сменил роль, новый стилист активен.
