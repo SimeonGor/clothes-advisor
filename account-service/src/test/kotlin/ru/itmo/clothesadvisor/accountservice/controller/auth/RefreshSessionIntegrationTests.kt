@@ -1,6 +1,7 @@
 package ru.itmo.clothesadvisor.accountservice.controller.auth
 
 import com.jayway.jsonpath.JsonPath
+import com.nimbusds.jwt.SignedJWT
 import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
@@ -47,7 +48,10 @@ import ru.itmo.clothesadvisor.accountservice.repository.user.AppUserRepository
 import ru.itmo.clothesadvisor.accountservice.service.auth.PasswordService
 import ru.itmo.clothesadvisor.accountservice.service.user.AppUserService
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+    properties = ["app.auth.access-token-ttl=20m", "app.auth.refresh-token-ttl=3d"],
+)
 class RefreshSessionIntegrationTests : PostgresIntegrationTest() {
     @LocalServerPort private var port = 0
     @MockitoSpyBean private lateinit var clock: Clock
@@ -64,7 +68,7 @@ class RefreshSessionIntegrationTests : PostgresIntegrationTest() {
     @AfterEach fun closeClient() = client.close()
 
     @Test
-    fun `login and rotation expose only access JSON and secure cookie with absolute seven day expiry`() {
+    fun `login and rotation use configured lifetimes with absolute refresh expiry`() {
         // given
         val id = user()
         val before = jdbc.queryForMap("SELECT * FROM app_user WHERE id = ?", id)
@@ -78,13 +82,15 @@ class RefreshSessionIntegrationTests : PostgresIntegrationTest() {
         // then
         assertThat(login.statusCode()).isEqualTo(200)
         assertThat(dto(login).keys).containsExactlyInAnyOrder("accessToken", "tokenType", "expiresIn")
-        assertThat(dto(login)["expiresIn"]).isEqualTo(900)
+        assertThat(dto(login)["expiresIn"]).isEqualTo(1200)
+        val loginClaims = SignedJWT.parse(dto(login)["accessToken"] as String).jwtClaimsSet
+        assertThat(loginClaims.expirationTime.time - loginClaims.issueTime.time).isEqualTo(1_200_000)
         assertThat(first).matches("[A-Za-z0-9_-]{43}")
         assertThat(login.headers().firstValue("Set-Cookie").orElseThrow())
-            .contains("HttpOnly", "Secure", "SameSite=Strict", "Path=/api/auth")
+            .contains("HttpOnly", "Secure", "SameSite=Strict", "Path=/api/auth", "Max-Age=259200")
             .doesNotContain("Domain=")
         assertThat(login.headers().firstValue("Cache-Control")).hasValue("no-store")
-        assertThat((session["expires_at"] as Timestamp).toInstant()).isEqualTo(businessNow.plus(7, ChronoUnit.DAYS))
+        assertThat((session["expires_at"] as Timestamp).toInstant()).isEqualTo(businessNow.plus(3, ChronoUnit.DAYS))
         assertThat((session["created_at"] as Timestamp).toInstant()).isBetween(dbBefore, databaseNow())
         val stored = jdbc.queryForMap("SELECT * FROM auth_refresh_token")
         assertThat(stored["token_hash"]).isEqualTo(hash(first))
@@ -109,6 +115,10 @@ class RefreshSessionIntegrationTests : PostgresIntegrationTest() {
         assertThat(second).isNotEqualTo(first)
         assertThat(refreshed.body()).doesNotContain(first, second, "refreshToken")
         assertThat(dto(refreshed).keys).containsExactlyInAnyOrder("accessToken", "tokenType", "expiresIn")
+        assertThat(dto(refreshed)["expiresIn"]).isEqualTo(1200)
+        val refreshedClaims = SignedJWT.parse(dto(refreshed)["accessToken"] as String).jwtClaimsSet
+        assertThat(refreshedClaims.expirationTime.time - refreshedClaims.issueTime.time).isEqualTo(1_200_000)
+        assertThat(refreshed.headers().firstValue("Set-Cookie").orElseThrow()).contains("Max-Age=172800")
         assertThat(jdbc.queryForMap("SELECT * FROM auth_session")).isEqualTo(session)
         assertThat(jdbc.queryForObject("SELECT used_at FROM auth_refresh_token WHERE token_hash = ?",
             Timestamp::class.java, hash(first))!!.toInstant()).isBetween(dbBefore, databaseNow())
@@ -121,6 +131,26 @@ class RefreshSessionIntegrationTests : PostgresIntegrationTest() {
                 Timestamp::class.java, hash(first))!!.toInstant())
         assertThat(jdbc.queryForMap("SELECT * FROM app_user WHERE id = ?", id)).isEqualTo(before)
         assertThat(jdbc.queryForObject("SELECT count(*) FROM app_user_history", Long::class.java)).isZero()
+    }
+
+    @Test
+    fun `rotation preserves a stored deadline from a previous refresh lifetime`() {
+        // given
+        user()
+        val first = token(login())
+        val originalDeadline = businessNow.plus(7, ChronoUnit.DAYS)
+        jdbc.update("UPDATE auth_session SET expires_at = ?", Timestamp.from(originalDeadline))
+        doReturn(businessNow.plus(1, ChronoUnit.DAYS)).`when`(clock).instant()
+
+        // when
+        val refreshed = post("refresh", first)
+
+        // then
+        assertThat(refreshed.statusCode()).isEqualTo(200)
+        assertThat(refreshed.headers().firstValue("Set-Cookie").orElseThrow()).contains("Max-Age=518400")
+        assertThat(jdbc.queryForObject("SELECT expires_at FROM auth_session", Timestamp::class.java)!!.toInstant())
+            .isEqualTo(originalDeadline)
+        assertThat(sessions.findToken(hash(token(refreshed))).block(timeout)!!.expiresAt).isEqualTo(originalDeadline)
     }
 
     @Test
@@ -158,7 +188,7 @@ class RefreshSessionIntegrationTests : PostgresIntegrationTest() {
         jdbc.update("UPDATE app_user SET status = 'BLOCKED' WHERE id = ?", id)
         unauthorized(post("refresh", live))
         jdbc.update("UPDATE app_user SET status = 'ACTIVE' WHERE id = ?", id)
-        doReturn(businessNow.plus(7, ChronoUnit.DAYS)).`when`(clock).instant()
+        doReturn(businessNow.plus(3, ChronoUnit.DAYS)).`when`(clock).instant()
         unauthorized(post("refresh", live))
         assertThat(jdbc.queryForObject("SELECT used_at FROM auth_refresh_token", Timestamp::class.java)).isNull()
         jdbc.update("DELETE FROM app_user WHERE id = ?", id)

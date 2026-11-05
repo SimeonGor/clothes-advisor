@@ -40,7 +40,7 @@ Account подписывает токен закрытым RSA-ключом. Gat
 Код этапа 03: [JwtConfiguration](../../account-service/src/main/kotlin/ru/itmo/clothesadvisor/accountservice/config/JwtConfiguration.kt),
 [SecurityConfiguration](../../account-service/src/main/kotlin/ru/itmo/clothesadvisor/accountservice/config/SecurityConfiguration.kt),
 [AuthenticationService](../../account-service/src/main/kotlin/ru/itmo/clothesadvisor/accountservice/service/auth/AuthenticationService.kt).
-Срок токена — 15 минут; допустимое расхождение часов — 30 секунд. Проверка требует
+Срок токена по умолчанию — 15 минут; допустимое расхождение часов — 30 секунд. Проверка требует
 исходный `iat`: стандартный конвертер Spring способен восстановить его из `exp`.
 Отдельный HTTP-сценарий проверяет отсутствие `iat` у токена с близким сроком истечения.
 
@@ -132,7 +132,14 @@ account. После успешной настройки его можно убр
 Refresh-cookie использует `HttpOnly`, `SameSite=Strict`, host-only,
 с путём `/api/auth` и `Secure` по умолчанию. Javascript не читает её значение;
 браузер передаёт cookie при обновлении сессии. Вход восстанавливается после перезагрузки,
-но через 7 дней с исходного входа потребуется пароль. Повторное обновление срок не продлевает.
+но по умолчанию через 7 дней с исходного входа потребуется пароль. Повторное обновление срок не продлевает.
+
+Сроки задаются в [центральном YAML account-service](../../config-repository/account-service/account-service.yml):
+`app.auth.access-token-ttl: 15m` и `app.auth.refresh-token-ttl: 7d`.
+Оба значения обязательны, должны быть положительными и содержать целое число секунд.
+Изменения применяются после перезапуска каждого экземпляра account-service: access TTL
+действует для новых JWT при входе и обновлении, refresh TTL — только для новых сессий.
+Сохранённые сроки существующих сессий и уже выпущенных JWT не меняются.
 
 Refresh — случайные 32 байта; account хранит SHA-256 хеш. Быстрый хеш подходит здесь
 из-за высокой случайной энтропии токена, но не подходит для человеческих паролей.

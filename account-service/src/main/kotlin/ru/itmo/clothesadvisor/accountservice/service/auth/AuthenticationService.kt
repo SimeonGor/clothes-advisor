@@ -1,7 +1,6 @@
 package ru.itmo.clothesadvisor.accountservice.service.auth
 
 import java.time.Clock
-import java.time.Duration
 import java.time.Instant
 import java.security.MessageDigest
 import java.security.SecureRandom
@@ -20,6 +19,7 @@ import org.springframework.transaction.TransactionException
 import org.springframework.transaction.reactive.TransactionalOperator
 import reactor.core.publisher.Mono
 import ru.itmo.clothesadvisor.accountservice.config.AccountAuthenticationUnavailableException
+import ru.itmo.clothesadvisor.accountservice.config.AuthenticationProperties
 import ru.itmo.clothesadvisor.accountservice.config.JwtConfiguration
 import ru.itmo.clothesadvisor.accountservice.dto.auth.CurrentAccountResponse
 import ru.itmo.clothesadvisor.accountservice.dto.auth.LoginResponse
@@ -35,6 +35,7 @@ internal class AuthenticationService(
     private val clock: Clock,
     private val users: AppUserRepository,
     private val sessions: AuthSessionRepository,
+    private val properties: AuthenticationProperties,
     transactionManager: ReactiveTransactionManager,
 ) {
     private val transactions = TransactionalOperator.create(transactionManager)
@@ -47,7 +48,7 @@ internal class AuthenticationService(
                     users.findByIdForUpdate(verified.id)
                         .filter { it.status == UserStatus.ACTIVE && it.passwordHash == verified.passwordHash }
                         .flatMap { user ->
-                            sessions.create(UUID.randomUUID(), user.id, clock.instant().plus(Duration.ofDays(7)))
+                            sessions.create(UUID.randomUUID(), user.id, clock.instant().plus(properties.refreshTokenTtl))
                                 .flatMap { session -> issue(session.id, user.id, session.expiresAt) }
                         }
                 }.singleOrEmpty()
@@ -102,11 +103,11 @@ internal class AuthenticationService(
         val now = clock.instant()
         val claims = JwtClaimsSet.builder().issuer(JwtConfiguration.ISSUER)
             .audience(listOf(JwtConfiguration.AUDIENCE)).subject(userId.toString())
-            .issuedAt(now).expiresAt(now.plusSeconds(JwtConfiguration.TTL_SECONDS)).build()
+            .issuedAt(now).expiresAt(now.plus(properties.accessTokenTtl)).build()
         val token = encoder.encode(JwtEncoderParameters.from(
             JwsHeader.with(SignatureAlgorithm.RS256).build(), claims,
         )).tokenValue
-        return LoginResponse(token, JwtConfiguration.TTL_SECONDS)
+        return LoginResponse(token, properties.accessTokenTtl.seconds)
     }
 
     private fun tokenHash(token: String?): Mono<String> =
