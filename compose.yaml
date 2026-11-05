@@ -70,6 +70,8 @@ services:
       CONFIG_SERVER_URL: http://config-server:8888
       EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
       FRONTEND_URL: http://frontend:8080
+    secrets:
+      - app-jwt-public-key
     ports:
       - "127.0.0.1:${APP_PORT:-8080}:8080"
     depends_on:
@@ -130,6 +132,7 @@ services:
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
     secrets:
       - yandex-service-account-key
+      - app-jwt-public-key
     depends_on:
       config-server:
         condition: service_healthy
@@ -167,8 +170,13 @@ services:
     build:
       context: .
       dockerfile: account-service/Dockerfile
+      args:
+        APP_UID: ${APP_UID:?Set APP_UID to the credential owner UID (id -u)}
     environment:
       DB_R2DBC_URL: r2dbc:postgresql://account-postgres:5432/account_db
+      APP_BOOTSTRAP_ADMIN_LOGIN: ${APP_BOOTSTRAP_ADMIN_LOGIN:-}
+      APP_BOOTSTRAP_ADMIN_PASSWORD: ${APP_BOOTSTRAP_ADMIN_PASSWORD:-}
+      AUTH_REFRESH_COOKIE_SECURE: ${AUTH_REFRESH_COOKIE_SECURE:-true}
       EUREKA_INSTANCE_HOSTNAME: account-service
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "false"
       DB_URL: jdbc:postgresql://account-postgres:5432/account_db
@@ -177,6 +185,9 @@ services:
       CONFIG_SERVER_URL: http://config-server:8888
       EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
+    secrets:
+      - app-jwt-private-key
+      - app-jwt-public-key
     depends_on:
       config-server:
         condition: service_healthy
@@ -269,5 +280,9 @@ volumes:
   chatgpt-access:
 
 secrets:
+  app-jwt-private-key:
+    file: ${APP_JWT_PRIVATE_KEY_FILE:?Set APP_JWT_PRIVATE_KEY_FILE to an absolute PEM file path outside the repository}
+  app-jwt-public-key:
+    file: ${APP_JWT_PUBLIC_KEY_FILE:?Set APP_JWT_PUBLIC_KEY_FILE to an absolute PEM file path outside the repository}
   yandex-service-account-key:
     file: ${YANDEX_SERVICE_ACCOUNT_KEY_FILE:?Set YANDEX_SERVICE_ACCOUNT_KEY_FILE to an absolute file path outside the repository}
