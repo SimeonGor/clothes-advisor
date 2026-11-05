@@ -1,3 +1,4 @@
+import { authenticatedActor } from "./auth-test-fixture";
 import React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -18,12 +19,13 @@ const fail = (status: number) => new Response(null, { status });
 type Call = { url: string; init?: RequestInit };
 
 function mount(actor: Actor, path: string) {
+  authenticatedActor(actor);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   let navigate!: ReturnType<typeof useNavigate>;
   function Harness() {
     navigate = useNavigate();
     const [pending, setPending] = React.useState(false);
-    return <AppRoutes account={actor} pending={pending} onPending={setPending} onChoose={vi.fn()} onSwitch={vi.fn()} />;
+    return <AppRoutes account={actor} pending={pending} onPending={setPending} onLogout={vi.fn()} />;
   }
   render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><Harness /></MemoryRouter></QueryClientProvider>);
   return { client, go: (next: string) => act(() => navigate(next)) };
@@ -45,7 +47,7 @@ describe("Рабочие пространства ролей", () => {
     const calls: Call[] = [];
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input); calls.push({ url, init });
-      if (url.startsWith("/api/admin/users?")) return ok([details(old, 2, "BLOCKED"), details(stylist), details({ id: 55, login: "blocked stylist", role: "STYLIST" }, 1, "BLOCKED"), details(user)]);
+      if (url.startsWith("/api/stylists?")) return ok([{ id: stylist.id, login: stylist.login }]);
       if (url.startsWith("/api/me/stylist-access?")) return ok([...grants]);
       if (init?.method === "PUT") return new Promise<Response>((resolve) => { finishGrant = resolve; });
       if (init?.method === "DELETE") { grants = grants.filter((row) => row.id !== old.id); return ok(null, 204); }
@@ -63,7 +65,7 @@ describe("Рабочие пространства ролей", () => {
     fireEvent.click(screen.getByRole("button", { name: "Подтвердить доступ" }));
     fireEvent.click(screen.getByRole("link", { name: /Гардероб/ }));
     expect(screen.getByRole("heading", { name: "Доступ стилистам" })).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Сменить аккаунт" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Выйти" }) as HTMLButtonElement).disabled).toBe(true);
     grants.push({ id: stylist.id, login: stylist.login });
     finishGrant(ok(null, 204));
     await screen.findByText("Доступ предоставлен.");
@@ -76,7 +78,7 @@ describe("Рабочие пространства ролей", () => {
     await waitFor(() => expect(screen.queryByText("бывший стилист")).toBeNull());
     const writes = calls.filter((call) => call.init?.method);
     expect(writes.map((call) => [call.url, call.init?.method])).toEqual([["/api/me/stylist-access/22", "PUT"], ["/api/me/stylist-access/44", "DELETE"]]);
-    expect(writes.every((call) => new Headers(call.init?.headers).get("X-User-Id") === "11")).toBe(true);
+    expect(writes.every((call) => new Headers(call.init?.headers).get("Authorization") === "Bearer test-token-11")).toBe(true);
   });
 
   it("открывает клиентские вещи только для чтения и изолирует фото при смене владельца", async () => {
@@ -299,9 +301,13 @@ describe("Рабочие пространства ролей", () => {
   });
 
   it("после смены аккаунта открывает стартовую страницу новой роли", async () => {
-    // given: стилист и администратор доступны в переключателе.
+    // given: пользователь вошёл как стилист, следующий вход — администратор.
+    authenticatedActor(stylist);
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
+      if (url === "/api/auth/logout") return ok(null, 204);
+      if (url === "/api/auth/login") return ok({ accessToken: "test-token-33" });
+      if (url === "/api/auth/me") return ok(admin);
       if (url.startsWith("/api/admin/users?")) return ok([details(stylist), details(admin)]);
       if (url === "/api/admin/users/22") return ok(details(stylist));
       if (url === "/api/admin/users/33") return ok(details(admin));
@@ -310,11 +316,12 @@ describe("Рабочие пространства ролей", () => {
     Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function (this: HTMLDialogElement) { this.setAttribute("open", ""); } });
     Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: function (this: HTMLDialogElement) { this.removeAttribute("open"); } });
     render(<MemoryRouter initialEntries={["/"]}><App /></MemoryRouter>);
-    fireEvent.click(await screen.findByRole("button", { name: "stylist Стилист" }));
     await screen.findByRole("heading", { name: "Клиенты" });
     // when: активный аккаунт меняется на администратора.
-    fireEvent.click(screen.getByRole("button", { name: "Сменить аккаунт" }));
-    fireEvent.click(await screen.findByRole("button", { name: "admin Администратор" }));
+    fireEvent.click(screen.getByRole("button", { name: "Выйти" }));
+    fireEvent.change(await screen.findByLabelText("Логин"), { target: { value: "admin" } });
+    fireEvent.change(screen.getByLabelText("Пароль"), { target: { value: "password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Войти" }));
     // then: доступен административный каталог, клиентских вкладок больше нет.
     expect(await screen.findByRole("heading", { name: "Аккаунты" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Клиенты ↗" })).toBeNull();
@@ -322,6 +329,7 @@ describe("Рабочие пространства ролей", () => {
 
   it("убирает старый blob URL до загрузки фото из другого контекста", async () => {
     // given: собственное фото загружено, клиентское ещё ожидает ответ.
+    authenticatedActor(stylist);
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => String(input).startsWith("/api/stylist") ? new Promise<Response>(() => {}) : ok(null)));
     const view = render(<PhotoImage actor={stylist} item={item} photo={photo} />);
     await screen.findByRole("img");
@@ -337,15 +345,18 @@ describe("Рабочие пространства ролей", () => {
     // given: приложение открыто по ссылке на сохранённый образ.
     vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input);
-      if (url.startsWith("/api/admin/users?")) return ok([details(stylist)]);
-      if (url === "/api/admin/users/22") return ok(details(stylist));
+      if (url === "/api/auth/refresh") return fail(401);
+      if (url === "/api/auth/login") return ok({ accessToken: "test-token-22" });
+      if (url === "/api/auth/me") return ok(stylist);
       if (url === "/api/outfits/5") return ok({ id: 5, name: "По прямой ссылке", ownerId: 22, authorId: 22, source: "USER", itemIds: [], likes: 0, dislikes: 0,
         weather: { temperatureC: 10, windSpeedMps: 0, precipitationTypeId: 1 }, createdAt: "2026-01-01T00:00:00Z" });
       return ok([]);
     }));
     render(<MemoryRouter initialEntries={["/outfits/5"]}><App /></MemoryRouter>);
-    // when: выбран подходящий аккаунт.
-    fireEvent.click(await screen.findByRole("button", { name: "stylist Стилист" }));
+    // when: пользователь входит под подходящим аккаунтом.
+    fireEvent.change(await screen.findByLabelText("Логин"), { target: { value: "stylist" } });
+    fireEvent.change(screen.getByLabelText("Пароль"), { target: { value: "password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Войти" }));
     // then: сохранена исходная страница, стартовый список клиентов не открыт.
     expect(await screen.findByRole("heading", { name: "По прямой ссылке" })).toBeTruthy();
     expect(screen.queryByRole("heading", { name: "Клиенты" })).toBeNull();

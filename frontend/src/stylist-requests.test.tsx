@@ -1,3 +1,4 @@
+import { authenticatedActor } from "./auth-test-fixture";
 import React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -33,6 +34,7 @@ function mountStylistDetail() {
   const stylist: Actor = { id: 22, login: "stylist", role: "STYLIST" };
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onPending = vi.fn();
+  authenticatedActor(stylist);
   const props = { actor: stylist, pending: false, onPending, ownerId: 77 };
   render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/clients/77/requests/5"]}><Routes>
     <Route path="/clients/:ownerId/requests/:requestId" element={<StylistRequestDetail {...props} />} />
@@ -40,7 +42,7 @@ function mountStylistDetail() {
   return { client, onPending };
 }
 
-beforeEach(() => { sessionStorage.clear(); });
+beforeEach(() => { authenticatedActor(user); sessionStorage.clear(); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("Запросы стилисту владельца", () => {
@@ -89,7 +91,7 @@ describe("Запросы стилисту владельца", () => {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     function Harness() {
       const [pending, setPending] = React.useState(false);
-      return <AppRoutes account={user} pending={pending} onPending={setPending} onChoose={vi.fn()} onSwitch={switched} />;
+      return <AppRoutes account={user} pending={pending} onPending={setPending} onLogout={switched} />;
     }
     render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/requests/new"]}><Harness /></MemoryRouter></QueryClientProvider>);
     await screen.findByRole("option", { name: "stylist · №22" });
@@ -101,7 +103,7 @@ describe("Запросы стилисту владельца", () => {
     await waitFor(() => expect(finish).toBeDefined());
     fireEvent.click(screen.getByRole("link", { name: "← К запросам" }));
     fireEvent.click(screen.getByRole("link", { name: "Предпочтения" }));
-    fireEvent.click(screen.getByRole("button", { name: "Сменить аккаунт" }));
+    fireEvent.click(screen.getByRole("button", { name: "Выйти" }));
 
     // then
     expect(screen.getByRole("heading", { name: "Новый запрос" })).toBeTruthy();
@@ -109,18 +111,19 @@ describe("Запросы стилисту владельца", () => {
     expect((screen.getByRole("button", { name: "Отправить запрос" }) as HTMLButtonElement).disabled).toBe(true);
     await act(async () => { finish(fail(503)); });
     await screen.findByRole("alert");
-    expect((screen.getByRole("button", { name: "Сменить аккаунт" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "Выйти" }) as HTMLButtonElement).disabled).toBe(false);
   });
 
   it.each(["STYLIST", "ADMIN"])("не открывает собственные запросы для %s", async (role) => {
     // given
+    authenticatedActor({ ...user, role });
     const fetchMock = vi.fn(async (_input: RequestInfo | URL) => ok([]));
     vi.stubGlobal("fetch", fetchMock);
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 
     // when
     render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/requests/new"]}>
-      <AppRoutes account={{ ...user, role }} pending={false} onPending={vi.fn()} onChoose={vi.fn()} onSwitch={vi.fn()} />
+      <AppRoutes account={{ ...user, role }} pending={false} onPending={vi.fn()} onLogout={vi.fn()} />
     </MemoryRouter></QueryClientProvider>);
 
     // then
@@ -353,8 +356,9 @@ describe("Запросы стилисту владельца", () => {
     const switched = vi.fn();
     function Harness() {
       const [pending, setPending] = React.useState(false);
-      return <AppRoutes account={stylist} pending={pending} onPending={setPending} onChoose={vi.fn()} onSwitch={switched} />;
+      return <AppRoutes account={stylist} pending={pending} onPending={setPending} onLogout={switched} />;
     }
+    authenticatedActor(stylist);
     render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/clients/77/requests/5"]}><Harness /></MemoryRouter></QueryClientProvider>);
 
     // when
@@ -365,14 +369,14 @@ describe("Запросы стилисту владельца", () => {
     fireEvent.click(screen.getByRole("button", { name: "Отправить ответ" }));
     await waitFor(() => expect(finish).toBeDefined());
     fireEvent.click(screen.getByRole("link", { name: "Образы владельца" }));
-    fireEvent.click(screen.getByRole("button", { name: "Сменить аккаунт" }));
+    fireEvent.click(screen.getByRole("button", { name: "Выйти" }));
 
     // then
     expect(screen.getByRole("heading", { name: "Запрос №5" })).toBeTruthy();
     expect(switched).not.toHaveBeenCalled();
     const post = calls.find((call) => call.url.endsWith("/requests/5/answer") && call.init?.method === "POST");
     expect(JSON.parse(String(post?.init?.body))).toEqual({ version: 3, name: "На каждый день", itemIds: [3], explanation: "Тёплый слой" });
-    expect(new Headers(post?.init?.headers).get("X-User-Id")).toBe("22");
+    expect(new Headers(post?.init?.headers).get("Authorization")).toBe("Bearer test-token-22");
     expect(new Headers(post?.init?.headers).get("Idempotency-Key")).toBeTruthy();
     await act(async () => { finish(ok(row({ ownerId: 77, status: "ANSWERED", version: 4, answer: { outfitId: 101, explanation: "Тёплый слой", createdAt: "2026-01-02T00:00:00Z" } }))); });
     expect((await screen.findByRole("link", { name: "Открыть образ №101 ↗" })).getAttribute("href")).toBe("/clients/77/outfits/101");

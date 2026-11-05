@@ -14,8 +14,8 @@ afterEach(() => {
   Reflect.deleteProperty(HTMLDialogElement.prototype, "close");
 });
 
-function renderShell(account = user, pending = false, onSwitch = vi.fn()) {
-  return render(<MemoryRouter><SiteShell account={account} onSwitch={onSwitch} pending={pending} active="wardrobe">
+function renderShell(account = user, pending = false, onLogout = vi.fn()) {
+  return render(<MemoryRouter><SiteShell account={account} onLogout={onLogout} pending={pending} active="wardrobe">
     <main id="main"><a href="/external">Child action</a></main>
   </SiteShell></MemoryRouter>);
 }
@@ -26,10 +26,10 @@ describe("SiteShell", () => {
     expect(screen.getByRole("link", { name: "Сегодня" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Гардероб" })).toBeTruthy();
     expect(screen.getByRole("link", { name: "Мой стилист" }).getAttribute("href")).toBe("/access");
-    rerender(<MemoryRouter><SiteShell account={stylist} onSwitch={vi.fn()} pending={false} active="clients"><main /></SiteShell></MemoryRouter>);
+    rerender(<MemoryRouter><SiteShell account={stylist} onLogout={vi.fn()} pending={false} active="clients"><main /></SiteShell></MemoryRouter>);
     expect(screen.getByRole("link", { name: "Клиенты" })).toBeTruthy();
     expect(screen.queryByRole("link", { name: "Сегодня" })).toBeNull();
-    rerender(<MemoryRouter><SiteShell account={admin} onSwitch={vi.fn()} pending={false} active="accounts"><main /></SiteShell></MemoryRouter>);
+    rerender(<MemoryRouter><SiteShell account={admin} onLogout={vi.fn()} pending={false} active="accounts"><main /></SiteShell></MemoryRouter>);
     expect(screen.getByRole("link", { name: "Аккаунты" })).toBeTruthy();
   });
 
@@ -45,16 +45,16 @@ describe("SiteShell", () => {
   });
 
   it("opens More, follows a remaining route, and invokes account switching", () => {
-    const onSwitch = vi.fn();
+    const onLogout = vi.fn();
     Object.defineProperty(HTMLDialogElement.prototype, "showModal", { configurable: true, value: function (this: HTMLDialogElement) { this.setAttribute("open", ""); } });
     Object.defineProperty(HTMLDialogElement.prototype, "close", { configurable: true, value: function (this: HTMLDialogElement) { this.removeAttribute("open"); } });
-    renderShell(user, false, onSwitch);
+    renderShell(user, false, onLogout);
     fireEvent.click(screen.getByRole("button", { name: /Ещё/ }));
     const dialog = screen.getByRole("dialog", { name: "Ещё" });
     fireEvent.click(within(dialog).getByRole("link", { name: "Предпочтения" }));
     expect(dialog.hasAttribute("open")).toBe(false);
     fireEvent.click(screen.getByRole("button", { name: /Ещё/ }));
-    fireEvent.click(within(screen.getByRole("dialog", { name: "Ещё" })).getByRole("button", { name: /Сменить аккаунт/ }));
-    expect(onSwitch).toHaveBeenCalledOnce();
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Ещё" })).getByRole("button", { name: /Выйти/ }));
+    expect(onLogout).toHaveBeenCalledOnce();
   });
 });
