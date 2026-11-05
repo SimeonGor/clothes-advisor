@@ -281,6 +281,7 @@ class UserManagementIntegrationTests : PostgresIntegrationTest() {
             .timeout(Duration.ofSeconds(30))
             .method(method, body?.let(HttpRequest.BodyPublishers::ofString) ?: HttpRequest.BodyPublishers.noBody())
             .apply {
+                if (method == "POST" && path == "/api/auth/login") header("X-Auth-Request", "1")
                 if (token != null) header("Authorization", "Bearer $token")
                 if (body != null) header("Content-Type", "application/json")
             }.build(), HttpResponse.BodyHandlers.ofString(),
