@@ -15,9 +15,9 @@ const user: Entry[] = [
   { key: "preferences", path: "/preferences", label: "Предпочтения" },
 ];
 
-export function SiteShell({ account, onSwitch, pending, active, children }: {
+export function SiteShell({ account, onLogout, pending, active, children }: {
   account: Actor;
-  onSwitch: () => void;
+  onLogout: () => void;
   pending: boolean;
   active: Active;
   context?: WorkspaceContext;
@@ -33,7 +33,7 @@ export function SiteShell({ account, onSwitch, pending, active, children }: {
   const landing = account.role === "USER" ? "/today" : account.role === "STYLIST" ? "/clients" : "/accounts";
   const mobileMore = account.role === "USER" ? links.filter((entry) => !mobilePrimary.includes(entry)) : [];
   const guard = (event: React.MouseEvent<HTMLAnchorElement>) => { if (pending) event.preventDefault(); };
-  const switchAccount = () => { setMoreOpen(false); onSwitch(); };
+  const exitAccount = () => { setMoreOpen(false); onLogout(); };
   return <div className={styles.shell} id="main" onClickCapture={(event) => {
     if (pending && (event.target as HTMLElement).closest("a")) { event.preventDefault(); event.stopPropagation(); }
   }}>
@@ -50,14 +50,14 @@ export function SiteShell({ account, onSwitch, pending, active, children }: {
         </button>
       </nav>
       <div className={styles.sidebarBottom}><p className={styles.navLabel}>АККАУНТ</p><span className={styles.accountName}>{account.login}</span>
-        <button className={styles.textButton} disabled={pending} onClick={switchAccount}>Сменить аккаунт</button>
+        <button className={styles.textButton} disabled={pending} onClick={exitAccount}>Выйти</button>
       </div>
     </aside>
     {children}
     <Dialog open={moreOpen} title="Ещё" onClose={() => setMoreOpen(false)}>
       <nav className={styles.dialogNav} aria-label="Дополнительная навигация">
         {mobileMore.map((entry) => <Link key={entry.key} className={styles.navLink} to={entry.path} aria-disabled={pending} onClick={(event) => { guard(event); if (!pending) setMoreOpen(false); }}><Icon name={entry.key}/><span>{entry.label}</span></Link>)}
-        <button className={styles.dialogSwitch} type="button" disabled={pending} onClick={switchAccount}>Сменить аккаунт · {account.login}</button>
+        <button className={styles.dialogSwitch} type="button" disabled={pending} onClick={exitAccount}>Выйти · {account.login}</button>
       </nav>
     </Dialog>
   </div>;

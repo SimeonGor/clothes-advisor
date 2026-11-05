@@ -1,3 +1,4 @@
+import { authenticatedActor } from "./auth-test-fixture";
 import React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -14,7 +15,8 @@ const outfit = (extra: Partial<Outfit> = {}): Outfit => ({ id: 5, ownerId: 77, a
 const ok = (data: unknown, status = 200) => ({ ok: true, status, headers: new Headers(), json: async () => data } as Response);
 const fail = (status: number) => ({ ok: false, status, headers: new Headers(), json: async () => ({}) } as Response);
 
-function mount(node: React.ReactNode, path = "/outfits/new") {
+function mount(node: React.ReactElement<{ actor: Actor }>, path = "/outfits/new") {
+  authenticatedActor(node.props.actor);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><Routes>
     <Route path="/outfits/new" element={node} />

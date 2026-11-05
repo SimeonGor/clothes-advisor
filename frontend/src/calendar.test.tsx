@@ -1,3 +1,4 @@
+import { authenticatedActor } from "./auth-test-fixture";
 import React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -19,13 +20,14 @@ type Call = { url: string; init?: RequestInit };
 const clients: QueryClient[] = [];
 
 function mount(actor = user, path = "/calendar") {
+  authenticatedActor(actor);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 0 } } });
   clients.push(client);
   let navigate!: ReturnType<typeof useNavigate>;
   function Harness() {
     navigate = useNavigate();
     const [pending, setPending] = React.useState(false);
-    return <AppRoutes account={actor} onChoose={vi.fn()} onSwitch={vi.fn()} onPending={setPending} pending={pending} />;
+    return <AppRoutes account={actor} onLogout={vi.fn()} onPending={setPending} pending={pending} />;
   }
   render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><Harness /></MemoryRouter></QueryClientProvider>);
   return { client, go: (next: string) => act(() => navigate(next)) };

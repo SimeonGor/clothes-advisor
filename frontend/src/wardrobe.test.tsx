@@ -1,3 +1,4 @@
+import { authenticatedActor } from "./auth-test-fixture";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { useState } from "react";
 import { act, cleanup, createEvent, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -42,18 +43,19 @@ function readAsText(blob: Blob): Promise<string> {
 function EditorPage({ actor }: { actor: Actor }) {
   const [pending, setPending] = useState(false);
   const location = useLocation();
-  return <SiteShell account={actor} onSwitch={vi.fn()} pending={pending} active="wardrobe">
+  return <SiteShell account={actor} onLogout={vi.fn()} pending={pending} active="wardrobe">
     <Link to="/wardrobe/9">Другая вещь</Link>
     <WardrobeEditor key={`${actor.id}:${location.pathname}`} actor={actor} onPending={setPending} pending={pending} />
   </SiteShell>;
 }
 
 function mount(path: string, fetchMock: ReturnType<typeof fixtureFetch>) {
+  authenticatedActor(actor);
   vi.stubGlobal("fetch", fetchMock);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const view = render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}>
     <Routes>
-      <Route path="/wardrobe" element={<SiteShell account={actor} onSwitch={vi.fn()} pending={false} active="wardrobe">
+      <Route path="/wardrobe" element={<SiteShell account={actor} onLogout={vi.fn()} pending={false} active="wardrobe">
         <Wardrobe actor={actor} pending={false} />
       </SiteShell>} />
       <Route path="/wardrobe/new" element={<EditorPage actor={actor} />} />
@@ -127,7 +129,7 @@ describe("Гардероб", () => {
       name: "Пальто", categoryId: 4, color: "серое", material: "шерсть",
     });
     expect(fetchMock.mock.calls.some(([url, init]) => url === "/api/wardrobe/items/8"
-      && new Headers(init?.headers).get("X-User-Id") === "21")).toBe(true);
+      && new Headers(init?.headers).get("Authorization") === "Bearer test-token-21")).toBe(true);
   });
 
   it("передаёт версию при редактировании и удалении, сохраняя поля после 409", async () => {
@@ -414,7 +416,7 @@ describe("Гардероб", () => {
     fireEvent.submit(form);
     fireEvent.submit(form);
     await waitFor(() => expect(posts).toBe(1));
-    expect((screen.getByRole("button", { name: "Сменить аккаунт" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Выйти" }) as HTMLButtonElement).disabled).toBe(true);
     expect(screen.getAllByRole("link", { name: /Гардероб/ })[0].getAttribute("aria-disabled")).toBe("true");
 
     // when: сервер завершает одно сохранение.

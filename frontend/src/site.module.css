@@ -73,6 +73,7 @@ a.card { color: inherit; text-decoration: none; }
 .error { margin: 16px 0; border-left: 3px solid #997454; border-radius: 0 8px 8px 0; padding: 10px 14px; background: #F5EAE0; color: #594331; font-size: 14px; }
 .success { border-left: 3px solid var(--olive); border-radius: 0 8px 8px 0; padding: 10px 14px; background: #E8EDDF; color: #3F5536; font-size: 14px; }
 .error p { margin: 4px 0 10px; line-height: 1.5; }
+.authBanner { margin-left: 218px; }
 .submitRow { display: flex; justify-content: space-between; align-items: center; gap: 24px; padding: 25px 0; }
 .submitRow p { max-width: 390px; color: var(--muted); font-size: 13px; line-height: 1.5; }
 .notice { max-width: 720px; margin: 5px 0; border-left: 2px solid #b9b7a6; padding: 4px 12px; color: var(--muted); font-size: 13px; line-height: 1.6; }
@@ -125,6 +126,7 @@ a.card { color: inherit; text-decoration: none; }
 .dialogNav { display: grid; gap: 4px; }
 .dialogSwitch { min-width: 0; overflow-wrap: anywhere; margin-top: 12px; border: 1px solid var(--line); border-radius: 8px; padding: 12px; background: transparent; color: var(--ink); text-align: left; }
 @media (max-width: 1020px) {
+  .authBanner { margin-left: 185px; }
   .sidebar { width: 185px; padding: 25px 16px; }
   .main { margin-left: 185px; padding: 0 28px 50px; }
   .contextHeader { margin-left: 185px; padding: 24px 28px 0; }
@@ -132,6 +134,7 @@ a.card { color: inherit; text-decoration: none; }
 }
 @media (prefers-reduced-motion: no-preference) { .card, .create { transition: border-color .16s ease, background-color .16s ease; } }
 @media (max-width: 760px) {
+  .authBanner { margin-left: 0; }
   .sidebar { position: fixed; inset: auto 0 0; width: auto; height: calc(70px + env(safe-area-inset-bottom)); flex-direction: column; flex-wrap: nowrap; justify-content: flex-start; gap: 0; padding: 0 max(8px, env(safe-area-inset-right)) max(0px, env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left)); border-top: 1px solid var(--line); border-right: 0; background: #FFFDFAF5; backdrop-filter: blur(10px); }
   .sidebar > .brand, .sidebar > .navLabel, .sidebarBottom { display: none; }
   .navigation { order: 0; display: flex; width: 100%; height: 70px; flex-direction: row; grid-template-columns: none; margin: 0; }

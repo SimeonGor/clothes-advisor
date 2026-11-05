@@ -1,4 +1,5 @@
-import { request } from "./api";
+import { ApiError, request } from "./api";
+import { getSessionEpoch } from "./auth";
 
 const storageKey = (actorId: number, path: string) => `creation:${actorId}:POST:${path}`;
 
@@ -47,7 +48,9 @@ async function fingerprint(body: string | FormData): Promise<string> {
 }
 
 export async function createRequest<T>(path: string, actorId: number, body: string | FormData): Promise<T> {
+  const epoch = getSessionEpoch();
   const hash = await fingerprint(body);
+  if (epoch !== getSessionEpoch()) throw new ApiError(401);
   const slot = storageKey(actorId, path);
   const saved = readRecord(slot);
   const key = saved.attempts[hash] ?? crypto.randomUUID();

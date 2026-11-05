@@ -1,3 +1,4 @@
+import { authenticatedActor } from "./auth-test-fixture";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -23,7 +24,7 @@ function mount() {
   return { ...view, client, onPending };
 }
 
-beforeEach(() => { sessionStorage.clear(); vi.stubGlobal("fetch", vi.fn()); });
+beforeEach(() => { authenticatedActor(user); sessionStorage.clear(); vi.stubGlobal("fetch", vi.fn()); });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
 describe("AI-капсулы", () => {
