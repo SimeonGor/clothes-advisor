@@ -2,14 +2,14 @@ package ru.itmo.clothesadvisor.accountservice.repository.access
 
 import org.springframework.data.r2dbc.repository.Modifying
 import org.springframework.data.r2dbc.repository.Query
-import org.springframework.data.repository.Repository
+import org.springframework.data.r2dbc.repository.R2dbcRepository
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
 import ru.itmo.clothesadvisor.accountservice.model.access.AccessGrant
 import ru.itmo.clothesadvisor.accountservice.model.access.AccessGrantId
 import ru.itmo.clothesadvisor.accountservice.model.user.AppUser
 
-internal interface AccessGrantRepository : Repository<AccessGrant, AccessGrantId> {
+internal interface AccessGrantRepository : R2dbcRepository<AccessGrant, AccessGrantId> {
     @Query(
         """
         SELECT EXISTS (
