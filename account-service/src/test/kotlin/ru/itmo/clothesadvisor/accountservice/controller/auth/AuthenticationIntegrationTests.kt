@@ -239,6 +239,26 @@ class AuthenticationIntegrationTests : PostgresIntegrationTest() {
         assertThat(docs.statusCode()).isEqualTo(200)
         val login: Map<String, Any?> = JsonPath.read(docs.body(), "$.paths['/api/auth/login'].post")
         assertThat(login["security"]).isEqualTo(emptyList<Any>())
+        for (path in listOf("login", "refresh", "logout")) {
+            val operation: Map<String, Any?> = JsonPath.read(docs.body(), "$.paths['/api/auth/$path'].post")
+            assertThat(operation["security"]).isEqualTo(emptyList<Any>())
+            val headers: List<Map<String, Any?>> = JsonPath.read(docs.body(),
+                "$.paths['/api/auth/$path'].post.parameters[?(@.name == 'X-Auth-Request')]")
+            assertThat(headers).hasSize(1)
+            assertThat(headers.single()["in"]).isEqualTo("header")
+            assertThat(headers.single()["required"]).isEqualTo(true)
+            assertThat((headers.single()["schema"] as Map<*, *>)["enum"]).isEqualTo(listOf("1"))
+            val status = if (path == "logout") "204" else "200"
+            val cookie: Map<String, Any?> = JsonPath.read(docs.body(),
+                "$.paths['/api/auth/$path'].post.responses['$status'].headers['Set-Cookie']")
+            assertThat(cookie["description"]).isNotNull()
+        }
+        for (path in listOf("refresh", "logout")) {
+            val cookie: List<Map<String, Any?>> = JsonPath.read(docs.body(),
+                "$.paths['/api/auth/$path'].post.parameters[?(@.name == 'ca_refresh')]")
+            assertThat(cookie).hasSize(1)
+            assertThat(cookie.single()["in"]).isEqualTo("cookie")
+        }
         assertError(unknown, 403)
     }
 
@@ -264,6 +284,7 @@ class AuthenticationIntegrationTests : PostgresIntegrationTest() {
         spoofedUser: String? = null,
     ): HttpResponse<String> = client.send(HttpRequest.newBuilder(URI("http://127.0.0.1:$port$path"))
         .timeout(Duration.ofSeconds(20)).apply {
+            if (method == "POST" && path == "/api/auth/login") header("X-Auth-Request", "1")
             if (token != null) header("Authorization", "Bearer $token")
             if (spoofedUser != null) header("X-User-Id", spoofedUser)
             if (body != null) header("Content-Type", "application/json")

@@ -335,7 +335,7 @@ class InternalAccountIntegrationTests : PostgresIntegrationTest() {
         // given
         val publicPaths = listOf("/api/admin/users", "/api/admin/users/{id}", "/api/admin/users/{id}/password",
             "/api/me/stylist-access", "/api/me/stylist-access/{stylistId}", "/api/stylist/clients",
-            "/api/auth/login", "/api/auth/me", "/api/stylists")
+            "/api/auth/login", "/api/auth/refresh", "/api/auth/logout", "/api/auth/me", "/api/stylists")
 
         // when
         val publicError = get("/api/me/stylist-access", "invalid")

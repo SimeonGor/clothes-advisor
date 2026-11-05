@@ -12,6 +12,9 @@ import ru.itmo.clothesadvisor.accountservice.model.user.UserStatus
 internal interface AppUserRepository : Repository<AppUser, Long> {
     fun findById(id: Long): Mono<AppUser>
 
+    @Query("SELECT * FROM app_user WHERE id = :id FOR UPDATE")
+    fun findByIdForUpdate(id: Long): Mono<AppUser>
+
     fun findByLogin(login: String): Mono<AppUser>
 
     @Query("SELECT * FROM app_user WHERE login = :login FOR UPDATE")

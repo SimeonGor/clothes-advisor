@@ -10,11 +10,14 @@ import org.springframework.http.MediaType
 import org.springframework.security.authentication.AbstractAuthenticationToken
 import org.springframework.security.core.authority.SimpleGrantedAuthority
 import org.springframework.security.config.web.server.ServerHttpSecurity
+import org.springframework.security.config.web.server.SecurityWebFiltersOrder
 import org.springframework.security.oauth2.core.OAuth2AuthenticationException
 import org.springframework.security.oauth2.server.resource.authentication.JwtAuthenticationToken
 import org.springframework.security.web.server.SecurityWebFilterChain
 import org.springframework.security.web.server.context.NoOpServerSecurityContextRepository
+import org.springframework.security.web.server.util.matcher.ServerWebExchangeMatchers.pathMatchers
 import org.springframework.web.server.ServerWebExchange
+import org.springframework.web.server.WebFilter
 import reactor.core.publisher.Mono
 import ru.itmo.clothesadvisor.accountservice.model.user.UserStatus
 import ru.itmo.clothesadvisor.accountservice.repository.user.AppUserRepository
@@ -22,12 +25,36 @@ import ru.itmo.clothesadvisor.accountservice.repository.user.AppUserRepository
 @Configuration
 internal class SecurityConfiguration {
     @Bean
-    fun accountSecurity(http: ServerHttpSecurity, users: AppUserRepository): SecurityWebFilterChain {
+    fun accountSecurity(http: ServerHttpSecurity, users: AppUserRepository, cookies: RefreshCookie): SecurityWebFilterChain {
+        val authPaths = arrayOf("/api/auth/login", "/api/auth/refresh", "/api/auth/logout")
+        val authPostMatcher = pathMatchers(HttpMethod.POST, *authPaths)
+        val refreshMatcher = pathMatchers(HttpMethod.POST, "/api/auth/refresh")
+
         http.securityContextRepository(NoOpServerSecurityContextRepository.getInstance())
             .csrf { it.disable() }.httpBasic { it.disable() }.formLogin { it.disable() }
             .logout { it.disable() }.requestCache { it.disable() }
+            .addFilterBefore(WebFilter { exchange, chain ->
+                authPostMatcher.matches(exchange).flatMap { match ->
+                    if (!match.isMatch) return@flatMap chain.filter(exchange)
+
+                    exchange.response.headers.cacheControl = "no-store"
+                    exchange.response.beforeCommit {
+                        if (exchange.response.statusCode != HttpStatus.UNAUTHORIZED) {
+                            Mono.empty()
+                        } else refreshMatcher.matches(exchange).doOnNext {
+                            if (it.isMatch) exchange.response.addCookie(cookies.clear())
+                        }.then()
+                    }
+
+                    if (exchange.request.headers["X-Auth-Request"] != listOf("1")) {
+                        securityError(exchange, 403)
+                    } else {
+                        chain.filter(exchange)
+                    }
+                }
+            }, SecurityWebFiltersOrder.AUTHENTICATION)
             .authorizeExchange {
-                it.pathMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
+                it.pathMatchers(HttpMethod.POST, *authPaths).permitAll()
                     .pathMatchers("/internal/**", "/v3/api-docs/**", "/swagger-ui/**",
                         "/actuator/health/**").permitAll()
                     .pathMatchers(HttpMethod.GET, "/actuator/metrics/**").permitAll()
