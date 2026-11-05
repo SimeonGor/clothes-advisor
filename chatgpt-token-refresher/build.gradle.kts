@@ -1,4 +1,5 @@
 plugins {
+    jacoco
     kotlin("jvm") version "2.3.21"
     application
 }
@@ -15,4 +16,20 @@ dependencies {
 
 kotlin { jvmToolchain(25) }
 application { mainClass.set("refresher.MainKt") }
-tasks.test { useJUnitPlatform() }
+
+jacoco {
+    toolVersion = "0.8.14"
+}
+
+tasks.test {
+    useJUnitPlatform()
+    finalizedBy(tasks.jacocoTestReport)
+}
+
+tasks.jacocoTestReport {
+    dependsOn(tasks.test)
+    reports {
+        html.required.set(true)
+        xml.required.set(true)
+    }
+}
