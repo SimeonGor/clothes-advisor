@@ -115,18 +115,56 @@ class GatewaySecurityIntegrationTests {
         assertThat(received).isEmpty()
     }
 
-    private fun request(path: String, authorization: String? = null, method: String = "GET", spoofedId: String? = null): HttpResponse<String> =
+    @Test
+    fun `public auth posts forward refresh cookie csrf header and set cookie without bearer`() {
+        // given
+        val cookie = "ca_refresh=opaque-refresh-value"
+        for (path in listOf("/api/auth/login", "/api/auth/refresh", "/api/auth/logout")) {
+            // when
+            val response = request(path, method = "POST", cookie = cookie, authRequest = "1")
+
+            // then
+            assertThat(response.statusCode()).isEqualTo(200)
+            assertThat(received.last()).isEqualTo(Received("account", path, null, null, cookie, "1"))
+            assertThat(response.headers().allValues("Set-Cookie")).containsExactly(REFRESH_COOKIE)
+        }
+    }
+
+    @Test
+    fun `cross origin preflight cannot authorize auth custom header`() {
+        // given / when
+        val response = HttpClient.newHttpClient().use { client ->
+            client.send(HttpRequest.newBuilder(URI("http://localhost:$port/api/auth/refresh"))
+                .method("OPTIONS", HttpRequest.BodyPublishers.noBody())
+                .header("Origin", "https://untrusted.example")
+                .header("Access-Control-Request-Method", "POST")
+                .header("Access-Control-Request-Headers", "X-Auth-Request")
+                .build(), HttpResponse.BodyHandlers.ofString())
+        }
+
+        // then
+        assertThat(response.statusCode()).isBetween(400, 499)
+        assertThat(response.headers().allValues("Access-Control-Allow-Origin")).isEmpty()
+        assertThat(received).isEmpty()
+    }
+
+    private fun request(path: String, authorization: String? = null, method: String = "GET", spoofedId: String? = null,
+        cookie: String? = null, authRequest: String? = null): HttpResponse<String> =
         HttpClient.newHttpClient().use { client ->
             val builder = HttpRequest.newBuilder(URI("http://localhost:$port$path"))
                 .method(method, HttpRequest.BodyPublishers.noBody())
             if (authorization != null) builder.header("Authorization", authorization)
             if (spoofedId != null) builder.header("X-User-Id", spoofedId)
+            if (cookie != null) builder.header("Cookie", cookie)
+            if (authRequest != null) builder.header("X-Auth-Request", authRequest)
             client.send(builder.build(), HttpResponse.BodyHandlers.ofString())
         }
 
-    private data class Received(val service: String, val path: String, val authorization: String?, val actor: String?)
+    private data class Received(val service: String, val path: String, val authorization: String?, val actor: String?,
+        val cookie: String? = null, val authRequest: String? = null)
 
     companion object {
+        private const val REFRESH_COOKIE = "ca_refresh=rotated-value; Path=/api/auth; Secure; HttpOnly; SameSite=Strict"
         private val received = CopyOnWriteArrayList<Received>()
         private val account = upstream("account")
         private val wardrobe = upstream("wardrobe")
@@ -136,7 +174,11 @@ class GatewaySecurityIntegrationTests {
             createContext("/") { exchange ->
                 exchange.use {
                     received += Received(name, it.requestURI.path, it.requestHeaders.getFirst("Authorization"),
-                        it.requestHeaders.getFirst("X-User-Id"))
+                        it.requestHeaders.getFirst("X-User-Id"), it.requestHeaders.getFirst("Cookie"),
+                        it.requestHeaders.getFirst("X-Auth-Request"))
+                    if (it.requestMethod == "POST" && it.requestURI.path.startsWith("/api/auth/")) {
+                        it.responseHeaders.add("Set-Cookie", REFRESH_COOKIE)
+                    }
                     val body = name.toByteArray()
                     it.sendResponseHeaders(200, body.size.toLong())
                     it.responseBody.write(body)

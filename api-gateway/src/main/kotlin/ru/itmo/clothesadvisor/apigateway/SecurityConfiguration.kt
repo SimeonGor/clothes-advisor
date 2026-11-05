@@ -20,7 +20,7 @@ internal class SecurityConfiguration {
             .csrf { it.disable() }.httpBasic { it.disable() }.formLogin { it.disable() }
             .logout { it.disable() }.requestCache { it.disable() }
             .authorizeExchange {
-                it.pathMatchers(HttpMethod.POST, "/api/auth/login").permitAll()
+                it.pathMatchers(HttpMethod.POST, "/api/auth/login", "/api/auth/refresh", "/api/auth/logout").permitAll()
                     .pathMatchers("/", "/index.html", "/app", "/app/**", "/v3/api-docs/**",
                         "/swagger-ui/**", "/swagger-ui.html", "/actuator/health/**").permitAll()
                     .pathMatchers("/api/**").authenticated()
