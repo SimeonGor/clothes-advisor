@@ -4,7 +4,7 @@ import { Navigate, Route, Routes, useLocation, useNavigate } from "react-router-
 import { SiteShell, Today } from "./site";
 import { Wardrobe, WardrobeEditor } from "./wardrobe";
 import { OutfitDetail, OutfitEditor, Outfits } from "./outfits";
-import { Access, Accounts, Clients, OwnerWorkspace } from "./people";
+import { Access, AccountCreator, Accounts, Clients, OwnerWorkspace } from "./people";
 import { Preferences } from "./preferences";
 import { Calendar, CalendarEditor } from "./calendar";
 import { StylistRequestDetail, StylistRequestEditor, StylistRequests } from "./stylist-requests";
@@ -67,6 +67,7 @@ export function AppRoutes({ account, onLogout, onPending, pending }: {
       </>}
       {account.role === "ADMIN" && <>
         <Route path="/accounts" element={<Accounts {...props} />} />
+        <Route path="/accounts/new" element={<AccountCreator key={identity} {...props} />} />
         <Route path="/accounts/:ownerId/*" element={<OwnerWorkspace key={identity} kind="admin" {...props} />} />
       </>}
       <Route path="*" element={<Navigate to={landing(account)} replace />} />
