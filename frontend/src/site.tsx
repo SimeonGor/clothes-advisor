@@ -1,4 +1,5 @@
 import React from "react";
+import { authenticatedFetch } from "./auth";
 import { createRequest, NewAttempt } from "./idempotency";
 import { Link } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
@@ -7,7 +8,6 @@ import {
   mutationErrorMessage,
   request,
   resourceErrorMessage,
-  type Account,
   type Actor,
   type Outfit,
   type Photo,
@@ -17,7 +17,6 @@ import {
   itemAvailability,
 } from "./api";
 import styles from "./site.module.css";
-import workspaceStyles from "./workspace.module.css";
 import { SiteShell } from "./site-shell";
 import { Dialog } from "./dialog";
 import todayStyles from "./today.module.css";
@@ -32,70 +31,6 @@ function ReadError({ error, retry }: { error: unknown; retry: () => void }) {
       <button type="button" onClick={retry}>Повторить загрузку</button>
     </div>
   );
-}
-
-export function AccountPicker({ onChoose, embedded = false }: { onChoose: (account: Actor) => void; embedded?: boolean }) {
-  const accounts = useQuery({
-    queryKey: ["accounts"],
-    queryFn: async ({ signal }) => {
-      const all = await allPages<Account>("/api/admin/users", undefined, signal);
-      return all.filter((account) => account.status === "ACTIVE");
-    },
-  });
-  const [loading, setLoading] = React.useState<number | null>(null);
-  const [error, setError] = React.useState("");
-  const choiceController = React.useRef<AbortController | null>(null);
-
-  React.useEffect(() => () => choiceController.current?.abort(), []);
-
-  async function choose(id: number) {
-    choiceController.current?.abort();
-    const controller = new AbortController();
-    choiceController.current = controller;
-    setLoading(id);
-    setError("");
-    try {
-      const account = await request<Account>(`/api/admin/users/${id}`, undefined, { signal: controller.signal });
-      if (controller.signal.aborted) return;
-      if (account.status !== "ACTIVE") throw new Error("inactive");
-      onChoose({ id: account.id, login: account.login, role: account.role });
-    } catch {
-      if (controller.signal.aborted) return;
-      setError("Этот аккаунт больше не активен. "
-        + "Обновите список и выберите другой.");
-    } finally {
-      if (controller.signal.aborted) return;
-      setLoading(null);
-    }
-  }
-
-  const content = <>
-      <p className={styles.eyebrow}>ГАРДЕРОБ · ПЕРСОНАЛЬНЫЙ СТИЛЬ</p>
-      {!embedded && <h1>Выберите аккаунт</h1>}
-      <p className={styles.muted}>
-        Это тестовый выбор аккаунта, а не вход в систему.
-      </p>
-      {accounts.isLoading && <p>Загружаем активные аккаунты…</p>}
-      {accounts.isError && (
-        <ReadError error={accounts.error} retry={() => void accounts.refetch()} />
-      )}
-      {accounts.data?.length === 0 && <p>Нет активных аккаунтов.</p>}
-      {error && <p role="alert">{error}</p>}
-      {accounts.data?.map((account) => (
-        <button
-          className={workspaceStyles.accountChoice}
-          key={account.id}
-          disabled={loading !== null}
-          onClick={() => void choose(account.id)}
-        >
-          <span aria-hidden="true">{account.login.slice(0, 1).toLocaleUpperCase("ru-RU")}</span>
-          <span>{account.login}</span>
-          <small>{account.role === "USER" ? "Пользователь" : account.role === "STYLIST" ? "Стилист" : "Администратор"}{loading === account.id ? " · проверяем" : ""}</small>
-        </button>
-      ))}
-    </>;
-  return embedded ? <div className={workspaceStyles.accountPicker}>{content}</div>
-    : <main className={styles.pick} id="main">{content}</main>;
 }
 
 export function PhotoImage({ actor, item, photo, itemsBase = "/api/wardrobe/items" }: {
@@ -113,8 +48,7 @@ export function PhotoImage({ actor, item, photo, itemsBase = "/api/wardrobe/item
     const controller = new AbortController();
     setUrl("");
     setFailed(false);
-    fetch(`${itemsBase}/${item.id}/photos/${photo.id}/content`, {
-      headers: { "X-User-Id": String(actor.id) },
+    authenticatedFetch(`${itemsBase}/${item.id}/photos/${photo.id}/content`, actor.id, {
       credentials: "same-origin",
       cache: "no-store",
       signal: controller.signal,
@@ -230,14 +164,14 @@ function ItemCard({ actor, item, categories, selected, onToggle, disabled, showC
   );
 }
 
-export function Today({ account, onSwitch, onPending, pending }: {
+export function Today({ account, onLogout, onPending, pending }: {
   account: Actor;
-  onSwitch: () => void;
+  onLogout: () => void;
   onPending: (pending: boolean) => void;
   pending: boolean;
 }) {
   if (account.role !== "USER") {
-    return <SiteShell account={account} onSwitch={onSwitch} pending={pending} active="wardrobe">
+    return <SiteShell account={account} onLogout={onLogout} pending={pending} active="wardrobe">
       <main className={styles.main} id="main"><header className={styles.top}><span>ПЕРСОНАЛЬНЫЙ СТИЛЬ</span></header>
         <section className={styles.intro}><div><p className={styles.eyebrow}>ВАШЕ ПРОСТРАНСТВО</p>
           <h1>Гардероб</h1><p className={styles.muted}>Экран «Сегодня» доступен для аккаунтов USER.</p></div></section>
@@ -247,16 +181,16 @@ export function Today({ account, onSwitch, onPending, pending }: {
   return (
     <TodayForUser
       account={account}
-      onSwitch={onSwitch}
+      onLogout={onLogout}
       onPending={onPending}
       pending={pending}
     />
   );
 }
 
-function TodayForUser({ account, onSwitch, onPending, pending }: {
+function TodayForUser({ account, onLogout, onPending, pending }: {
   account: Actor;
-  onSwitch: () => void;
+  onLogout: () => void;
   onPending: (pending: boolean) => void;
   pending: boolean;
 }) {
@@ -444,7 +378,7 @@ function TodayForUser({ account, onSwitch, onPending, pending }: {
   }
 
   return (
-    <SiteShell account={account} onSwitch={onSwitch} pending={pending} active="today">
+    <SiteShell account={account} onLogout={onLogout} pending={pending} active="today">
       <main className={styles.main}>
         <header className={styles.top}>
           <span>ПЕРСОНАЛЬНЫЙ СТИЛЬ</span>

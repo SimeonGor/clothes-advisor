@@ -33,7 +33,7 @@ export function Access({ actor, pending, onPending }: Props) {
   });
   const directory = useQuery({
     queryKey: ["access-directory", actor.id],
-    queryFn: ({ signal }) => allPages<Account>("/api/admin/users", undefined, signal),
+    queryFn: ({ signal }) => allPages<Person>("/api/stylists", actor.id, signal),
   });
   const [selected, setSelected] = React.useState("");
   const [confirmGrant, setConfirmGrant] = React.useState(false);
@@ -41,8 +41,7 @@ export function Access({ actor, pending, onPending }: Props) {
   const [failure, setFailure] = React.useState("");
   const [success, setSuccess] = React.useState("");
   const busy = React.useRef(false);
-  const candidates = (directory.data ?? []).filter((person) => person.role === "STYLIST"
-    && person.status === "ACTIVE" && !grants.data?.some((grant) => grant.id === person.id));
+  const candidates = (directory.data ?? []).filter((person) => !grants.data?.some((grant) => grant.id === person.id));
 
   async function change(id: number, method: "PUT" | "DELETE") {
     if (busy.current || pending) return;
@@ -118,7 +117,7 @@ export function Clients({ actor, pending }: Props) {
 }
 
 export function Accounts({ actor, pending }: Props) {
-  const query = useQuery({ queryKey: ["account-directory", actor.id], queryFn: ({ signal }) => allPages<Account>("/api/admin/users", undefined, signal) });
+  const query = useQuery({ queryKey: ["account-directory", actor.id], queryFn: ({ signal }) => allPages<Account>("/api/admin/users", actor.id, signal) });
   return <main className={styles.main}>
     <Intro title="Аккаунты" description="Управление ролями, статусами и модерация содержимого." />
     {query.isLoading && <p className={styles.state}>Загружаем аккаунты…</p>}
@@ -138,7 +137,7 @@ export function OwnerWorkspace({ kind, actor, pending, onPending }: Props & { ki
   const clients = useQuery({ queryKey: clientsKey(actor), enabled: kind === "client" && valid,
     queryFn: ({ signal }) => allPages<Person>("/api/stylist/clients", actor.id, signal) });
   const account = useQuery({ queryKey: accountKey(actor, id), enabled: kind === "admin" && valid,
-    queryFn: ({ signal }) => request<AccountDetails>(`/api/admin/users/${id}`, undefined, { signal }) });
+    queryFn: ({ signal }) => request<AccountDetails>(`/api/admin/users/${id}`, actor.id, { signal }) });
   const query = kind === "client" ? clients : account;
   const owner = kind === "client" ? clients.data?.find((person) => person.id === id) : account.data;
   const transientError = !(query.error instanceof ApiError) || query.error.status >= 500;
@@ -200,7 +199,7 @@ function AccountEditor({ actor, pending, onPending, owner }: Props & { owner: Ac
     busy.current = true;
     setReloading(true);
     try {
-      const fresh = await request<AccountDetails>(path);
+      const fresh = await request<AccountDetails>(path, actor.id);
       setDraft(fresh);
       queryClient.setQueryData(accountKey(actor, owner.id), fresh);
       setConflict(false);
