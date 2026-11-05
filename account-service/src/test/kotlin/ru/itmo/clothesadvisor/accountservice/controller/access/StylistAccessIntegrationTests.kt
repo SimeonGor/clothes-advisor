@@ -20,7 +20,10 @@ import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.boot.test.web.server.LocalServerPort
 import ru.itmo.clothesadvisor.accountservice.config.PostgresIntegrationTest
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+    properties = ["springdoc.api-docs.enabled=true"],
+)
 class StylistAccessIntegrationTests : PostgresIntegrationTest() {
     @LocalServerPort private var port = 0
     private val client = HttpClient.newHttpClient()

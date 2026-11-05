@@ -41,7 +41,10 @@ spring:
                 - Path=/,/index.html,/app,/app/**
 
 springdoc:
+  api-docs:
+    enabled: false
   swagger-ui:
+    enabled: false
     urls:
       - name: Account
         url: /v3/api-docs/account

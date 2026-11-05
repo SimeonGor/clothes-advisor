@@ -36,7 +36,7 @@ Production-зависимостей на JAR другого бизнес-сер�
 | config-server | 4 |
 | discovery-server | 1 |
 
-Результаты JUnit находятся в `<module>/build/test-results`. Сервисы проверяются с Mockito, SQL и транзакции — на PostgreSQL Testcontainers. По правкам от 23 октября инфраструктурные тестовые каталоги и JaCoCo удалены; приведённый выше результат покрытия относится к исходной приёмке, а не текущей сборке.
+Результаты JUnit находятся в `<module>/build/test-results`. Сервисы проверяются с Mockito, SQL и транзакции — на PostgreSQL Testcontainers. Инфраструктурные тестовые каталоги удалены. JaCoCo подключён в account, wardrobe, recommendation и chatgpt-token-refresher; HTML/XML-отчёты создаются после тестов в `<module>/build/reports/jacoco/test/`, обязательного порога нет. Приведённый выше результат покрытия относится к исходной приёмке, а не текущей сборке.
 
 Основные регрессионные сценарии:
 

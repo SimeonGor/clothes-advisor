@@ -138,6 +138,6 @@ HTTP-вызовы используют W3C trace context через Reactor и F
 | Reactor + R2DBC | account-service |
 | Reactor + Spring Data JDBC | wardrobe-service |
 
-Сохраняются общий Swagger, запуск Compose и тесты бизнес-сервисов. По правкам от 23 октября JaCoCo и автоматическая проверка порога покрытия удалены; инфраструктурные приложения проверяются запуском. Kafka, отдельный файловый сервис, новая авторизация и переписывание frontend не включаются заранее. Согласование модели данных с преподавателем — отдельная проверка.
+Сохраняются общий Swagger, запуск Compose и тесты бизнес-сервисов. JaCoCo собирает покрытие в account, wardrobe, recommendation и chatgpt-token-refresher без обязательного порога; инфраструктурные приложения проверяются запуском. Kafka, отдельный файловый сервис, новая авторизация и переписывание frontend не включаются заранее. Согласование модели данных с преподавателем — отдельная проверка.
 
 Документы ЛР1 остаются в [requirements.md](../requirements.md), [architecture.puml](../architecture.puml) и [domain.puml](../domain.puml). Текущая схема задаётся миграциями [wardrobe](../../wardrobe-service/src/main/resources/db/migration) и [account](../../account-service/src/main/resources/db/migration); API — контроллерами [wardrobe](../../wardrobe-service/src/main/kotlin/ru/itmo/clothesadvisor/controller) и [account](../../account-service/src/main/kotlin/ru/itmo/clothesadvisor/accountservice/controller).

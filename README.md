@@ -88,7 +88,9 @@ curl http://127.0.0.1:8080/api/wardrobe/items \
   -d '{"name":"Рубашка","categoryId":1,"color":"Белый","material":"Хлопок"}'
 ```
 
-Замените `1` фактическим ID из списка. Общий [Swagger UI](http://127.0.0.1:8080/swagger-ui/index.html) на Gateway предлагает две спецификации: **Account** — аккаунты и разрешения, **Wardrobe** — гардероб, фотографии и образы (выбрана по умолчанию). JSON доступен отдельно для [Account](http://127.0.0.1:8080/v3/api-docs/account) и [Wardrobe](http://127.0.0.1:8080/v3/api-docs/wardrobe). Документация Wardrobe включена только с профилем `local`; запросы из UI идут через текущий адрес Gateway, включая выбранный порт.
+Замените `1` фактическим ID из списка. Общий [Swagger UI](http://127.0.0.1:8080/swagger-ui/index.html) на Gateway предлагает две спецификации: **Account** — аккаунты и разрешения, **Wardrobe** — гардероб, фотографии и образы (выбрана по умолчанию). JSON доступен отдельно для [Account](http://127.0.0.1:8080/v3/api-docs/account) и [Wardrobe](http://127.0.0.1:8080/v3/api-docs/wardrobe).
+
+OpenAPI и Swagger UI выключены по умолчанию в Account, Wardrobe и Gateway. Для включения задайте `SPRING_PROFILES_ACTIVE=local` в `.env` и выполните `docker compose up -d`: Compose передаст профиль всем трём сервисам. При запуске через `bootRun` задайте эту переменную каждому из них. Запросы из UI идут через текущий адрес Gateway, включая выбранный порт.
 
 Маршруты и бизнес-правила описаны в [требованиях](docs/requirements.md). Заголовок `X-User-Id` показывается в Swagger только для методов, которым нужен действующий пользователь; глобальной схемы Bearer нет.
 
@@ -142,7 +144,11 @@ Dockerfile каждого сервиса копирует только wrapper, 
 
 Account также подключается к Config/Eureka и нужен wardrobe для запросов с пользователем: `APP_PORT=8084 ./gradlew :account-service:bootRun`. Ему нужна отдельная БД `account_db`: `DB_R2DBC_URL` — R2DBC-адрес, `DB_URL` — JDBC-адрес той же БД для Flyway, `DB_USER` и `DB_PASSWORD` — её учётные данные. При отдельном запуске account передайте в `DB_PASSWORD` значение `ACCOUNT_DB_PASSWORD`; Compose делает это автоматически. Не направляйте его на рабочую БД wardrobe.
 
-Тесты находятся в трёх бизнес-сервисах. Unit-тесты используют Mockito без Spring и БД. Интеграционные тесты работают с PostgreSQL Testcontainers, готовят и проверяют данные через JDBC, очищают их после теста. HTTP-клиенты проверяются на локальных заглушках; секреты из `.env` и реальные вызовы S3/OpenAI не нужны. JaCoCo и автоматическая проверка процента покрытия удалены. Gateway, Eureka и Config Server проверяются запуском и HTTP-запросами к собранным приложениям.
+Тесты находятся в трёх бизнес-сервисах и `chatgpt-token-refresher`. Unit-тесты используют Mockito без Spring и БД. Интеграционные тесты работают с PostgreSQL Testcontainers, готовят и проверяют данные через JDBC, очищают их после теста. HTTP-клиенты проверяются на локальных заглушках; секреты из `.env` и реальные вызовы S3/OpenAI не нужны. Gateway, Eureka и Config Server проверяются запуском и HTTP-запросами к собранным приложениям.
+
+В модулях с JVM-тестами подключён JaCoCo. После `test` автоматически создаются отчёты: HTML — `<module>/build/reports/jacoco/test/html/index.html`, XML — `<module>/build/reports/jacoco/test/jacocoTestReport.xml`. Команда `./gradlew jacocoTestReport` запускает тесты и строит отчёты всех четырёх модулей. Обязательного порога покрытия нет.
+
+Отдельный `:wardrobe-service:transportTest` создаёт отчёт `jacocoTransportTestReport` по wardrobe и recommendation. Он не запускается вместе с обычными `test` или `check`.
 
 Для Colima на macOS перед тестами:
 

@@ -1,3 +1,4 @@
+import org.gradle.testing.jacoco.tasks.JacocoReport
 import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
 
 plugins {
@@ -30,11 +31,27 @@ project(":wardrobe-service") {
     transportTest.runtimeClasspath += wardrobeMain.get().output +
         recommendationMain.get().output + recommendationMain.get().runtimeClasspath
 
-    tasks.register<Test>("transportTest") {
+    val transportTestTask = tasks.register<Test>("transportTest") {
         description = "Isolated maximum-payload check through production Feign and WebFlux."
         testClassesDirs = transportTest.output.classesDirs
         classpath = transportTest.runtimeClasspath
         maxHeapSize = "512m"
         inputs.file(layout.projectDirectory.file("../config-repository/recommendation-service/recommendation-service.yml"))
+    }
+
+    val transportReport = tasks.register<JacocoReport>("jacocoTransportTestReport") {
+        description = "Coverage of wardrobe and recommendation in the transport test."
+        group = "verification"
+        dependsOn(transportTestTask)
+        executionData(transportTestTask.get())
+        sourceSets(wardrobeMain.get(), recommendationMain.get())
+        reports {
+            html.required.set(true)
+            xml.required.set(true)
+        }
+    }
+
+    transportTestTask.configure {
+        finalizedBy(transportReport)
     }
 }
