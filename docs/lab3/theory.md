@@ -115,6 +115,18 @@ Refresh-сессии решают другую задачу: выход запр
 
 ## Browser, CSRF и транспорт
 
+В контейнерном запуске ключи подключаются через
+[Compose secrets](https://docs.docker.com/compose/how-tos/use-secrets/): закрытый PEM
+доступен только account, открытый — account, wardrobe и Gateway. Файлы хранятся вне
+репозитория и не меняются при обычном перезапуске. Это файловые mounts с правами ОС,
+а не зашифрованное хранилище ключей; администратор Docker остаётся доверенным.
+Первоначальный пароль ADMIN по согласованной схеме передаётся через окружение только
+account. После успешной настройки его можно убрать из окружения; действующий пароль
+уже хранится в виде хеша в БД.
+На изолированном Compose-стенде проверены сборка и запуск трёх JWT-сервисов,
+чтение закрытого ключа с правами 0600 процессом account и вход через Gateway.
+Закрытого ключа в mounts wardrobe и Gateway нет.
+
 Интерфейс хранит короткий access token в памяти вкладки. HTTP-клиент явно
 прикладывает `Authorization: Bearer …` к JSON, multipart и запросам фотографий.
 Refresh-cookie использует `HttpOnly`, `SameSite=Strict`, host-only,
@@ -178,12 +190,51 @@ refresh завершается коммитом, и только затем фо
 
 ## Что показать на защите
 
+Требования взяты из [задания ЛР3](https://github.com/Discipliny/highload_systems#лабораторная-работа-3).
+Refresh-сессии и первоначальная настройка ADMIN добавлены по требованиям проекта.
+
+| Что объяснить | Где смотреть |
+| --- | --- |
+| Подпись и проверки JWT | [JwtConfiguration account](../../account-service/src/main/kotlin/ru/itmo/clothesadvisor/accountservice/config/JwtConfiguration.kt); [HTTP-проверки входа и токенов](../../account-service/src/test/kotlin/ru/itmo/clothesadvisor/accountservice/controller/auth/AuthenticationIntegrationTests.kt) |
+| Защита маршрутов Gateway | [SecurityConfiguration Gateway](../../api-gateway/src/main/kotlin/ru/itmo/clothesadvisor/apigateway/SecurityConfiguration.kt); [тесты маршрутов и поддельных токенов](../../api-gateway/src/test/kotlin/ru/itmo/clothesadvisor/apigateway/GatewaySecurityIntegrationTests.kt) |
+| Текущая роль, блокировка и подмена ID | [SecurityConfiguration wardrobe](../../wardrobe-service/src/main/kotlin/ru/itmo/clothesadvisor/config/SecurityConfiguration.kt); [CurrentUserIntegrationTests](../../wardrobe-service/src/test/kotlin/ru/itmo/clothesadvisor/controller/user/CurrentUserIntegrationTests.kt) |
+| Создание аккаунтов только ADMIN, пароль не возвращается | [AdminUserController](../../account-service/src/main/kotlin/ru/itmo/clothesadvisor/accountservice/controller/user/AdminUserController.kt); [UserManagementIntegrationTests](../../account-service/src/test/kotlin/ru/itmo/clothesadvisor/accountservice/controller/user/UserManagementIntegrationTests.kt) |
+| Хеширование паролей | [PasswordConfiguration](../../account-service/src/main/kotlin/ru/itmo/clothesadvisor/accountservice/config/PasswordConfiguration.kt) и [PasswordService](../../account-service/src/main/kotlin/ru/itmo/clothesadvisor/accountservice/service/auth/PasswordService.kt) |
+| Ротация, повтор refresh, выход и смена пароля | [AuthenticationService](../../account-service/src/main/kotlin/ru/itmo/clothesadvisor/accountservice/service/auth/AuthenticationService.kt); [RefreshSessionIntegrationTests](../../account-service/src/test/kotlin/ru/itmo/clothesadvisor/accountservice/controller/auth/RefreshSessionIntegrationTests.kt) |
+| Вход в браузере и управление аккаунтами | [auth.ts](../../frontend/src/auth.ts), [app.tsx](../../frontend/src/app.tsx), [people.tsx](../../frontend/src/people.tsx) |
+
+После настройки и запуска Compose по [README](../../README.md) можно пройти такой сценарий:
+
 1. Без токена бизнес-API возвращает 401; поддельный X-User-Id не помогает.
 2. Вход даёт JWT, с ним USER читает свой гардероб, но не создаёт аккаунт.
 3. ADMIN создаёт пользователя; в ответе нет пароля/хеша, в БД находится хеш.
 4. STYLIST получает доступ только после разрешения владельца.
 5. После блокировки следующий запрос не проходит, даже если срок JWT ещё не истёк.
 6. Неверная подпись, аудитория и истёкший токен отклоняются.
+7. Перезагрузка страницы восстанавливает вход. После выхода страница требует пароль;
+   после смены пароля прежние refresh-сессии больше не дают access token.
 
-Команды и ссылки на окончательные классы будут добавлены по результатам реализации,
-а не представлены как уже выполненные проверки.
+Проверки анонимного запроса и подмены ID не требуют тестовых данных:
+
+```shell
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/api/wardrobe/items
+curl -s -o /dev/null -w '%{http_code}\n' http://127.0.0.1:8080/api/wardrobe/items -H 'X-User-Id: 1'
+```
+
+В обоих случаях ожидается 401. Для проверки роли войдите как USER в Swagger,
+установите полученный access token через Authorize и вызовите `GET /api/admin/users`:
+ожидается 403. Создание аккаунта покажите из интерфейса ADMIN. Проверять истечение JWT
+удобнее автоматическим тестом с подготовленным токеном, без ожидания 15 минут.
+
+Команды для тестов из корня репозитория:
+
+```shell
+./gradlew :account-service:test :wardrobe-service:test :api-gateway:test
+npm --prefix frontend test
+```
+
+Backend-тестам нужны JDK 25 и Docker для PostgreSQL Testcontainers; frontend использует
+заглушки HTTP. Результаты отдельных этапов записаны в [плане](implementation.md).
+На этапе 07 проверен запуск изолированного Compose-стенда авторизации и вход через
+Gateway. Полная приёмка этапа 08, включая интерфейс с реальными сервисами, ещё не завершена;
+сценарий выше служит инструкцией для демонстрации.
