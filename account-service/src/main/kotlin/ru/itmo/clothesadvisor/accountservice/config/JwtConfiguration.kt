@@ -81,7 +81,6 @@ internal class JwtConfiguration {
     companion object {
         const val ISSUER = "urn:clothes-advisor:account"
         const val AUDIENCE = "clothes-advisor-api"
-        const val TTL_SECONDS = 900L
     }
 }
 
