@@ -88,7 +88,9 @@ curl http://127.0.0.1:8080/api/wardrobe/items \
   -d '{"name":"Рубашка","categoryId":1,"color":"Белый","material":"Хлопок"}'
 ```
 
-Замените `1` фактическим ID из списка. Общий [Swagger UI](http://127.0.0.1:8080/swagger-ui/index.html) на Gateway предлагает две спецификации: **Account** — аккаунты и разрешения, **Wardrobe** — гардероб, фотографии и образы (выбрана по умолчанию). JSON доступен отдельно для [Account](http://127.0.0.1:8080/v3/api-docs/account) и [Wardrobe](http://127.0.0.1:8080/v3/api-docs/wardrobe). Документация Wardrobe включена только с профилем `local`; запросы из UI идут через текущий адрес Gateway, включая выбранный порт.
+Замените `1` фактическим ID из списка. Общий [Swagger UI](http://127.0.0.1:8080/swagger-ui/index.html) на Gateway предлагает две спецификации: **Account** — аккаунты и разрешения, **Wardrobe** — гардероб, фотографии и образы (выбрана по умолчанию). JSON доступен отдельно для [Account](http://127.0.0.1:8080/v3/api-docs/account) и [Wardrobe](http://127.0.0.1:8080/v3/api-docs/wardrobe).
+
+OpenAPI и Swagger UI выключены по умолчанию в Account, Wardrobe и Gateway. Для включения задайте `SPRING_PROFILES_ACTIVE=local` в `.env` и выполните `docker compose up -d`: Compose передаст профиль всем трём сервисам. При запуске через `bootRun` задайте эту переменную каждому из них. Запросы из UI идут через текущий адрес Gateway, включая выбранный порт.
 
 Маршруты и бизнес-правила описаны в [требованиях](docs/requirements.md). Заголовок `X-User-Id` показывается в Swagger только для методов, которым нужен действующий пользователь; глобальной схемы Bearer нет.
 

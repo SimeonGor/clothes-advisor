@@ -32,7 +32,10 @@ import ru.itmo.clothesadvisor.accountservice.config.PostgresIntegrationTest
 import ru.itmo.clothesadvisor.accountservice.model.user.AppUser
 import ru.itmo.clothesadvisor.accountservice.repository.user.AppUserRepository
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+    properties = ["springdoc.api-docs.enabled=true"],
+)
 class InternalAccountIntegrationTests : PostgresIntegrationTest() {
     @LocalServerPort private var port = 0
     @Autowired private lateinit var tracer: Tracer
