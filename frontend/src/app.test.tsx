@@ -27,6 +27,27 @@ afterEach(() => {
   Reflect.deleteProperty(HTMLDialogElement.prototype, "showModal"); Reflect.deleteProperty(HTMLDialogElement.prototype, "close");
 });
 
+it.each([
+  { actor: user, path: "/accounts/new", landing: "Сегодня" },
+  { actor: user, path: "/accounts/33", landing: "Сегодня" },
+  { actor: stylist, path: "/accounts/new", landing: "Клиенты" },
+  { actor: stylist, path: "/accounts/33", landing: "Клиенты" },
+])("does not expose account forms or call admin endpoints for $actor.role at $path", async ({ actor, path, landing }) => {
+  // given: a non-admin session opens a direct creation or password-reset address.
+  authenticatedActor(actor);
+  const fetch = vi.fn(async () => json([]));
+  vi.stubGlobal("fetch", fetch);
+  // when
+  render(<MemoryRouter initialEntries={[path]}><App /></MemoryRouter>);
+  await waitFor(() => expect(screen.getByRole("link", { name: landing }).getAttribute("aria-current")).toBe("page"));
+  // then: route gating redirects without fetching administrative data.
+  expect(screen.queryByRole("link", { name: "Создать аккаунт ↗" })).toBeNull();
+  expect(screen.queryByLabelText("ПАРОЛЬ")).toBeNull();
+  expect(screen.queryByLabelText("НОВЫЙ ПАРОЛЬ")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Сохранить роль и статус" })).toBeNull();
+  expect(vi.mocked(globalThis.fetch).mock.calls.some(([url]) => String(url).startsWith("/api/admin/"))).toBe(false);
+});
+
 it("restores the cookie session on reload and resets scroll only for navigation", async () => {
   // given
   const fetch = vi.fn(async (path: string) => path === "/api/auth/refresh" ? token()
