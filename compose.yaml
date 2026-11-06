@@ -70,6 +70,7 @@ services:
       CONFIG_SERVER_URL: http://config-server:8888
       EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
       FRONTEND_URL: http://frontend:8080
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
     secrets:
       - app-jwt-public-key
     ports:

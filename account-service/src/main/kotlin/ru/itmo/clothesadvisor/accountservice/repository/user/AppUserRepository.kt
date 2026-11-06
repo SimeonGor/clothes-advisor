@@ -1,7 +1,7 @@
 package ru.itmo.clothesadvisor.accountservice.repository.user
 
 import org.springframework.data.r2dbc.repository.Query
-import org.springframework.data.repository.Repository
+import org.springframework.data.r2dbc.repository.R2dbcRepository
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
 import ru.itmo.clothesadvisor.accountservice.model.access.AdminAccessState
@@ -9,8 +9,8 @@ import ru.itmo.clothesadvisor.accountservice.model.user.AppUser
 import ru.itmo.clothesadvisor.accountservice.model.user.UserRole
 import ru.itmo.clothesadvisor.accountservice.model.user.UserStatus
 
-internal interface AppUserRepository : Repository<AppUser, Long> {
-    fun findById(id: Long): Mono<AppUser>
+internal interface AppUserRepository : R2dbcRepository<AppUser, Long> {
+    override fun findById(id: Long): Mono<AppUser>
 
     @Query("SELECT * FROM app_user WHERE id = :id FOR UPDATE")
     fun findByIdForUpdate(id: Long): Mono<AppUser>
@@ -37,7 +37,7 @@ internal interface AppUserRepository : Repository<AppUser, Long> {
     fun findPage(limit: Int, offset: Int): Flux<AppUser>
 
     @Query("SELECT count(*) FROM app_user")
-    fun count(): Mono<Long>
+    override fun count(): Mono<Long>
 
     @Query(
         """

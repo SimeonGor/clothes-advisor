@@ -49,7 +49,7 @@ class SelectionPromptSettingsTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhot
     fun `external version six prompt preserves preference priority replacement and explanation instructions exactly`() {
         // given
         val source = YamlPropertySourceLoader().load(
-            "prompt", FileSystemResource("../config-repository/recommendation-service/recommendation-service.yml"),
+            "prompt", FileSystemResource("../config-repository/recommendation-service/application.yml"),
         ).single()
         val settings = SelectionPromptSettings("app.openai.prompt", null, null)
 
@@ -220,7 +220,7 @@ class SelectionPromptSettingsTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhot
     fun `capsule configuration has its own version and instructions without outfit fallback`() {
         // given
         val source = YamlPropertySourceLoader().load(
-            "prompt", FileSystemResource("../config-repository/recommendation-service/recommendation-service.yml"),
+            "prompt", FileSystemResource("../config-repository/recommendation-service/application.yml"),
         ).single()
         val settings = SelectionPromptSettings("app.openai.capsule-prompt", null, null)
 

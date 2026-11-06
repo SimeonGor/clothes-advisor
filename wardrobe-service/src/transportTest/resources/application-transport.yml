@@ -16,7 +16,7 @@ spring:
   config:
     activate:
       on-profile: transport-server
-    import: "file:../config-repository/recommendation-service/recommendation-service.yml"
+    import: "file:../config-repository/recommendation-service/application.yml"
   main:
     web-application-type: reactive
 
@@ -25,7 +25,7 @@ spring:
   config:
     activate:
       on-profile: transport-client
-    import: "file:../config-repository/wardrobe-service/wardrobe-service.yml"
+    import: "file:../config-repository/wardrobe-service/application.yml"
   main:
     web-application-type: none
 

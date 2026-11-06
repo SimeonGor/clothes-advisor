@@ -3,7 +3,7 @@ spring:
     config:
       enabled: false
   config:
-    import: "file:../config-repository/recommendation-service/recommendation-service.yml"
+    import: "file:../config-repository/recommendation-service/application.yml"
 
 eureka:
   client:

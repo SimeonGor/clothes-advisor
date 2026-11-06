@@ -1,4 +1,5 @@
 plugins {
+    jacoco
     kotlin("jvm") version "2.3.21"
     kotlin("plugin.spring") version "2.3.21"
     id("org.springframework.boot") version "4.1.1"
@@ -38,9 +39,25 @@ kotlin {
     jvmToolchain(25)
 }
 
+jacoco {
+    toolVersion = "0.8.14"
+}
+
+tasks.test {
+    finalizedBy(tasks.jacocoTestReport)
+}
+
+tasks.jacocoTestReport {
+    dependsOn(tasks.test)
+    reports {
+        html.required.set(true)
+        xml.required.set(true)
+    }
+}
+
 tasks.withType<Test> {
     useJUnitPlatform()
-    inputs.file(layout.projectDirectory.file("../config-repository/account-service/account-service.yml"))
+    inputs.file(layout.projectDirectory.file("../config-repository/account-service/application.yml"))
     inputs.dir(layout.projectDirectory.dir("../ops/account-transfer"))
     inputs.dir(
         layout.projectDirectory.dir("../wardrobe-service/src/main/resources/db/migration"),

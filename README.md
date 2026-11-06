@@ -101,7 +101,9 @@ curl http://127.0.0.1:8080/api/wardrobe/items \
   -d '{"name":"Рубашка","categoryId":1,"color":"Белый","material":"Хлопок"}'
 ```
 
-Общий [Swagger UI](http://127.0.0.1:8080/swagger-ui/index.html) предлагает спецификации **Account** и **Wardrobe**. Выполните вход в Account, затем вставьте access token в **Authorize** выбранной спецификации. JSON доступен отдельно для [Account](http://127.0.0.1:8080/v3/api-docs/account) и [Wardrobe](http://127.0.0.1:8080/v3/api-docs/wardrobe). Документация Wardrobe включена с профилем `local`; запросы идут через Gateway.
+Общий [Swagger UI](http://127.0.0.1:8080/swagger-ui/index.html) предлагает спецификации **Account** и **Wardrobe**. Выполните вход в Account, затем вставьте access token в **Authorize** выбранной спецификации. JSON доступен отдельно для [Account](http://127.0.0.1:8080/v3/api-docs/account) и [Wardrobe](http://127.0.0.1:8080/v3/api-docs/wardrobe).
+
+OpenAPI и Swagger UI выключены по умолчанию в Account, Wardrobe и Gateway. Для включения задайте `SPRING_PROFILES_ACTIVE=local` в `.env` и выполните `docker compose up -d`: Compose передаст профиль всем трём сервисам. При запуске через `bootRun` задайте эту переменную каждому из них. Запросы из UI идут через текущий адрес Gateway, включая выбранный порт.
 
 `POST /api/auth/refresh` обновляет токен по cookie; `POST /api/auth/logout` отзывает сессию. Оба требуют `X-Auth-Request: 1`. После выхода или смены пароля уже выданный access token действует до истечения срока; блокировка пользователя запрещает следующие бизнес-запросы сразу.
 
@@ -109,7 +111,7 @@ curl http://127.0.0.1:8080/api/wardrobe/items \
 
 Локальная интеграция использует личную подписку ChatGPT и доступна роли USER. API-ключ и автоматический переход на платный API не используются. В настройках ChatGPT Usage отключите дополнительные кредиты для подключения.
 
-Промпт находится в `config-repository/recommendation-service/recommendation-service.yml`: `app.openai.prompt.text` — текст, `version` — положительное целое число. При правке меняйте оба поля и сохраняйте файл целиком. Recommendation подхватит изменения автоматически при очередном опросе, по умолчанию через 30 секунд; перезапуск и пересборка не нужны. Уже начатый подбор использует прежний снимок. Невалидная правка сохраняет последний рабочий промпт; если его ещё нет, AI возвращает `503`. Параметр `app.openai.prompt.poll-interval` меняется только при запуске.
+Промпт находится в `config-repository/recommendation-service/application.yml`: `app.openai.prompt.text` — текст, `version` — положительное целое число. При правке меняйте оба поля и сохраняйте файл целиком. Recommendation подхватит изменения автоматически при очередном опросе, по умолчанию через 30 секунд; перезапуск и пересборка не нужны. Уже начатый подбор использует прежний снимок. Невалидная правка сохраняет последний рабочий промпт; если его ещё нет, AI возвращает `503`. Параметр `app.openai.prompt.poll-interval` меняется только при запуске.
 
 Повтор успешного запроса с тем же `Idempotency-Key` вернёт прежний образ даже после смены промпта. Для нового подбора нужен новый ключ. Генерация изображений не подключена: AI по-прежнему выбирает вещи из переданных кандидатов.
 
@@ -157,7 +159,11 @@ Account также подключается к Config/Eureka и нужен wardr
 
 При запуске JVM на хосте вместо Compose mounts задайте `JWT_PUBLIC_KEY_LOCATION=file:/абсолютный/путь/jwt-public.pem` для account, wardrobe и Gateway; `JWT_PRIVATE_KEY_LOCATION=file:/абсолютный/путь/jwt-private.pem` — только для account. Для account также нужны настройки первоначального ADMIN и `AUTH_REFRESH_COOKIE_SECURE=false`, если используется локальный HTTP.
 
-Тесты бизнес-сервисов используют Mockito и PostgreSQL Testcontainers; подготовка и проверка данных выполняется через JDBC. Gateway имеет отдельные HTTP-тесты безопасности. HTTP-клиенты проверяются на локальных заглушках; секреты из `.env` и реальные вызовы S3/OpenAI не нужны. Frontend проверяется командой `npm test` в каталоге `frontend`. JaCoCo и автоматической проверки процента покрытия нет.
+Тесты бизнес-сервисов используют Mockito и PostgreSQL Testcontainers; подготовка и проверка данных выполняется через JDBC. Gateway имеет отдельные HTTP-тесты безопасности. HTTP-клиенты проверяются на локальных заглушках; секреты из `.env` и реальные вызовы S3/OpenAI не нужны. Frontend проверяется командой `npm test` в каталоге `frontend`.
+
+В account, wardrobe, recommendation и chatgpt-token-refresher подключён JaCoCo. После `test` автоматически создаются отчёты: HTML — `<module>/build/reports/jacoco/test/html/index.html`, XML — `<module>/build/reports/jacoco/test/jacocoTestReport.xml`. Команда `./gradlew jacocoTestReport` запускает тесты и строит отчёты этих четырёх модулей. Обязательного порога покрытия нет.
+
+Отдельный `:wardrobe-service:transportTest` создаёт отчёт `jacocoTransportTestReport` по wardrobe и recommendation. Он не запускается вместе с обычными `test` или `check`.
 
 Для Colima на macOS перед тестами:
 

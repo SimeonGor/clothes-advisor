@@ -29,7 +29,10 @@ import ru.itmo.clothesadvisor.accountservice.model.user.AppUser
 import ru.itmo.clothesadvisor.accountservice.repository.user.AppUserRepository
 import ru.itmo.clothesadvisor.accountservice.service.auth.PasswordService
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+    properties = ["springdoc.api-docs.enabled=true"],
+)
 class AuthenticationIntegrationTests : PostgresIntegrationTest() {
     @LocalServerPort private var port = 0
     @Autowired private lateinit var passwords: PasswordService

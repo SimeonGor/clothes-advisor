@@ -22,7 +22,10 @@ import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+    properties = ["springdoc.api-docs.enabled=true", "springdoc.swagger-ui.enabled=true"],
+)
 @ActiveProfiles("test")
 class GatewaySecurityIntegrationTests {
     @LocalServerPort private var port = 0
