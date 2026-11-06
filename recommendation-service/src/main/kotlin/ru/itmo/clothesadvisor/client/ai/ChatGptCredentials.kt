@@ -1,5 +1,8 @@
 package ru.itmo.clothesadvisor.client.ai
 
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.AiSelectionException
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.AiSelectionFailure
+
 import java.nio.ByteBuffer
 import java.nio.file.Files
 import java.nio.file.LinkOption.NOFOLLOW_LINKS

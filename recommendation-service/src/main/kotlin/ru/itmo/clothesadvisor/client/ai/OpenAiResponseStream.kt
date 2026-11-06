@@ -1,5 +1,8 @@
 package ru.itmo.clothesadvisor.client.ai
 
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.AiSelectionException
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.AiSelectionFailure
+
 import java.io.InputStream
 import java.io.InputStreamReader
 import java.io.Reader
