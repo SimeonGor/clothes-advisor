@@ -6,12 +6,21 @@
 
 | Топик | Producer → consumer | События |
 | --- | --- | --- |
-| `account.events` | account → notification | AccessGranted, AccessRevoked |
-| `wardrobe.events` | wardrobe → notification, recommendation | Доменные события; AiJobFinalized подтверждает применение результата |
-| `recommendation.commands` | wardrobe → recommendation | RecommendationRequested |
-| `recommendation.results` | recommendation → wardrobe | RecommendationStarted, RecommendationFinished |
+| `stylist-access.events` | account → notification | AccessGranted, AccessRevoked |
+| `stylist-requests.events` | wardrobe → notification | StylistRequestCreated, StylistRequestCancelled, StylistRequestAnswered |
+| `stylist-outfits.events` | wardrobe → notification | StylistOutfitCreated |
+| `outfit-ratings.events` | wardrobe → notification | OutfitRatingChanged, OutfitRatingWithdrawn |
+| `ai-jobs.events` | wardrobe → notification, recommendation | AiJobFinalized: задание завершено в wardrobe, результат применён или отклонён |
+| `ai-selection.requests` | wardrobe → recommendation | RecommendationRequested: вход для подбора |
+| `ai-selection.execution-events` | recommendation → wardrobe | RecommendationStarted, RecommendationFinished: ход и исход выполнения AI |
 
-Ключ AI-сообщения — `requestMonth/requestId`; прочих сообщений — тип/ID агрегата. У топиков репликация 3; число партиций и настройки ACL фиксируются при инфраструктурном этапе. Порядок Kafka внутри партиции не заменяет проверки состояния в БД: outbox relay может повторять публикацию. Переход из конечного состояния назад запрещён; поздний Started игнорируется.
+Имена описывают данные. Топик выполнения AI сообщает о работе recommendation; завершение задания в wardrobe отдельно подтверждает сохранение окончательного состояния и, при успехе, ресурса. Успех модели сам по себе ещё не означает готовый образ. Подтипы одной предметной области различаются по eventType.
+
+![Топики и подписчики](diagrams/topics.png)
+
+Группы подписчиков: `notification-service.events` читает пять топиков событий для уведомлений; `recommendation-service.ai-selection` — запросы подбора; `recommendation-service.ai-jobs` — подтверждения завершения заданий; `wardrobe-service.ai-selection` — события выполнения AI. ACL выдаются на точные имена топиков и групп.
+
+Ключ AI-сообщения — `requestMonth/requestId`; прочих сообщений — тип/ID агрегата. У топиков репликация 3, три партиции, min.insync.replicas=2, retention 7 суток; producer использует acks=all. Политика Kafka не меняет месячное хранение запросов PostgreSQL. Порядок Kafka внутри партиции не заменяет проверки состояния в БД: outbox relay может повторять публикацию. Между разными топиками общего порядка нет. Переход из конечного состояния назад запрещён; поздний Started игнорируется.
 
 Общий envelope: `eventId` (UUID), `eventType`, `schemaVersion`, `occurredAt` (UTC), `aggregateId`, `payload`. Для AI payload содержит `requestId`, `requestMonth` (`YYYY-MM-01`) и `ownerId`. `eventId` не меняется при повторной публикации. Пользовательский Idempotency-Key, JWT, OAuth-токен и S3 credentials в envelope не передаются.
 
