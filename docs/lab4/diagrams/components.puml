@@ -1,0 +1,55 @@
+@startuml components
+!pragma layout smetana
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName SansSerif
+skinparam defaultFontSize 14
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam packageStyle rectangle
+skinparam nodesep 45
+skinparam ranksep 55
+skinparam ArrowColor #52677F
+actor "USER / STYLIST / ADMIN" as user
+component "Frontend\nОтдельный контейнер" as ui #FFF5DF
+component "Gateway\nПубличный HTTP" as gw #EDF4FB
+rectangle "Внутренняя сеть Compose" {
+  component "account-service\nПрава / JWT / сессии" as account #E9F5EF
+  component "wardrobe-service\nГардероб / образы / задания" as wardrobe #E9F5EF
+  component "notification-service\nУведомления" as notify #E9F5EF
+  queue "Kafka · 3 брокера\n4 топика · replication=3" as kafka #FFF5DF
+  component "recommendation-service\nОчередь / worker / AI-выбор" as rec #F2EDFB
+  component "file-service\nФайлы / metadata" as files #E9F5EF
+  database "account_db" as adb
+  database "wardrobe_db" as wdb
+  database "notification_db" as ndb
+  database "recommendation_db" as rdb
+  database "file_db" as fdb
+}
+component "Config Server / Eureka\nКонфигурация и discovery\nдля backend-сервисов" as infra #EDF4FB
+component "OAuth refresher\nrefresh token" as oauth #F2EDFB
+cloud "OpenAI\nЛичное ChatGPT-подключение" as ai #F2EDFB
+cloud "Yandex Object Storage\nПриватные файлы" as s3 #E9F5EF
+user --> ui
+ui --> gw
+gw --> account : HTTP
+gw --> wardrobe : HTTP · v1 / v2
+gw --> notify : HTTP
+wardrobe --> account : права
+account --> adb
+wardrobe --> wdb
+notify --> ndb
+account --> kafka : account.events
+wardrobe <--> kafka : команды / результаты\nwardrobe.events
+kafka --> notify : события
+kafka <--> rec : команды / результаты\nподтверждения
+rec --> rdb
+wardrobe --> files : PUT / GET
+rec --> files : GET файлов задания
+rec ..> wardrobe : проверка перед AI
+wardrobe ..> rec : legacy sync HTTP
+files --> fdb
+files --> s3 : HTTPS
+rec --> ai : HTTPS · вне транзакции
+oauth --> rec : только access token
+infra -[hidden]-> account
+@enduml
