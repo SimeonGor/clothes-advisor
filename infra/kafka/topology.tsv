@@ -1,0 +1,9 @@
+# topic producer consumer group
+stylist-access.events account-service notification-service notification-service.events
+stylist-requests.events wardrobe-service notification-service notification-service.events
+stylist-outfits.events wardrobe-service notification-service notification-service.events
+outfit-ratings.events wardrobe-service notification-service notification-service.events
+ai-jobs.events wardrobe-service notification-service notification-service.events
+ai-jobs.events wardrobe-service recommendation-service recommendation-service.ai-jobs
+ai-selection.requests wardrobe-service recommendation-service recommendation-service.ai-selection
+ai-selection.execution-events recommendation-service wardrobe-service wardrobe-service.ai-selection

@@ -1,0 +1,103 @@
+x-kafka: &kafka
+  image: apache/kafka:4.1.2@sha256:5cc2a2fd93fa2687b44015eee04fb2c3edd9e526bd64bf8bec5ff1e268772e0e
+  user: "1000:1000"
+  security_opt:
+    - no-new-privileges:true
+  networks:
+    - kafka
+  environment:
+    KAFKA_HEAP_OPTS: -Xms256m -Xmx512m
+  stop_grace_period: 60s
+
+x-code: &code
+  type: bind
+  source: .
+  target: /opt/kafka-local
+  read_only: true
+  bind:
+    create_host_path: false
+
+x-health: &health
+  test:
+    - CMD-SHELL
+    - KAFKA_HEAP_OPTS='-Xms64m -Xmx256m' /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server "$${HOSTNAME}:9094" --command-config /run/kafka-node/client.properties >/dev/null 2>&1
+  interval: 30s
+  timeout: 30s
+  start_period: 90s
+  retries: 12
+
+services:
+  kafka-1:
+    <<: *kafka
+    hostname: kafka-1
+    entrypoint: ["bash", "/opt/kafka-local/start.sh", "/run/kafka-node", "/var/lib/kafka/data", "1"]
+    volumes:
+      - *code
+      - type: bind
+        source: ${KAFKA_SECRETS_DIR:?Set KAFKA_SECRETS_DIR to the prepared absolute directory}/kafka-1
+        target: /run/kafka-node
+        read_only: true
+        bind:
+          create_host_path: false
+      - kafka-1-data:/var/lib/kafka/data
+    healthcheck: *health
+
+  kafka-2:
+    <<: *kafka
+    hostname: kafka-2
+    entrypoint: ["bash", "/opt/kafka-local/start.sh", "/run/kafka-node", "/var/lib/kafka/data", "2"]
+    volumes:
+      - *code
+      - type: bind
+        source: ${KAFKA_SECRETS_DIR:?Set KAFKA_SECRETS_DIR to the prepared absolute directory}/kafka-2
+        target: /run/kafka-node
+        read_only: true
+        bind:
+          create_host_path: false
+      - kafka-2-data:/var/lib/kafka/data
+    healthcheck: *health
+
+  kafka-3:
+    <<: *kafka
+    hostname: kafka-3
+    entrypoint: ["bash", "/opt/kafka-local/start.sh", "/run/kafka-node", "/var/lib/kafka/data", "3"]
+    volumes:
+      - *code
+      - type: bind
+        source: ${KAFKA_SECRETS_DIR:?Set KAFKA_SECRETS_DIR to the prepared absolute directory}/kafka-3
+        target: /run/kafka-node
+        read_only: true
+        bind:
+          create_host_path: false
+      - kafka-3-data:/var/lib/kafka/data
+    healthcheck: *health
+
+  kafka-provision:
+    <<: *kafka
+    environment:
+      KAFKA_HEAP_OPTS: -Xms64m -Xmx256m
+    entrypoint: ["bash", "/opt/kafka-local/provision.sh"]
+    depends_on:
+      kafka-1:
+        condition: service_healthy
+      kafka-2:
+        condition: service_healthy
+      kafka-3:
+        condition: service_healthy
+    volumes:
+      - *code
+      - type: bind
+        source: ${KAFKA_SECRETS_DIR:?Set KAFKA_SECRETS_DIR to the prepared absolute directory}/bootstrap-admin
+        target: /run/kafka-admin
+        read_only: true
+        bind:
+          create_host_path: false
+
+networks:
+  kafka:
+    internal: true
+
+volumes:
+  kafka-1-data:
+  kafka-2-data:
+  kafka-3-data:
