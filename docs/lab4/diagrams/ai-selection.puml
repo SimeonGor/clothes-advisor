@@ -24,7 +24,7 @@ group Локальная транзакция wardrobe
 end
 w --> gw : 202 + Location задания
 gw --> user : 202
-w -> k : Relay: RecommendationRequested
+w -> k : ai-selection.requests\nRecommendationRequested
 k -> r : requestMonth / requestId / input
 r -> rd : INSERT нового input\nДубли здесь не исполняются повторно
 r --> k : ack после commit
@@ -42,7 +42,7 @@ alt Подтверждённый исход
 else Исход неизвестен
   r -> rd : UNKNOWN + PAUSED slot + outbox
 end
-r -> k : RecommendationFinished
+r -> k : ai-selection.execution-events\nRecommendationFinished
 k -> w : Исход с прежним месяцем и ID
 w -> w : Для успеха: актуальные права
 group Локальная транзакция wardrobe
@@ -50,7 +50,7 @@ group Локальная транзакция wardrobe
   w -> wd : Ресурс при успехе + конечный job + outbox
 end
 w --> k : ack после commit
-w -> k : AiJobFinalized
+w -> k : ai-jobs.events\nAiJobFinalized
 k -> r : Подтверждение применения
 r -> rd : applied_at
 k -> n : Конечное состояние задания

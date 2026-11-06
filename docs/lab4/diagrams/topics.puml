@@ -1,0 +1,46 @@
+@startuml topics
+!pragma layout smetana
+left to right direction
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName SansSerif
+skinparam defaultFontSize 14
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam nodesep 30
+skinparam ranksep 55
+skinparam ArrowColor #52677F
+
+component "account-service\nПубликация" as account #E9F5EF
+component "wardrobe-service\nПубликация" as wardrobe #E9F5EF
+component "recommendation-service\nПубликация" as recommendation #F2EDFB
+
+rectangle "Kafka · 3 брокера · RF=3 / minISR=2" {
+  queue "stylist-access.events\nВыдача / отзыв доступа" as access #FFF5DF
+  queue "stylist-requests.events\nЗапрос / отмена / ответ стилиста" as requests #FFF5DF
+  queue "stylist-outfits.events\nСамостоятельный образ стилиста" as outfits #FFF5DF
+  queue "outfit-ratings.events\nИзменение / отмена оценки" as ratings #FFF5DF
+  queue "ai-jobs.events\nЗавершение задания в wardrobe" as jobs #FFF5DF
+  queue "ai-selection.requests\nВход для подбора вещей" as selection #FFF5DF
+  queue "ai-selection.execution-events\nНачало / исход выполнения AI" as execution #FFF5DF
+}
+
+component "notification-service\nЧтение" as notifications #E9F5EF
+component "recommendation-service\nЧтение" as worker #F2EDFB
+component "wardrobe-service\nЧтение" as result #E9F5EF
+
+account --> access
+wardrobe --> requests
+wardrobe --> outfits
+wardrobe --> ratings
+wardrobe --> jobs
+wardrobe --> selection
+recommendation --> execution
+access --> notifications
+requests --> notifications
+outfits --> notifications
+ratings --> notifications
+jobs --> notifications
+jobs --> worker
+selection --> worker
+execution --> result
+@enduml

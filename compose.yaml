@@ -1,3 +1,6 @@
+include:
+  - infra/kafka/compose.yaml
+
 x-runtime-security: &runtime-security
   security_opt:
     - no-new-privileges:true

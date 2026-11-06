@@ -16,7 +16,7 @@ rectangle "Внутренняя сеть Compose" {
   component "account-service\nПрава / JWT / сессии" as account #E9F5EF
   component "wardrobe-service\nГардероб / образы / задания" as wardrobe #E9F5EF
   component "notification-service\nУведомления" as notify #E9F5EF
-  queue "Kafka · 3 брокера\n4 топика · replication=3" as kafka #FFF5DF
+  queue "Kafka · 3 брокера\n7 топиков · replication=3" as kafka #FFF5DF
   component "recommendation-service\nОчередь / worker / AI-выбор" as rec #F2EDFB
   component "file-service\nФайлы / metadata" as files #E9F5EF
   database "account_db" as adb
@@ -38,8 +38,8 @@ wardrobe --> account : права
 account --> adb
 wardrobe --> wdb
 notify --> ndb
-account --> kafka : account.events
-wardrobe <--> kafka : команды / результаты\nwardrobe.events
+account --> kafka : stylist-access.events
+wardrobe <--> kafka : события гардероба / заданий\nзапросы / выполнение AI
 kafka --> notify : события
 kafka <--> rec : команды / результаты\nподтверждения
 rec --> rdb

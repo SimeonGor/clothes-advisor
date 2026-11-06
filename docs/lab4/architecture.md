@@ -29,7 +29,7 @@
 
 ## Взаимодействия
 
-Kafka используется для AI-команд, состояний и результатов, подтверждений применения и уведомлений. Три брокера KRaft, репликация 3, `min.insync.replicas=2`, producer `acks=all`. Это стенд на одном хосте: отказ хоста остаётся общим отказом.
+Kafka используется для AI-команд, состояний и результатов, подтверждений применения и уведомлений. Семь предметных топиков: `stylist-access.events`, `stylist-requests.events`, `stylist-outfits.events`, `outfit-ratings.events`, `ai-jobs.events`, `ai-selection.requests`, `ai-selection.execution-events`. Три брокера KRaft, репликация 3, `min.insync.replicas=2`, producer `acks=all`. Это стенд на одном хосте: отказ хоста остаётся общим отказом.
 
 HTTP остаётся для чтения данных, проверки прав, файлов и совместимости старых AI-клиентов. Ни один сервис не читает чужую БД. Подтверждение Kafka следует локальному commit; outbox допускает повторную доставку с тем же event ID.
 
