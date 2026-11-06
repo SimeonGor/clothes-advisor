@@ -20,7 +20,6 @@ import org.mockito.Mockito.verify
 import org.mockito.Mockito.verifyNoInteractions
 import org.mockito.Mockito.verifyNoMoreInteractions
 import org.mockito.Mockito.`when`
-import org.springframework.http.HttpStatus
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.SimpleTransactionStatus
 import ru.itmo.clothesadvisor.dto.user.CurrentUser
@@ -30,6 +29,8 @@ import ru.itmo.clothesadvisor.model.EntityNotFoundException
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeCategory
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItem
+import ru.itmo.clothesadvisor.model.wardrobe.PhotoRequestException
+import ru.itmo.clothesadvisor.model.wardrobe.PhotoRequestFailure
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemPhotoRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.service.user.CurrentUserService
@@ -137,7 +138,7 @@ class WardrobeItemPhotoServiceTests {
 
         // then
         assertThat(failure).isInstanceOfSatisfying(PhotoRequestException::class.java) {
-            assertThat(it.status).isEqualTo(HttpStatus.CONFLICT)
+            assertThat(it.failure).isEqualTo(PhotoRequestFailure.CAPACITY_EXCEEDED)
         }
         verifyNoInteractions(storage)
         verify(items, never()).lockOwned(11, 7)

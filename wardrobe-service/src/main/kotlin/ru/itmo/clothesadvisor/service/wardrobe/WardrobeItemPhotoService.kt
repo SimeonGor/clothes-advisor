@@ -1,6 +1,5 @@
 package ru.itmo.clothesadvisor.service.wardrobe
 
-import org.springframework.http.HttpStatus
 import org.springframework.stereotype.Service
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionTemplate
@@ -9,6 +8,8 @@ import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemPhotoResponse
 import ru.itmo.clothesadvisor.model.EntityNotFoundException
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItem
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItemPhoto
+import ru.itmo.clothesadvisor.model.wardrobe.PhotoRequestException
+import ru.itmo.clothesadvisor.model.wardrobe.PhotoRequestFailure
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemPhotoRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.service.user.CurrentUserService
@@ -91,7 +92,7 @@ internal class WardrobeItemPhotoService(
 
     private fun checkPhotoCapacity(existingCount: Long, additionalCount: Int) {
         if (existingCount + additionalCount > MAX_ITEM_PHOTOS) {
-            throw PhotoRequestException(HttpStatus.CONFLICT)
+            throw PhotoRequestException(PhotoRequestFailure.CAPACITY_EXCEEDED)
         }
     }
 

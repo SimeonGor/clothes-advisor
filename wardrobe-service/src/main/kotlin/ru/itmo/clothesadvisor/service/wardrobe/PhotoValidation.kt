@@ -4,7 +4,8 @@ import java.io.IOException
 import java.util.UUID
 import javax.imageio.ImageIO
 import javax.imageio.stream.MemoryCacheImageInputStream
-import org.springframework.http.HttpStatus
+import ru.itmo.clothesadvisor.model.wardrobe.PhotoRequestException
+import ru.itmo.clothesadvisor.model.wardrobe.PhotoRequestFailure
 
 internal const val MAX_PHOTO_BYTES = 10_000_000
 internal const val MAX_ITEM_PHOTOS = 5
@@ -13,21 +14,21 @@ internal data class ValidatedPhoto(val s3Key: String, val contentType: String, v
 
 internal fun validatePhotos(files: List<ByteArray>, allowEmpty: Boolean): List<ValidatedPhoto> {
     if (files.size > MAX_ITEM_PHOTOS || (!allowEmpty && files.isEmpty())) {
-        throw PhotoRequestException(HttpStatus.BAD_REQUEST)
+        throw PhotoRequestException(PhotoRequestFailure.INVALID_REQUEST)
     }
     return files.map { bytes ->
         if (bytes.size > MAX_PHOTO_BYTES) {
-            throw PhotoRequestException(HttpStatus.PAYLOAD_TOO_LARGE)
+            throw PhotoRequestException(PhotoRequestFailure.FILE_TOO_LARGE)
         }
         try {
             if (bytes.isEmpty()) {
-                throw PhotoRequestException(HttpStatus.BAD_REQUEST)
+                throw PhotoRequestException(PhotoRequestFailure.INVALID_REQUEST)
             }
             val contentType =
                 MemoryCacheImageInputStream(bytes.inputStream()).use { input ->
                     val readers = ImageIO.getImageReaders(input)
                     if (!readers.hasNext()) {
-                        throw PhotoRequestException(HttpStatus.BAD_REQUEST)
+                        throw PhotoRequestException(PhotoRequestFailure.INVALID_REQUEST)
                     }
                     val reader = readers.next()
                     try {
@@ -37,11 +38,11 @@ internal fun validatePhotos(files: List<ByteArray>, allowEmpty: Boolean): List<V
                                 "jpg" -> "image/jpeg"
                                 "png" -> "image/png"
                                 else ->
-                                    throw PhotoRequestException(HttpStatus.UNSUPPORTED_MEDIA_TYPE)
+                                    throw PhotoRequestException(PhotoRequestFailure.UNSUPPORTED_FORMAT)
                             }
                         reader.input = input
                         if (reader.getWidth(0) <= 0 || reader.getHeight(0) <= 0) {
-                            throw PhotoRequestException(HttpStatus.BAD_REQUEST)
+                            throw PhotoRequestException(PhotoRequestFailure.INVALID_REQUEST)
                         }
                         type
                     } finally {
@@ -50,9 +51,7 @@ internal fun validatePhotos(files: List<ByteArray>, allowEmpty: Boolean): List<V
                 }
             ValidatedPhoto(UUID.randomUUID().toString(), contentType, bytes)
         } catch (_: IOException) {
-            throw PhotoRequestException(HttpStatus.BAD_REQUEST)
+            throw PhotoRequestException(PhotoRequestFailure.INVALID_REQUEST)
         }
     }
 }
-
-internal class PhotoRequestException(val status: HttpStatus) : RuntimeException()
