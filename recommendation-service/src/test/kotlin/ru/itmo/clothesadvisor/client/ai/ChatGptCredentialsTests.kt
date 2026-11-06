@@ -12,6 +12,8 @@ import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.catchThrowable
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.AiSelectionException
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.AiSelectionFailure
 import tools.jackson.databind.json.JsonMapper
 
 internal class ChatGptCredentialFixture(path: Path) {
@@ -228,7 +230,7 @@ class ChatGptCredentialsTests {
 
     private fun assertUnavailable(failure: Throwable?) {
         assertThat(failure).isInstanceOfSatisfying(AiSelectionException::class.java) {
-            assertThat(it.status).isEqualTo(503)
+            assertThat(it.failure).isEqualTo(AiSelectionFailure.UNAVAILABLE)
             assertThat(it.message).isNull()
             assertThat(it.cause).isNull()
         }

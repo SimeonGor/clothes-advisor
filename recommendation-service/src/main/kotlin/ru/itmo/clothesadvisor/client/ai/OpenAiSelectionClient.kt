@@ -19,6 +19,10 @@ import ru.itmo.clothesadvisor.config.SelectionPromptSettings
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionRequest
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionResponse
 import ru.itmo.clothesadvisor.dto.ai.SelectionImage
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.AiSelectionException
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.AiSelectionFailure
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.SelectionGoal
+import ru.itmo.clothesadvisor.recommendationservice.service.ItemSelectionProvider
 import org.springframework.core.io.buffer.DataBufferUtils
 import org.springframework.core.io.buffer.DefaultDataBufferFactory
 import reactor.adapter.JdkFlowAdapter
@@ -26,23 +30,6 @@ import reactor.core.publisher.Flux
 import tools.jackson.core.JacksonException
 import tools.jackson.databind.DeserializationFeature
 import tools.jackson.databind.json.JsonMapper
-
-enum class AiSelectionFailure(val status: Int) {
-    INVALID_REQUEST(400),
-    NO_SELECTION(422),
-    NO_OUTFIT(422),
-    NO_CAPSULE(422),
-    INVALID_RESPONSE(502),
-    UNAVAILABLE(503),
-    TIMEOUT(504),
-}
-
-class AiSelectionException(val failure: AiSelectionFailure) : RuntimeException() {
-    val status: Int
-        get() = failure.status
-}
-
-enum class SelectionGoal { OUTFIT, CAPSULE }
 
 class OpenAiSelectionClient internal constructor(
     private val http: HttpClient?,
@@ -53,8 +40,8 @@ class OpenAiSelectionClient internal constructor(
     private val timeout: Duration,
     private val outfitPromptSettings: SelectionPromptSettings,
     private val capsulePromptSettings: SelectionPromptSettings,
-) : AutoCloseable {
-    fun select(goal: SelectionGoal, selection: ItemSelectionRequest): ItemSelectionResponse {
+) : AutoCloseable, ItemSelectionProvider {
+    override fun select(goal: SelectionGoal, selection: ItemSelectionRequest): ItemSelectionResponse {
         val promptSettings = when (goal) {
             SelectionGoal.OUTFIT -> outfitPromptSettings
             SelectionGoal.CAPSULE -> capsulePromptSettings

@@ -12,19 +12,19 @@ import org.mockito.Mockito.doThrow
 import org.mockito.Mockito.verify
 import org.mockito.Mockito.verifyNoInteractions
 import org.mockito.Mockito.`when`
-import ru.itmo.clothesadvisor.client.ai.AiSelectionException
-import ru.itmo.clothesadvisor.client.ai.AiSelectionFailure
-import ru.itmo.clothesadvisor.client.ai.OpenAiSelectionClient
-import ru.itmo.clothesadvisor.client.ai.SelectionGoal
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.AiSelectionException
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.AiSelectionFailure
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.SelectionGoal
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionCandidate
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionRequest
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionResponse
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionStylePreferences
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionWeather
+import ru.itmo.clothesadvisor.recommendationservice.service.ItemSelectionProvider
 import ru.itmo.clothesadvisor.recommendationservice.service.ItemSelectionService
 
 class ItemSelectionServiceTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhotoFixture() {
-    private val provider = mock(OpenAiSelectionClient::class.java)
+    private val provider = mock(ItemSelectionProvider::class.java)
     private val service = ItemSelectionService(provider)
     private val candidate =
         ItemSelectionCandidate(7, "Shirt", "TOP", "Top", "White", "Cotton", "image/png", image())

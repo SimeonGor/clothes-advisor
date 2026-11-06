@@ -15,15 +15,16 @@ import org.springframework.core.io.buffer.DataBufferUtils
 import org.springframework.core.io.buffer.DefaultDataBufferFactory
 import reactor.core.publisher.BaseSubscriber
 import reactor.core.publisher.Flux
-import ru.itmo.clothesadvisor.client.ai.AiSelectionException
-import ru.itmo.clothesadvisor.client.ai.AiSelectionFailure
-import ru.itmo.clothesadvisor.client.ai.OpenAiSelectionClient
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.AiSelectionException
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.AiSelectionFailure
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.SelectionGoal
 import ru.itmo.clothesadvisor.recommendationservice.controller.ItemSelectionController
+import ru.itmo.clothesadvisor.recommendationservice.service.ItemSelectionProvider
 import ru.itmo.clothesadvisor.recommendationservice.service.ItemSelectionService
 import tools.jackson.databind.json.JsonMapper
 
 class SelectionStreamingTests {
-    private val provider = Mockito.mock(OpenAiSelectionClient::class.java)
+    private val provider = Mockito.mock(ItemSelectionProvider::class.java)
     private val controller = ItemSelectionController(ItemSelectionService(provider))
     private val mapper = JsonMapper.builder().build()
     private fun candidate(image: String = "AQID", id: Int = 7) =
@@ -66,8 +67,7 @@ class SelectionStreamingTests {
                 .isEqualTo("AQID".toByteArray())
             throw AiSelectionException(AiSelectionFailure.TIMEOUT)
         }.`when`(provider).select(
-            Mockito.eq(ru.itmo.clothesadvisor.client.ai.SelectionGoal.OUTFIT)
-                ?: ru.itmo.clothesadvisor.client.ai.SelectionGoal.OUTFIT,
+            Mockito.eq(SelectionGoal.OUTFIT) ?: SelectionGoal.OUTFIT,
             Mockito.any(ItemSelectionRequest::class.java)
                 ?: ItemSelectionRequest(ItemSelectionWeather(java.math.BigDecimal.ZERO, java.math.BigDecimal.ZERO, "", ""), emptyList()),
         )
