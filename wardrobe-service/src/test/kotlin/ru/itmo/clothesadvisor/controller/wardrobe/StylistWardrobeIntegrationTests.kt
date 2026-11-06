@@ -359,7 +359,7 @@ class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
         change(stylist, UserRole.STYLIST, UserStatus.BLOCKED)
 
         for ((actorId, status) in listOf(
-            null to 400, "invalid" to 400, blockedActorId to 403, stylistActorId to 403,
+            null to 401, "invalid" to 401, blockedActorId to 403, stylistActorId to 403,
             ownerActorId to 404, adminActorId to 404,
         )) {
             readPaths(owner.id, item, photo).forEach { path ->
@@ -665,7 +665,7 @@ class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
                         ?: HttpRequest.BodyPublishers.noBody(),
                 )
         if (body != null) request.header("Content-Type", contentType)
-        if (actorId != null) request.header("X-User-Id", "$actorId")
+        if (actorId != null) request.header("Authorization", bearer(actorId))
         return client.send(request.build(), HttpResponse.BodyHandlers.ofByteArray())
     }
 

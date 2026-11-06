@@ -4,7 +4,7 @@ REST-сервис для подбора одежды из личного гар�
 
 - **USER** загружает вещи и фотографии, составляет образы вручную или через AI.
 - **STYLIST** с разрешения владельца просматривает гардероб, создаёт образы и оценивает чужие.
-- **ADMIN** управляет ролями и блокировками, просматривает и удаляет фотографии и образы.
+- **ADMIN** создаёт аккаунты, задаёт пароли, управляет ролями и блокировками, модерирует фотографии и образы.
 
 Стек: Kotlin, Spring Boot, PostgreSQL, Spring Data JDBC/R2DBC, Flyway, Yandex Object Storage и OpenAI. В ЛР2 API гардероба находится в `wardrobe-service`, AI-подбор — в `recommendation-service`, пользователи, их история и разрешения стилистам — в `account-service` с R2DBC и отдельной БД. Gateway направляет запросы аккаунтов в account; wardrobe проверяет пользователей и разрешения через AccountClient. Пакеты разделены по техническим слоям, внутри — по предметным областям.
 
@@ -12,9 +12,9 @@ REST-сервис для подбора одежды из личного гар�
 
 Wardrobe автоматически проверяет клиентские настройки каждые 30 секунд: таймауты account/recommendation, лимит ответа account и параметры Circuit Breaker меняются без перезапуска. Recommendation так же обновляет промпт подбора. Неверная конфигурация не заменяет рабочую; изменение политики breaker сбрасывает только его состояние и статистику. Остальные настройки применяются при перезапуске. Подробности — в [архитектуре](docs/lab2/architecture.md).
 
-Сначала запускается Config Server, затем Eureka. Бизнес-сервисы регистрируются под своими именами. Интерфейс Eureka доступен локально: http://localhost:8761.
+Сначала запускается Config Server, затем Eureka. Бизнес-сервисы регистрируются под своими именами. При первом запуске Gateway может кратковременно возвращать 503, пока обновляется реестр Eureka; healthcheck не проверяет готовность всех маршрутов. Интерфейс Eureka доступен локально: http://localhost:8761.
 
-В этой версии нет входа и контроля доступа к API. Действующий пользователь задаётся заголовком `X-User-Id`; это не аутентификация. Приложение предназначено только для доверенного локального окружения. Проверки владельца, разрешений стилиста и другие бизнес-правила сохраняются.
+В ЛР3 добавлены Spring Security и вход по логину и паролю. API использует JWT, а текущие роли и блокировки проверяются через account. Access token действует 15 минут; refresh-сессия — 7 дней с момента входа. Создавать аккаунты может только ADMIN. [Решения и ограничения авторизации](docs/lab3/theory.md).
 
 ## Быстрый запуск
 
@@ -33,8 +33,27 @@ cp .env.example .env
 - `DB_PASSWORD` — пароль PostgreSQL гардероба.
 - `ACCOUNT_DB_PASSWORD` — отдельный пароль PostgreSQL аккаунтов. Оба значения из примера подходят только для локального запуска.
 - `APP_UID` — результат `id -u`; `CHATGPT_CREDENTIALS_DIR` и `OPENAI_MODEL` — настройки [подключения ChatGPT](#ai-подбор).
+- `APP_JWT_PRIVATE_KEY_FILE` и `APP_JWT_PUBLIC_KEY_FILE` — абсолютные пути к ключам JWT, созданным ниже.
+- `APP_BOOTSTRAP_ADMIN_LOGIN` и `APP_BOOTSTRAP_ADMIN_PASSWORD` — первый администратор; пароль от 12 до 128 символов. Значения с `$` в `.env` заключайте в одинарные кавычки. Действующий пароль при повторном запуске не перезаписывается; после настройки эти две переменные можно убрать.
+- `AUTH_REFRESH_COOKIE_SECURE=false` — только для локального HTTP на `127.0.0.1`; при HTTPS установите `true`.
 
-Профиль `local` уже включён в примере. Он создаёт аккаунты `user`, `stylist`, `admin`; повторный запуск не меняет существующие аккаунты. Регистрации через API нет.
+Создайте ключи один раз вне репозитория. Повторно выполнять генерацию при обновлении приложения не нужно:
+
+```shell
+mkdir -p "$HOME/.config/clothes-advisor"
+chmod 700 "$HOME/.config/clothes-advisor"
+test ! -e "$HOME/.config/clothes-advisor/jwt-private.pem" && \
+openssl genpkey -algorithm RSA -pkeyopt rsa_keygen_bits:3072 \
+  -out "$HOME/.config/clothes-advisor/jwt-private.pem"
+openssl pkey -in "$HOME/.config/clothes-advisor/jwt-private.pem" -pubout \
+  -out "$HOME/.config/clothes-advisor/jwt-public.pem"
+chmod 600 "$HOME/.config/clothes-advisor/jwt-private.pem"
+chmod 644 "$HOME/.config/clothes-advisor/jwt-public.pem"
+```
+
+Закрытый ключ монтируется только в account, открытый — также в wardrobe и Gateway. В образах ключей нет. Пользователь `APP_UID` должен иметь право читать закрытый ключ.
+
+Профиль `local` создаёт демонстрационные аккаунты `user`, `stylist`, `admin` без рабочих паролей. Bootstrap задаст пароль `admin`, если это выбранный первоначальный ADMIN; пароли остальных назначаются из интерфейса администратора. Регистрации нет, общего тестового пароля нет.
 
 Account запускается с отдельным PostgreSQL и томом `account-postgres-data`; его HTTP и БД доступны только внутри Compose. Профиль `local` создаёт демонстрационные аккаунты только в account до готовности сервиса; Gateway ждёт его healthcheck.
 
@@ -46,7 +65,7 @@ docker compose up --build -d
 
 После старта Gateway проверьте `curl http://127.0.0.1:8080/actuator/health`: ожидаемый ответ — `{"status":"UP"}`. Регистрация в Eureka распространяется асинхронно; первые API-запросы могут вернуть 503 до обновления реестра. На хост публикуются только Gateway (`APP_PORT`, по умолчанию 8080) и Eureka (8761), оба на `127.0.0.1`. Базы данных и остальные приложения не публикуют порты. Для SQL-консоли используйте `docker compose exec postgres psql -U clothes_advisor -d clothes_advisor` (при стандартных DB_USER/DB_NAME). Ссылки ниже рассчитаны на порт 8080.
 
-Внутренняя сеть `backend` связывает приложения; у каждой БД своя изолированная сеть. `edge` используется Gateway/Eureka, `egress` даёт wardrobe/recommendation выход к S3/IAM/OpenAI. В Eureka публикуются DNS-имена Compose, а не случайно выбранный IP одного из интерфейсов. Внутренние account/recommendation API не имеют маршрутов Gateway. Сетевые границы не защищают от администратора Docker и не заменяют аутентификацию: `X-User-Id` пока предназначен только для локальной демонстрации.
+Внутренняя сеть `backend` связывает приложения; у каждой БД своя изолированная сеть. `edge` используется Gateway/Eureka, `egress` даёт wardrobe/recommendation выход к S3/IAM/OpenAI. В Eureka публикуются DNS-имена Compose. Внутренние account/recommendation API не имеют маршрутов Gateway; эта сетевая граница не защищает от компрометации доверенного контейнера. Публичные API проверяют JWT; `X-User-Id` игнорируется.
 
 Остановка — `docker compose down`. Данные PostgreSQL сохраняются в именованном томе. `.env` с паролями и ключами не коммитится.
 
@@ -58,7 +77,7 @@ docker compose up --build -d
 
 ## Веб-интерфейс
 
-Откройте [Clothes Advisor](http://127.0.0.1:8080/) и выберите тестового пользователя. В интерфейсе доступны гардероб с фотографиями, образы и история оценок. Владелец выдаёт доступ стилистам и запускает AI-подбор; стилист работает с клиентами, создаёт образы, ставит и отменяет оценки; администратор меняет роли и статусы, просматривает и удаляет фотографии и образы пользователей.
+Откройте [Clothes Advisor](http://127.0.0.1:8080/) и войдите с логином и паролем. В интерфейсе доступны гардероб с фотографиями, образы и история оценок. Владелец выдаёт доступ стилистам и запускает AI-подбор; стилист работает с клиентами, создаёт образы, ставит и отменяет оценки; администратор меняет роли и статусы, просматривает и удаляет фотографии и образы пользователей.
 
 React-приложение находится в `frontend/src`. Node.js и Vite нужны только при сборке; готовые файлы обслуживает отдельный контейнер Caddy. Адреса `/` и `/index.html` перенаправляют на `/app/`. Для независимой пересборки: `docker compose up -d --build --no-deps frontend`.
 
@@ -69,34 +88,28 @@ docker build -t clothes-advisor-frontend ./frontend
 docker run --rm -p 127.0.0.1:8082:8080 clothes-advisor-frontend
 ```
 
-Выбор пользователя хранится только в памяти вкладки; при переключении прежние данные очищаются. AI-подбор доступен аккаунту `user` при настроенном подключении ChatGPT.
+Войдите с паролем. ADMIN может создавать пользователей и назначать новые пароли в разделе «Аккаунты». Access token хранится в памяти вкладки, refresh — в HttpOnly-cookie. Перезагрузка восстанавливает вход; подтверждённый выход очищает данные страницы. AI-подбор доступен роли USER при настроенном подключении ChatGPT.
 
 ## API
 
-Сначала получите ID тестового пользователя:
+Вызовите `POST /api/auth/login` с JSON-полями `login` и `password` и заголовком `X-Auth-Request: 1`. Полученный `accessToken` передавайте в Authorization. Для примера ниже нужен токен USER:
 
 ```shell
-curl http://127.0.0.1:8080/api/admin/users
-```
-
-Затем передавайте его в запросах, где нужен действующий пользователь:
-
-```shell
-curl http://127.0.0.1:8080/api/wardrobe/items -H 'X-User-Id: 1'
+curl http://127.0.0.1:8080/api/wardrobe/items -H "Authorization: Bearer $ACCESS_TOKEN"
 curl http://127.0.0.1:8080/api/wardrobe/items \
-  -H 'X-User-Id: 1' -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $ACCESS_TOKEN" -H 'Content-Type: application/json' \
   -d '{"name":"Рубашка","categoryId":1,"color":"Белый","material":"Хлопок"}'
 ```
 
-Замените `1` фактическим ID из списка. Общий [Swagger UI](http://127.0.0.1:8080/swagger-ui/index.html) на Gateway предлагает две спецификации: **Account** — аккаунты и разрешения, **Wardrobe** — гардероб, фотографии и образы (выбрана по умолчанию). JSON доступен отдельно для [Account](http://127.0.0.1:8080/v3/api-docs/account) и [Wardrobe](http://127.0.0.1:8080/v3/api-docs/wardrobe).
+Общий [Swagger UI](http://127.0.0.1:8080/swagger-ui/index.html) предлагает спецификации **Account** и **Wardrobe**. Выполните вход в Account, затем вставьте access token в **Authorize** выбранной спецификации. JSON доступен отдельно для [Account](http://127.0.0.1:8080/v3/api-docs/account) и [Wardrobe](http://127.0.0.1:8080/v3/api-docs/wardrobe).
 
 OpenAPI и Swagger UI выключены по умолчанию в Account, Wardrobe и Gateway. Для включения задайте `SPRING_PROFILES_ACTIVE=local` в `.env` и выполните `docker compose up -d`: Compose передаст профиль всем трём сервисам. При запуске через `bootRun` задайте эту переменную каждому из них. Запросы из UI идут через текущий адрес Gateway, включая выбранный порт.
 
-Маршруты и бизнес-правила описаны в [требованиях](docs/requirements.md). Заголовок `X-User-Id` показывается в Swagger только для методов, которым нужен действующий пользователь; глобальной схемы Bearer нет.
+`POST /api/auth/refresh` обновляет токен по cookie; `POST /api/auth/logout` отзывает сессию. Оба требуют `X-Auth-Request: 1`. После выхода или смены пароля уже выданный access token действует до истечения срока; блокировка пользователя запрещает следующие бизнес-запросы сразу.
 
 ## AI-подбор
 
-Локальная интеграция использует личную подписку ChatGPT и доступна аккаунту `user`. API-ключ и автоматический переход на платный API не используются. В настройках ChatGPT Usage отключите дополнительные кредиты для подключения.
+Локальная интеграция использует личную подписку ChatGPT и доступна роли USER. API-ключ и автоматический переход на платный API не используются. В настройках ChatGPT Usage отключите дополнительные кредиты для подключения.
 
 Промпт находится в `config-repository/recommendation-service/recommendation-service.yml`: `app.openai.prompt.text` — текст, `version` — положительное целое число. При правке меняйте оба поля и сохраняйте файл целиком. Recommendation подхватит изменения автоматически при очередном опросе, по умолчанию через 30 секунд; перезапуск и пересборка не нужны. Уже начатый подбор использует прежний снимок. Невалидная правка сохраняет последний рабочий промпт; если его ещё нет, AI возвращает `503`. Параметр `app.openai.prompt.poll-interval` меняется только при запуске.
 
@@ -144,9 +157,11 @@ Dockerfile каждого сервиса копирует только wrapper, 
 
 Account также подключается к Config/Eureka и нужен wardrobe для запросов с пользователем: `APP_PORT=8084 ./gradlew :account-service:bootRun`. Ему нужна отдельная БД `account_db`: `DB_R2DBC_URL` — R2DBC-адрес, `DB_URL` — JDBC-адрес той же БД для Flyway, `DB_USER` и `DB_PASSWORD` — её учётные данные. При отдельном запуске account передайте в `DB_PASSWORD` значение `ACCOUNT_DB_PASSWORD`; Compose делает это автоматически. Не направляйте его на рабочую БД wardrobe.
 
-Тесты находятся в трёх бизнес-сервисах и `chatgpt-token-refresher`. Unit-тесты используют Mockito без Spring и БД. Интеграционные тесты работают с PostgreSQL Testcontainers, готовят и проверяют данные через JDBC, очищают их после теста. HTTP-клиенты проверяются на локальных заглушках; секреты из `.env` и реальные вызовы S3/OpenAI не нужны. Gateway, Eureka и Config Server проверяются запуском и HTTP-запросами к собранным приложениям.
+При запуске JVM на хосте вместо Compose mounts задайте `JWT_PUBLIC_KEY_LOCATION=file:/абсолютный/путь/jwt-public.pem` для account, wardrobe и Gateway; `JWT_PRIVATE_KEY_LOCATION=file:/абсолютный/путь/jwt-private.pem` — только для account. Для account также нужны настройки первоначального ADMIN и `AUTH_REFRESH_COOKIE_SECURE=false`, если используется локальный HTTP.
 
-В модулях с JVM-тестами подключён JaCoCo. После `test` автоматически создаются отчёты: HTML — `<module>/build/reports/jacoco/test/html/index.html`, XML — `<module>/build/reports/jacoco/test/jacocoTestReport.xml`. Команда `./gradlew jacocoTestReport` запускает тесты и строит отчёты всех четырёх модулей. Обязательного порога покрытия нет.
+Тесты бизнес-сервисов используют Mockito и PostgreSQL Testcontainers; подготовка и проверка данных выполняется через JDBC. Gateway имеет отдельные HTTP-тесты безопасности. HTTP-клиенты проверяются на локальных заглушках; секреты из `.env` и реальные вызовы S3/OpenAI не нужны. Frontend проверяется командой `npm test` в каталоге `frontend`.
+
+В account, wardrobe, recommendation и chatgpt-token-refresher подключён JaCoCo. После `test` автоматически создаются отчёты: HTML — `<module>/build/reports/jacoco/test/html/index.html`, XML — `<module>/build/reports/jacoco/test/jacocoTestReport.xml`. Команда `./gradlew jacocoTestReport` запускает тесты и строит отчёты этих четырёх модулей. Обязательного порога покрытия нет.
 
 Отдельный `:wardrobe-service:transportTest` создаёт отчёт `jacocoTransportTestReport` по wardrobe и recommendation. Он не запускается вместе с обычными `test` или `check`.
 
@@ -164,10 +179,11 @@ export TESTCONTAINERS_HOST_OVERRIDE=127.0.0.1
 - Образы неизменяемы. Вещь из сохранённого образа удалить нельзя.
 - Удаление фотографии убирает запись БД, но не файл S3. Автоочистки нет; при сбое загрузки могут остаться файлы без метаданных.
 - При AI-подборе фотографии передаются OpenAI. Бакет остаётся приватным.
-- Публикация в интернет не входит в ЛР1–ЛР2: прежде нужно вернуть аутентификацию и контроль доступа, настроить HTTPS и отдельно согласовать использование подключения ChatGPT.
+- Для публикации в интернет нужны HTTPS, ограничение частоты входа и отдельное согласование использования подключения ChatGPT. Basic Auth перед теми же API конфликтует с Bearer в Authorization. ЛР3 не обновляет удалённый стенд автоматически.
 
 ## Документация
 
+- [План и состояние ЛР3](docs/lab3/implementation.md) · [Авторизация: решения и теория](docs/lab3/theory.md)
 - [Архитектура и схемы ЛР2](docs/lab2/architecture.md)
 - [Контракты сервисов](docs/lab2/contracts.md) · [Итоговая проверка ЛР2](docs/lab2/acceptance.md)
 - [Перенос аккаунтов существующей установки](docs/lab2/account-data-transfer.md)

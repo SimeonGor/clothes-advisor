@@ -1,5 +1,6 @@
 package ru.itmo.clothesadvisor.accountservice.service.user
 
+import org.springframework.dao.DuplicateKeyException
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.PageImpl
 import org.springframework.data.domain.PageRequest
@@ -31,6 +32,50 @@ internal class AdminUserService(
         users.findById(id)
             .switchIfEmpty(Mono.error(EntityNotFoundException("User $id not found")))
             .map { it.toResponse() }
+    }
+
+    @Transactional
+    fun create(actorId: Long, login: String, passwordHash: String, role: UserRole): Mono<AdminUserResponse> =
+        Mono.defer {
+            users.findLockedRows(actorId, actorId).collectList().flatMap { locked ->
+                val actor = locked.singleOrNull()
+                if (actor?.role != UserRole.ADMIN || actor.status != UserStatus.ACTIVE) {
+                    return@flatMap Mono.error(AccessDeniedException())
+                }
+                appUsers.create(login, passwordHash, role)
+                    .onErrorMap(DuplicateKeyException::class.java) { AdminUserConflictException() }
+                    .map { it.toResponse() }
+            }
+        }
+
+    @Transactional
+    fun setPassword(
+        actorId: Long,
+        id: Long,
+        version: Long,
+        passwordHash: String,
+    ): Mono<AdminUserResponse> = Mono.defer {
+        users.findLockedRows(actorId, id).collectList().flatMap { locked ->
+            val actor = locked.find { it.id == actorId }
+            if (actor?.role != UserRole.ADMIN || actor.status != UserStatus.ACTIVE) {
+                return@flatMap Mono.error(AccessDeniedException())
+            }
+            appUsers.changePassword(id, version, passwordHash).map { it.toResponse() }
+        }
+    }
+
+    @Transactional
+    fun bootstrap(login: String, passwordHash: String): Mono<Void> = Mono.defer {
+        users.createBootstrapAdmin(login, passwordHash)
+            .switchIfEmpty(Mono.defer { users.findByLoginForUpdate(login) })
+            .flatMap { user ->
+                if (user.role != UserRole.ADMIN || user.status != UserStatus.ACTIVE) {
+                    return@flatMap Mono.error(BootstrapAdminException())
+                }
+                if (user.passwordHash == "!") {
+                    appUsers.changePassword(user.id, user.version, passwordHash)
+                } else Mono.just(user)
+            }.then()
     }
 
     @Transactional

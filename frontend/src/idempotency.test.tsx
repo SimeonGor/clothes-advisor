@@ -1,8 +1,10 @@
+import { authenticatedActor } from "./auth-test-fixture";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { afterEach, expect, it, vi } from "vitest";
+import { beforeEach, afterEach, expect, it, vi } from "vitest";
 import { ApiError, resourceErrorMessage } from "./api";
 import { createRequest, NewAttempt } from "./idempotency";
 
+beforeEach(() => authenticatedActor({ id: 1, login: "user", role: "USER" }));
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 const response = (status: number, body: unknown) => ({ ok: status < 400, status, json: async () => body } as Response);
 const key = (call: unknown[]) => new Headers((call[1] as RequestInit).headers).get("Idempotency-Key");
@@ -22,6 +24,7 @@ it.each(["/api/wardrobe/items", "/api/wardrobe/items/7/photos", "/api/outfits", 
     await expect(createRequest(path, 1, '{"name":"other private name"}')).rejects.toThrow("offline");
     vi.resetModules();
     const reloaded = await import("./idempotency");
+    (await import("./auth")).installSession({ actor: { id: 1, login: "user", role: "USER" }, accessToken: "test-token-1" });
     await reloaded.createRequest(path, 1, '{"name":"private name"}');
     await reloaded.createRequest(path, 1, '{"name":"private name"}');
 
@@ -46,6 +49,7 @@ it("separates payload, actor and target while hashing ordered file contents", as
     return data;
   };
   const send = async (actor: number, path: string, bytes: string[]) => {
+    authenticatedActor({ id: actor, login: "user", role: "USER" });
     await expect(createRequest(path, actor, form(bytes))).rejects.toThrow("offline");
   };
 
@@ -79,6 +83,7 @@ it.each(['{"name":"A"}', '{"name":"B"}'])("preserves a legacy key when first acc
   await createRequest("/api/outfits", 1, firstBody).catch(() => undefined);
   vi.resetModules();
   const reloaded = await import("./idempotency");
+  (await import("./auth")).installSession({ actor: { id: 1, login: "user", role: "USER" }, accessToken: "test-token-1" });
   await reloaded.createRequest("/api/outfits", 1, '{"name":"A"}').catch(() => undefined);
 
   // then
@@ -147,15 +152,18 @@ it("resets only the most recently submitted fingerprint in the selected actor an
     { path: "/api/me/capsules", actor: 1, body: '{"name":"B"}' },
   ];
   for (const command of commands) {
+    authenticatedActor({ id: command.actor, login: `user-${command.actor}`, role: "USER" });
     await createRequest(command.path, command.actor, command.body).catch(() => undefined);
   }
   // A was created first, but is now the last submitted attempt.
+  authenticatedActor({ id: 1, login: "user-1", role: "USER" });
   await createRequest("/api/outfits", 1, commands[0].body).catch(() => undefined);
   render(<NewAttempt actorId={1} path="/api/outfits" disabled={false} onReset={vi.fn()} />);
 
   // when
   fireEvent.click(screen.getByRole("button", { name: "Новая попытка" }));
   for (const command of commands) {
+    authenticatedActor({ id: command.actor, login: `user-${command.actor}`, role: "USER" });
     await createRequest(command.path, command.actor, command.body).catch(() => undefined);
   }
 

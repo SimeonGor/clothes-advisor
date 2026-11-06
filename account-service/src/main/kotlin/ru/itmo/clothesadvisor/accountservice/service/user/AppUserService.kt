@@ -13,6 +13,7 @@ import ru.itmo.clothesadvisor.accountservice.model.user.UserRole
 import ru.itmo.clothesadvisor.accountservice.model.user.UserStatus
 import ru.itmo.clothesadvisor.accountservice.repository.user.AppUserHistoryRepository
 import ru.itmo.clothesadvisor.accountservice.repository.user.AppUserRepository
+import ru.itmo.clothesadvisor.accountservice.repository.auth.AuthSessionRepository
 
 @Service
 @Transactional(readOnly = true)
@@ -20,6 +21,7 @@ internal class AppUserService(
     private val users: AppUserRepository,
     private val history: AppUserHistoryRepository,
     private val validator: Validator,
+    private val sessions: AuthSessionRepository,
 ) {
     @Transactional
     fun create(
@@ -40,6 +42,28 @@ internal class AppUserService(
     fun findById(id: Long): Mono<AppUser> = Mono.defer { users.findById(id) }
 
     fun findByLogin(login: String): Mono<AppUser> = Mono.defer { users.findByLogin(login) }
+
+    @Transactional
+    fun changePassword(id: Long, expectedVersion: Long, passwordHash: String): Mono<AppUser> =
+        Mono.defer {
+            users.findByIdForUpdate(id)
+                .switchIfEmpty(Mono.error(EntityNotFoundException("User $id not found")))
+                .flatMap { user ->
+                    if (user.version != expectedVersion) {
+                        return@flatMap Mono.error(
+                            OptimisticLockingFailureException("User $id version conflict"),
+                        )
+                    }
+                    users.updatePassword(id, expectedVersion, passwordHash)
+                        .switchIfEmpty(
+                            Mono.error(OptimisticLockingFailureException("User $id version conflict")),
+                        )
+                        .flatMap { saved ->
+                            history.insert(AppUserHistory(user))
+                                .then(sessions.revokeAll(id)).thenReturn(saved)
+                        }
+                }
+        }
 
     @Transactional
     fun changeRoleAndStatus(

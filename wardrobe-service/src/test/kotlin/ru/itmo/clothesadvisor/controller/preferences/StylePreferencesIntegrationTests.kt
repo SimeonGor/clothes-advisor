@@ -250,7 +250,7 @@ class StylePreferencesIntegrationTests : AccountBackedIntegrationTest() {
         path: String = "/api/me/style-preferences",
     ): HttpResponse<String> {
         val request = HttpRequest.newBuilder(URI("http://localhost:$port$path"))
-            .header("X-User-Id", actor.toString())
+            .header("Authorization", bearer(actor.toString()))
             .method(method, body?.let(HttpRequest.BodyPublishers::ofString) ?: HttpRequest.BodyPublishers.noBody())
         if (body != null) request.header("Content-Type", "application/json")
         return client.send(request.build(), HttpResponse.BodyHandlers.ofString())

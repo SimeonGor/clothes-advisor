@@ -8,7 +8,6 @@ import org.springframework.web.bind.annotation.RestControllerAdvice
 import org.springframework.web.bind.support.WebExchangeBindException
 import org.springframework.web.method.annotation.HandlerMethodValidationException
 import org.springframework.web.server.ServerWebInputException
-import ru.itmo.clothesadvisor.config.InvalidCurrentUserException
 import ru.itmo.clothesadvisor.dto.ApiErrorResponse
 import ru.itmo.clothesadvisor.model.AccessDeniedException
 import ru.itmo.clothesadvisor.model.EntityNotFoundException
@@ -33,7 +32,6 @@ internal class ApiExceptionHandler {
         WebExchangeBindException::class,
         ServerWebInputException::class,
         HandlerMethodValidationException::class,
-        InvalidCurrentUserException::class,
         ConstraintViolationException::class,
     )
     fun invalidRequest(): ResponseEntity<ApiErrorResponse> =

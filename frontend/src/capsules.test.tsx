@@ -1,3 +1,4 @@
+import { authenticatedActor } from "./auth-test-fixture";
 import React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -28,7 +29,7 @@ function mount(path = "/capsules/new", seed?: Array<[readonly unknown[], unknown
   return { ...view, client, onPending };
 }
 
-beforeEach(() => { sessionStorage.clear(); vi.stubGlobal("fetch", vi.fn()); });
+beforeEach(() => { authenticatedActor(user); sessionStorage.clear(); vi.stubGlobal("fetch", vi.fn()); });
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 
 describe("Ручные капсулы", () => {
@@ -70,7 +71,7 @@ describe("Ручные капсулы", () => {
     const switched = vi.fn();
     function Harness() {
       const [pending, setPending] = React.useState(false);
-      return <AppRoutes account={user} pending={pending} onPending={setPending} onChoose={vi.fn()} onSwitch={switched} />;
+      return <AppRoutes account={user} pending={pending} onPending={setPending} onLogout={switched} />;
     }
     render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/capsules/new"]}><Harness /></MemoryRouter></QueryClientProvider>);
     fireEvent.change(screen.getByLabelText("НАЗВАНИЕ КАПСУЛЫ"), { target: { value: "  Набор  " } });
@@ -79,7 +80,7 @@ describe("Ручные капсулы", () => {
     // when: retry the same frozen draft after the ambiguous response.
     fireEvent.click(screen.getByRole("button", { name: /Сохранить капсулу/ }));
     await waitFor(() => expect(finishFirst).toBeDefined());
-    expect((screen.getByRole("button", { name: "Сменить аккаунт" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Выйти" }) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(screen.getByRole("link", { name: "Капсулы" }));
     expect(screen.getByRole("heading", { name: "Новая капсула" })).toBeTruthy();
     expect(switched).not.toHaveBeenCalled();
@@ -364,9 +365,10 @@ describe("Ручные капсулы", () => {
 
   it("не показывает капсулы стилисту и оставляет обычный маршрут приложения", async () => {
     // given
+    authenticatedActor(stylist);
     vi.stubGlobal("fetch", vi.fn(async () => ok([])));
     render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-      <MemoryRouter initialEntries={["/capsules"]}><AppRoutes account={stylist} pending={false} onPending={vi.fn()} onChoose={vi.fn()} onSwitch={vi.fn()} /></MemoryRouter>
+      <MemoryRouter initialEntries={["/capsules"]}><AppRoutes account={stylist} pending={false} onPending={vi.fn()} onLogout={vi.fn()} /></MemoryRouter>
     </QueryClientProvider>);
 
     // when / then

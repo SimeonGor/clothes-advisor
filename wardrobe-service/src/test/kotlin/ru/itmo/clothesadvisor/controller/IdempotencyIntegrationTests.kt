@@ -398,7 +398,7 @@ class IdempotencyIntegrationTests : AccountBackedIntegrationTest() {
 
     private fun send(actor: Long, path: String, key: String, contentType: String, body: ByteArray): HttpResponse<String> =
         http.send(HttpRequest.newBuilder(URI("http://127.0.0.1:$port$path"))
-            .header("X-User-Id", actor.toString()).header("Idempotency-Key", key)
+            .header("Authorization", bearer(actor.toString())).header("Idempotency-Key", key)
             .header("Content-Type", contentType).POST(HttpRequest.BodyPublishers.ofByteArray(body)).build(),
             HttpResponse.BodyHandlers.ofString())
 

@@ -10,6 +10,8 @@ import org.mockito.Mockito.verify
 import org.mockito.Mockito.verifyNoInteractions
 import org.mockito.Mockito.`when`
 import org.springframework.dao.OptimisticLockingFailureException
+import org.springframework.dao.DataIntegrityViolationException
+import org.springframework.dao.DuplicateKeyException
 import org.springframework.data.domain.PageRequest
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Mono
@@ -179,6 +181,34 @@ internal class AdminUserServiceTests {
 
         // then
         StepVerifier.create(result).expectError(EntityNotFoundException::class.java).verify()
+    }
+
+    @Test
+    fun `create converts only duplicate key errors to conflict`() {
+        `when`(repository.findLockedRows(1, 1)).thenReturn(Flux.just(user(1)))
+        `when`(appUsers.create("new", "hash", UserRole.USER))
+            .thenReturn(Mono.error(DuplicateKeyException("login already exists")))
+
+        StepVerifier.create(service.create(1, "new", "hash", UserRole.USER))
+            .expectError(AdminUserConflictException::class.java).verify()
+
+        val failure = DataIntegrityViolationException("unrelated constraint")
+        `when`(appUsers.create("new", "hash", UserRole.USER)).thenReturn(Mono.error(failure))
+        StepVerifier.create(service.create(1, "new", "hash", UserRole.USER))
+            .expectErrorMatches { it === failure }.verify()
+    }
+
+    @Test
+    fun `missing actor cannot create or reset credentials`() {
+        `when`(repository.findLockedRows(1, 1)).thenReturn(Flux.empty())
+        `when`(repository.findLockedRows(1, 2)).thenReturn(Flux.just(user(2)))
+
+        StepVerifier.create(service.create(1, "new", "hash", UserRole.USER))
+            .expectError(AccessDeniedException::class.java).verify()
+        StepVerifier.create(service.setPassword(1, 2, 1, "hash"))
+            .expectError(AccessDeniedException::class.java).verify()
+
+        verifyNoInteractions(appUsers)
     }
 
     private fun user(

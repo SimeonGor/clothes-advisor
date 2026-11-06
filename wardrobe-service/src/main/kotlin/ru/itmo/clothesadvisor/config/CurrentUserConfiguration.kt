@@ -1,8 +1,8 @@
 package ru.itmo.clothesadvisor.config
 
 import org.springframework.context.annotation.Configuration
-import org.springframework.context.annotation.Lazy
 import org.springframework.core.MethodParameter
+import org.springframework.security.oauth2.core.OAuth2AuthenticationException
 import org.springframework.web.reactive.BindingContext
 import org.springframework.web.reactive.config.WebFluxConfigurer
 import org.springframework.web.reactive.result.method.HandlerMethodArgumentResolver
@@ -10,11 +10,8 @@ import org.springframework.web.reactive.result.method.annotation.ArgumentResolve
 import org.springframework.web.server.ServerWebExchange
 import reactor.core.publisher.Mono
 import ru.itmo.clothesadvisor.dto.user.CurrentUser
-import ru.itmo.clothesadvisor.service.user.ReactiveCurrentUserService
 
-internal class InvalidCurrentUserException : RuntimeException()
-
-internal class CurrentUserArgumentResolver(private val users: ReactiveCurrentUserService) :
+internal class CurrentUserArgumentResolver :
     HandlerMethodArgumentResolver {
     override fun supportsParameter(parameter: MethodParameter) =
         parameter.parameterType == CurrentUser::class.java
@@ -24,21 +21,14 @@ internal class CurrentUserArgumentResolver(private val users: ReactiveCurrentUse
         bindingContext: BindingContext,
         exchange: ServerWebExchange,
     ): Mono<Any> =
-        Mono.defer {
-            val id =
-                exchange.request.headers.getFirst("X-User-Id")
-                    ?.toLongOrNull()?.takeIf { it > 0 }
-                    ?: throw InvalidCurrentUserException()
-            users.requireActive(id).map<Any> { it }
-        }
+        exchange.getPrincipal<CurrentUserJwtAuthentication>()
+            .map<Any> { it.user }
+            .switchIfEmpty(Mono.error(OAuth2AuthenticationException("invalid_token")))
 }
 
 @Configuration
-internal class CurrentUserConfiguration(
-    // Feign initializes HTTP codec support while creating the account client.
-    @param:Lazy private val users: ReactiveCurrentUserService,
-) : WebFluxConfigurer {
+internal class CurrentUserConfiguration : WebFluxConfigurer {
     override fun configureArgumentResolvers(configurer: ArgumentResolverConfigurer) {
-        configurer.addCustomResolver(CurrentUserArgumentResolver(users))
+        configurer.addCustomResolver(CurrentUserArgumentResolver())
     }
 }

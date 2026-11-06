@@ -1,3 +1,4 @@
+import { authenticatedActor } from "./auth-test-fixture";
 import React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -13,6 +14,7 @@ const ok = (data: unknown, status = 200) => ({ ok: true, status, headers: new He
 const fail = (status: number) => ({ ok: false, status, headers: new Headers(), json: async () => ({}) } as Response);
 
 function mount(actor: Actor = user, context: { kind: "own" } | { kind: "client" | "admin"; ownerId: number } = { kind: "own" }) {
+  authenticatedActor(actor);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   function DetailHarness() {
     const [pending, setPending] = React.useState(false);

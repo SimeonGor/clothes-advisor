@@ -465,7 +465,7 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
         val ids = listOf(item(owner))
         val id = number(dto(request("POST", actorId = actorId, body = body(ids))), "id")
         jdbc.updateUserRoleAndStatus(owner.id, owner.role, UserStatus.BLOCKED)
-        for ((credential, status) in listOf(null to 400, actorId to 403)) {
+        for ((credential, status) in listOf(null to 401, actorId to 403)) {
             for ((method, path) in
                 listOf(
                     "GET" to OUTFITS,
@@ -980,7 +980,7 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
                         ?: HttpRequest.BodyPublishers.noBody(),
                 )
         if (body != null) request.header("Content-Type", "application/json")
-        if (actorId != null) request.header("X-User-Id", "$actorId")
+        if (actorId != null) request.header("Authorization", bearer(actorId))
         return client.send(request.build(), HttpResponse.BodyHandlers.ofString())
     }
 

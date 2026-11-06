@@ -369,7 +369,7 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
 
         // given: the owner is now blocked
         jdbc.updateUserRoleAndStatus(owner.id, owner.role, UserStatus.BLOCKED)
-        for ((deniedActorId, status) in listOf(null to 400, "invalid" to 400, actorId to 403)) {
+        for ((deniedActorId, status) in listOf(null to 401, "invalid" to 401, actorId to 403)) {
             val path = "$ITEMS/$id/photos"
 
             // when
@@ -935,7 +935,7 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
                     method,
                     if (chunked) HttpRequest.BodyPublishers.fromPublisher(publisher) else publisher,
                 )
-        if (actorId != null) request.header("X-User-Id", "$actorId")
+        if (actorId != null) request.header("Authorization", bearer(actorId))
         return client.send(request.build(), HttpResponse.BodyHandlers.ofByteArray())
     }
 

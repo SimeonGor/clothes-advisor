@@ -30,7 +30,10 @@ import ru.itmo.clothesadvisor.service.stylistrequest.ReactiveStylistRequestServi
 @Tag(name = "Запросы клиента", description = "Только назначенный STYLIST с действующим доступом.")
 @RestController
 @RequestMapping("/api/stylist/clients/{ownerId}/requests")
-@ApiResponse(responseCode = "503", description = "Account недоступен", content = [Content()])
+@ApiResponses(
+    ApiResponse(responseCode = "404", description = "Клиент, запрос или вещь не найдены", content = [Content()]),
+    ApiResponse(responseCode = "503", description = "Account недоступен", content = [Content()]),
+)
 internal class StylistClientRequestController(private val requests: ReactiveStylistRequestService) {
     @PostMapping("/{id}/answer")
     @Operation(summary = "Ответить новым образом", description = "Текущая version и PENDING; погода из запроса. Недоступные вещи разрешены для ручного образа.")

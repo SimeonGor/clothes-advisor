@@ -1,3 +1,7 @@
+import { authenticatedFetch, getSessionEpoch } from "./auth";
+import { ApiError } from "./api-error";
+export { ApiError } from "./api-error";
+
 export type Account = { id: number; login: string; role: string; status: string };
 export type WardrobeItem = {
   id: number;
@@ -89,32 +93,21 @@ export function outfitsPath(context: WorkspaceContext): string {
   return `/api/admin/users/${context.ownerId}/outfits`;
 }
 
-export class ApiError extends Error {
-  constructor(readonly status: number, readonly code?: string) { super(`HTTP ${status}`); }
-}
-
 export async function request<T>(
   path: string,
   actorId?: number,
   options: RequestInit = {},
 ): Promise<T> {
   const headers = new Headers(options.headers);
-  if (actorId !== undefined) headers.set("X-User-Id", String(actorId));
   if (options.body && !(options.body instanceof FormData)) {
     headers.set("Content-Type", "application/json");
   }
-  const response = await fetch(path, {
+  const response = await authenticatedFetch(path, actorId, {
     ...options,
     headers,
     credentials: "same-origin",
     cache: "no-store",
   });
-  if (!response.ok) {
-    const body: unknown = await response.json().catch(() => null);
-    const code = body && typeof body === "object" && "error" in body
-      && typeof body.error === "string" && /^[a-z_]{1,80}$/.test(body.error) ? body.error : undefined;
-    throw new ApiError(response.status, code);
-  }
   return response.status === 204 ? null as T : response.json() as Promise<T>;
 }
 
@@ -124,16 +117,17 @@ export async function allPages<T>(
   signal?: AbortSignal,
 ): Promise<T[]> {
   const all: T[] = [];
+  const epoch = getSessionEpoch();
   for (let page = 0; ; page += 1) {
+    if (epoch !== getSessionEpoch()) throw new ApiError(401);
     const url = `${path}${path.includes("?") ? "&" : "?"}page=${page}&size=50`;
-    const response = await fetch(url, {
-      headers: actorId === undefined ? {} : { "X-User-Id": String(actorId) },
+    const response = await authenticatedFetch(url, actorId, {
       credentials: "same-origin",
       cache: "no-store",
       signal,
     });
-    if (!response.ok) throw new ApiError(response.status);
     const rows = await response.json() as T[];
+    if (epoch !== getSessionEpoch()) throw new ApiError(401);
     all.push(...rows);
     const total = response.headers.get("X-Total-Count");
     if (!rows.length || (total === null ? rows.length < 50 : all.length >= Number(total))) {

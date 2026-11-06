@@ -1,3 +1,4 @@
+import { authenticatedActor } from "./auth-test-fixture";
 import React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
@@ -23,6 +24,7 @@ type Call = { url: string; init?: RequestInit };
 const clients: QueryClient[] = [];
 
 function mount(initialActor: Actor = user, path = "/preferences") {
+  authenticatedActor(initialActor);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   clients.push(client);
   let navigate!: ReturnType<typeof useNavigate>;
@@ -33,11 +35,11 @@ function mount(initialActor: Actor = user, path = "/preferences") {
     const [actor, changeActor] = React.useState(initialActor);
     setActor = changeActor;
     const [pending, setPending] = React.useState(false);
-    return <AppRoutes account={actor} pending={pending} onPending={setPending} onChoose={vi.fn()} onSwitch={switched} />;
+    return <AppRoutes account={actor} pending={pending} onPending={setPending} onLogout={switched} />;
   }
   render(<QueryClientProvider client={client}><MemoryRouter initialEntries={[path]}><Harness /></MemoryRouter></QueryClientProvider>);
   return { client, switched, go: (next: string) => act(() => navigate(next)),
-    changeActor: (actor: Actor) => act(() => setActor(actor)) };
+    changeActor: (actor: Actor) => act(() => { authenticatedActor(actor); setActor(actor); }) };
 }
 
 function fixture(handler: (call: Call) => Response | Promise<Response>) {
@@ -74,7 +76,7 @@ describe("Предпочтения владельца", () => {
     fireEvent.click(save());
     fireEvent.submit(field().closest("form")!);
     fireEvent.click(screen.getByRole("link", { name: "Гардероб" }));
-    fireEvent.click(screen.getByRole("button", { name: "Сменить аккаунт" }));
+    fireEvent.click(screen.getByRole("button", { name: "Выйти" }));
 
     // then
     expect(writes(calls)).toHaveLength(1);
@@ -85,7 +87,7 @@ describe("Предпочтения владельца", () => {
       preferredColorsAndMaterials: "Зелёный", avoidances: "Синтетика", additionalWishes: "", version: null,
     });
     const headers = new Headers(writes(calls)[0].init?.headers);
-    expect(headers.get("X-User-Id")).toBe("11");
+    expect(headers.get("Authorization")).toBe("Bearer test-token-11");
     expect(headers.has("Idempotency-Key")).toBe(false);
     await act(async () => finish(ok(profile(7, "Зелёный с сервера"))));
     await screen.findByText("Предпочтения сохранены.");
@@ -183,7 +185,7 @@ describe("Предпочтения владельца", () => {
     fireEvent.click(screen.getByRole("button", { name: "Обновить данные" }));
     fireEvent.click(screen.getByRole("link", { name: "Гардероб" }));
     expect(screen.getByRole("heading", { name: "Предпочтения" })).toBeTruthy();
-    expect((screen.getByRole("button", { name: "Сменить аккаунт" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "Выйти" }) as HTMLButtonElement).disabled).toBe(true);
     expect(calls.filter(({ init }) => !init?.method)).toHaveLength(2);
     await act(async () => finishReload?.(ok(latest)));
     await screen.findByText("Данные обновлены.");
@@ -273,7 +275,7 @@ describe("Предпочтения владельца", () => {
   it("не показывает черновик предыдущего аккаунта при загрузке другого пользователя", async () => {
     // given
     let finish!: (response: Response) => void;
-    const calls = fixture(({ init }) => new Headers(init?.headers).get("X-User-Id") === "11"
+    const calls = fixture(({ init }) => new Headers(init?.headers).get("Authorization") === "Bearer test-token-11"
       ? ok(profile(4, "Личный текст первого")) : new Promise<Response>((resolve) => { finish = resolve; }));
     const view = mount();
     await screen.findByDisplayValue("Личный текст первого");
@@ -287,7 +289,7 @@ describe("Предпочтения владельца", () => {
     expect(screen.queryByDisplayValue("Личный текст первого")).toBeNull();
     await act(async () => finish(ok(profile(2, "Текст второго"))));
     await screen.findByDisplayValue("Текст второго");
-    expect(calls.map(({ init }) => new Headers(init?.headers).get("X-User-Id"))).toEqual(["11", "12"]);
+    expect(calls.map(({ init }) => new Headers(init?.headers).get("Authorization"))).toEqual(["Bearer test-token-11", "Bearer test-token-12"]);
   });
 });
 
@@ -308,7 +310,7 @@ describe("Предпочтения клиента и маршруты ролей
     expect(screen.queryByRole("textbox")).toBeNull();
     expect(screen.queryByRole("button", { name: saveName })).toBeNull();
     expect(screen.getByRole("link", { name: "Предпочтения клиента" })).toBeTruthy();
-    expect(calls.every(({ init }) => new Headers(init?.headers).get("X-User-Id") === "22")).toBe(true);
+    expect(calls.every(({ init }) => new Headers(init?.headers).get("Authorization") === "Bearer test-token-22")).toBe(true);
     expect(calls.some(({ url }) => url === ownPath)).toBe(false);
   });
 
@@ -357,7 +359,7 @@ describe("Предпочтения клиента и маршруты ролей
     let finish!: (response: Response) => void;
     const calls = fixture(({ url, init }) => {
       if (url.startsWith("/api/stylist/clients?")) return ok([{ id: 11, login: "first" }, { id: 12, login: "second" }]);
-      if (url === clientPath && new Headers(init?.headers).get("X-User-Id") === "22") return ok(profile(4, "Первый клиент"));
+      if (url === clientPath && new Headers(init?.headers).get("Authorization") === "Bearer test-token-22") return ok(profile(4, "Первый клиент"));
       return new Promise<Response>((resolve) => { finish = resolve; });
     });
     const view = mount(stylist, "/clients/11/preferences");
@@ -374,7 +376,7 @@ describe("Предпочтения клиента и маршруты ролей
     view.changeActor({ id: 23, login: "another stylist", role: "STYLIST" });
     expect(screen.queryByText("Второй клиент")).toBeNull();
     await waitFor(() => expect(calls.some(({ url, init }) => url.endsWith("/12/style-preferences")
-      && new Headers(init?.headers).get("X-User-Id") === "23")).toBe(true));
+      && new Headers(init?.headers).get("Authorization") === "Bearer test-token-23")).toBe(true));
     await act(async () => finish(fail(404)));
     await screen.findByRole("alert");
     expect(screen.queryByText("Второй клиент")).toBeNull();

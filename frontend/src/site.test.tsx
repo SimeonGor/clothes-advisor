@@ -1,10 +1,12 @@
+import { authenticatedActor } from "./auth-test-fixture";
 import React from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen, waitFor, act } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Account, Outfit, Photo, WardrobeItem } from "./api";
-import { AccountPicker, Today } from "./site";
+import { Today } from "./site";
+import { App } from "./app";
 
 const accounts: Account[] = [
   { id: 1, login: "гардероб-один", role: "USER", status: "ACTIVE" },
@@ -41,10 +43,11 @@ function failed(status: number) {
 }
 
 function mountToday(actor = accounts[0], pendingInitially = false) {
+  authenticatedActor(actor);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   function App() {
     const [pending, setPending] = React.useState(pendingInitially);
-    return <Today account={actor} onSwitch={vi.fn()} onPending={setPending} pending={pending} />;
+    return <Today account={actor} onLogout={vi.fn()} onPending={setPending} pending={pending} />;
   }
   const view = render(<QueryClientProvider client={client}><MemoryRouter><App /></MemoryRouter></QueryClientProvider>);
   return { ...view, client };
@@ -374,7 +377,7 @@ describe("Экран «Сегодня»", () => {
     expect(create).toHaveBeenCalledTimes(1);
   });
 
-  it("перепроверяет аккаунт и отзывает URL фото при переключении", async () => {
+  it("входит заново и отзывает URL фото после выхода", async () => {
 
     const created = vi.fn(() => "blob:wardrobe-one");
     const revoked = vi.fn();
@@ -383,15 +386,21 @@ describe("Экран «Сегодня»", () => {
     const firstItem = wardrobeItem(1);
     const secondItem = wardrobeItem(2);
     let finishLatePhoto!: (response: Response) => void;
+    let active = accounts[0];
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.startsWith("/api/admin/users?page=")) return json(accounts);
-      if (url === "/api/admin/users/1") return json(accounts[0]);
-      if (url === "/api/admin/users/2") return json(accounts[1]);
+      if (url === "/api/auth/refresh") return failed(401);
+      if (url === "/api/auth/login") {
+        active = accounts.find((account) => account.login === JSON.parse(String(init?.body)).login)!;
+        return json({ accessToken: `test-token-${active.id}` });
+      }
+      if (url === "/api/auth/me") return json(active);
+      if (url === "/api/auth/logout") return new Response(null, { status: 204 });
+      if (url.startsWith("/api/admin/users?")) return json(accounts);
       if (url.startsWith("/api/weather/precipitation-types") || url.startsWith("/api/wardrobe/categories")) return json([]);
       if (url.startsWith("/api/wardrobe/items?page=")) {
-        const actorId = new Headers(init?.headers).get("X-User-Id");
-        return json(actorId === "1" ? [firstItem, secondItem] : []);
+        const actorId = new Headers(init?.headers).get("Authorization");
+        return json(actorId === "Bearer test-token-1" ? [firstItem, secondItem] : []);
       }
       if (url.endsWith("/photos")) return json([photo(Number(url.split("/")[4]))]);
       if (url.endsWith("/content")) {
@@ -403,26 +412,23 @@ describe("Экран «Сегодня»", () => {
       return failed(404);
     });
     vi.stubGlobal("fetch", fetchMock);
-    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-
-    function App() {
-      const [actor, setActor] = React.useState<Pick<Account, "id" | "login" | "role"> | null>(null);
-      if (!actor) return <AccountPicker onChoose={setActor} />;
-      return <Today account={actor} onSwitch={() => setActor(null)} onPending={() => undefined} pending={false} />;
-    }
-
-    render(<QueryClientProvider client={client}><MemoryRouter><App /></MemoryRouter></QueryClientProvider>);
+    render(<MemoryRouter><App /></MemoryRouter>);
 
     // given: фотография первого аккаунта загружается с задержкой.
 
-    fireEvent.click(await screen.findByRole("button", { name: /гардероб-один/ }));
+    fireEvent.change(await screen.findByLabelText("Логин"), { target: { value: accounts[0].login } });
+    fireEvent.change(screen.getByLabelText("Пароль"), { target: { value: "password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Войти" }));
     await screen.findByRole("img", { name: "Вещь 1 · оливковый" });
     await waitFor(() => expect(finishLatePhoto).toBeTypeOf("function"));
-    fireEvent.click(screen.getByRole("button", { name: "Сменить аккаунт" }));
+    fireEvent.click(screen.getByRole("button", { name: "Выйти" }));
 
     // when: пользователь переключается на другой аккаунт до ответа.
 
-    fireEvent.click(await screen.findByRole("button", { name: /гардероб-два/ }));
+    fireEvent.change(await screen.findByLabelText("Логин"), { target: { value: accounts[1].login } });
+    fireEvent.change(screen.getByLabelText("Пароль"), { target: { value: "password" } });
+    fireEvent.click(screen.getByRole("button", { name: "Войти" }));
+    await screen.findByRole("heading", { name: "Аккаунты" });
     await act(async () => finishLatePhoto({
       ok: true,
       status: 200,
@@ -432,16 +438,16 @@ describe("Экран «Сегодня»", () => {
 
     // then: поздний ответ не раскрывает данные первого аккаунта.
 
-    expect(screen.getByText("гардероб-два")).toBeTruthy();
+    expect(screen.getAllByText("гардероб-два").length).toBeGreaterThan(0);
     expect(screen.queryByText("Вещь 1")).toBeNull();
     expect(revoked).toHaveBeenCalledWith("blob:wardrobe-one");
     expect(created).toHaveBeenCalledTimes(1);
     expect(fetchMock.mock.calls.some(([url, init]) => (
-      String(url).endsWith("/content") && new Headers(init?.headers).get("X-User-Id") === "1"
+      String(url).endsWith("/content") && new Headers(init?.headers).get("Authorization") === "Bearer test-token-1"
     ))).toBe(true);
     expect(fetchMock.mock.calls.some(([url, init]) => (
       String(url).startsWith("/api/wardrobe/items?page=")
-        && new Headers(init?.headers).get("X-User-Id") === "2"
+        && new Headers(init?.headers).get("Authorization") === "Bearer test-token-2"
     ))).toBe(false);
   });
 

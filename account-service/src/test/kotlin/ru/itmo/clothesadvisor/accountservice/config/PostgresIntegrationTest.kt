@@ -21,7 +21,7 @@ abstract class PostgresIntegrationTest {
                 "Cleanup is restricted to the test container"
             }
         }
-        jdbc.execute("TRUNCATE TABLE access_grant, app_user_history, app_user RESTART IDENTITY")
+        jdbc.execute("TRUNCATE TABLE auth_refresh_token, auth_session, access_grant, app_user_history, app_user RESTART IDENTITY")
     }
 
     companion object {
@@ -30,6 +30,8 @@ abstract class PostgresIntegrationTest {
         @JvmStatic
         @DynamicPropertySource
         fun postgresProperties(registry: DynamicPropertyRegistry) {
+            registry.add("app.jwt.private-key") { TestJwt.privateKeyLocation }
+            registry.add("app.jwt.public-key") { TestJwt.publicKeyLocation }
             registry.add("spring.r2dbc.url") {
                 "r2dbc:postgresql://${postgres.host}:${postgres.firstMappedPort}/" +
                     postgres.databaseName

@@ -1,6 +1,7 @@
 package ru.itmo.clothesadvisor.accountservice.model.user
 
 import com.fasterxml.jackson.annotation.JsonCreator
+import com.fasterxml.jackson.annotation.JsonIgnore
 import jakarta.validation.constraints.NotBlank
 import jakarta.validation.constraints.Size
 import java.time.Instant
@@ -30,7 +31,7 @@ internal enum class UserStatus {
 internal class AppUser(
     @Id val id: Long,
     @field:NotBlank @field:Size(max = 100) val login: String,
-    @field:NotBlank val passwordHash: String,
+    @get:JsonIgnore @field:NotBlank val passwordHash: String,
     val role: UserRole,
     val status: UserStatus,
     val version: Long,

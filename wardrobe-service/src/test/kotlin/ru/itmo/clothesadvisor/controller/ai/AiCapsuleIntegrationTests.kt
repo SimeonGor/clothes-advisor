@@ -382,7 +382,7 @@ class AiCapsuleIntegrationTests : AccountBackedIntegrationTest() {
 
     private fun http(method: String, owner: Long, body: String? = null, target: String = "$path/ai", key: String? = null): HttpResponse<String> {
         val request = HttpRequest.newBuilder(URI("http://localhost:$port$target")).timeout(Duration.ofSeconds(20))
-            .header("X-User-Id", owner.toString())
+            .header("Authorization", bearer(owner.toString()))
         if (body != null) request.header("Content-Type", "application/json")
         if (key != null) request.header("Idempotency-Key", key)
         return client.send(request.method(method, body?.let(HttpRequest.BodyPublishers::ofString)

@@ -27,12 +27,14 @@ import ru.itmo.clothesadvisor.accountservice.model.user.UserRole
 import ru.itmo.clothesadvisor.accountservice.model.user.UserStatus
 import ru.itmo.clothesadvisor.accountservice.repository.user.AppUserHistoryRepository
 import ru.itmo.clothesadvisor.accountservice.repository.user.AppUserRepository
+import ru.itmo.clothesadvisor.accountservice.repository.auth.AuthSessionRepository
 
 class AppUserServiceTests {
     private val repository = mock(AppUserRepository::class.java)
     private val history = mock(AppUserHistoryRepository::class.java)
     private val validation = Validation.buildDefaultValidatorFactory()
-    private val service = AppUserService(repository, history, validation.validator)
+    private val sessions = mock(AuthSessionRepository::class.java)
+    private val service = AppUserService(repository, history, validation.validator, sessions)
     private val storedAt = Instant.parse("2026-01-01T01:02:03Z")
 
     @AfterEach fun closeValidation() = validation.close()

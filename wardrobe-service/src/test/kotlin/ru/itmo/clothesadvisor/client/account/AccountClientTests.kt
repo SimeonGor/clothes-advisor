@@ -64,7 +64,8 @@ class AccountClientTests : ru.itmo.clothesadvisor.dto.recommendation.SelectionPh
     @Configuration
     @Profile("account-client-test")
     @EnableAutoConfiguration
-    @Import(ExternalClientsConfiguration::class, ApiExceptionHandler::class, Probe::class)
+    @Import(ExternalClientsConfiguration::class, ApiExceptionHandler::class, Probe::class,
+        ru.itmo.clothesadvisor.config.ClientProbeSecurity::class)
     class ClientApplication
 
     @RestController

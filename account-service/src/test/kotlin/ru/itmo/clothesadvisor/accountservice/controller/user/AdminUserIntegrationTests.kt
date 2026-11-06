@@ -28,6 +28,7 @@ import org.springframework.boot.test.web.server.LocalServerPort
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
 import reactor.core.publisher.Flux
 import reactor.core.publisher.Sinks
+import ru.itmo.clothesadvisor.accountservice.config.TestJwt
 import ru.itmo.clothesadvisor.accountservice.config.PostgresIntegrationTest
 import ru.itmo.clothesadvisor.accountservice.model.user.AppUser
 import ru.itmo.clothesadvisor.accountservice.model.user.UserRole
@@ -48,33 +49,22 @@ class AdminUserIntegrationTests : PostgresIntegrationTest() {
     @AfterEach fun closeClient() = client.close()
 
     @Test
-    fun `OpenAPI requires the current user header only for mutations`() {
+    fun `OpenAPI declares bearer security without identity headers`() {
         // given
-        val path = "$.paths['/api/admin/users/{id}']"
+        val path = "$.components.securitySchemes.bearerAuth"
 
         // when
         val response = send("GET", "/v3/api-docs")
 
         // then
         assertThat(response.statusCode()).isEqualTo(200)
-        val parameters: List<Map<String, Any?>> = JsonPath.read(response.body(), "$path.put.parameters")
-        val header = parameters.single { it["name"] == "X-User-Id" }
-        assertThat(header["in"]).isEqualTo("header")
-        assertThat(header["required"]).isEqualTo(true)
-        @Suppress("UNCHECKED_CAST")
-        val schema = header["schema"] as Map<String, Any?>
-        assertThat(schema["type"]).isEqualTo("integer")
-        assertThat(schema["format"]).isEqualTo("int64")
-        assertThat(number(schema, "minimum")).isEqualTo(1)
-        for (readPath in listOf(path, "$.paths['/api/admin/users']")) {
-            val readParameters: List<Map<String, Any?>> =
-                JsonPath.read(response.body(), "$readPath.get.parameters")
-            assertThat(readParameters.map { it["name"] }).doesNotContain("X-User-Id")
-        }
+        assertThat(JsonPath.read<String>(response.body(), "$path.type")).isEqualTo("http")
+        assertThat(JsonPath.read<String>(response.body(), "$path.scheme")).isEqualTo("bearer")
+        assertThat(response.body()).doesNotContain("X-User-Id", "passwordHash")
     }
 
     @Test
-    fun `public list paginates in database and exposes exact fields including blocked users`() {
+    fun `admin list paginates in database and exposes exact fields including blocked users`() {
         // given
         val timestamp = Instant.parse("2026-01-01T01:02:03.123456Z")
         jdbc.batchUpdate(
@@ -85,14 +75,17 @@ class AdminUserIntegrationTests : PostgresIntegrationTest() {
                     Timestamp.from(timestamp), Timestamp.from(timestamp))
             },
         )
+        val actorId = jdbc.queryForObject("SELECT min(id) FROM app_user", Long::class.java)!!
+        jdbc.update("UPDATE app_user SET role = 'ADMIN' WHERE id = ?", actorId)
+        val actor = actorId.toString()
         val ids = jdbc.queryForList("SELECT id FROM app_user ORDER BY id DESC", Long::class.java)
 
         // when
-        val first = send("GET", PATH)
-        val next = send("GET", "$PATH?page=1&size=50", "malformed")
-        val single = send("GET", "$PATH?page=1&size=1")
-        val empty = send("GET", "$PATH?page=100")
-        val blocked = send("GET", "$PATH/${ids.first()}")
+        val first = send("GET", PATH, actor)
+        val next = send("GET", "$PATH?page=1&size=50", actor)
+        val single = send("GET", "$PATH?page=1&size=1", actor)
+        val empty = send("GET", "$PATH?page=100", actor)
+        val blocked = send("GET", "$PATH/${ids.first()}", actor)
 
         // then
         assertThat(rows(first).map { number(it, "id") }).containsExactlyElementsOf(ids.take(50))
@@ -114,7 +107,7 @@ class AdminUserIntegrationTests : PostgresIntegrationTest() {
         assertThat(number(dto(blocked), "version")).isEqualTo(1)
         assertThat(dto(blocked)["createdAt"]).isEqualTo(timestamp.toString())
         assertThat(dto(blocked)["modifiedAt"]).isEqualTo(timestamp.toString())
-        assertEmpty(send("GET", "$PATH/${Long.MAX_VALUE}"), 404)
+        assertEmpty(send("GET", "$PATH/${Long.MAX_VALUE}", actor), 404)
     }
 
     @Test
@@ -124,7 +117,7 @@ class AdminUserIntegrationTests : PostgresIntegrationTest() {
         val target = user()
         val path = "$PATH/${target.id}"
         val before = jdbc.queryForMap("SELECT * FROM app_user WHERE id = ?", target.id)
-        val initial = dto(send("GET", path))
+        val initial = dto(send("GET", path, actor.id.toString()))
 
         // when
         val initialNoOp = send("PUT", path, actor.id.toString(), update())
@@ -190,15 +183,14 @@ class AdminUserIntegrationTests : PostgresIntegrationTest() {
     }
 
     @Test
-    fun `reads remain public while update validates actor and returns sanitized errors`() {
+    fun `admin reads and updates enforce current role and return sanitized errors`() {
         // given
         val target = user()
         val stylist = user(UserRole.STYLIST)
         val blocked = user(UserRole.ADMIN, UserStatus.BLOCKED)
         val actors = listOf(
-            null to 400, "bad" to 400, "0" to 400, "-1" to 400,
-            "9223372036854775808" to 400, "1.0" to 400,
-            Long.MAX_VALUE.toString() to 404, target.id.toString() to 403,
+            null to 401, "bad" to 401,
+            Long.MAX_VALUE.toString() to 401, target.id.toString() to 403,
             stylist.id.toString() to 403, blocked.id.toString() to 403,
         )
 
@@ -209,11 +201,11 @@ class AdminUserIntegrationTests : PostgresIntegrationTest() {
             val change = send("PUT", "$PATH/${target.id}", actor, update("ADMIN"))
 
             // then
-            assertThat(list.statusCode()).isEqualTo(200)
-            assertThat(get.statusCode()).isEqualTo(200)
+            assertThat(list.statusCode()).isEqualTo(status)
+            assertThat(get.statusCode()).isEqualTo(status)
             assertThat(change.statusCode()).describedAs("actor=$actor").isEqualTo(status)
             when (status) {
-                400 -> assertThat(change.body()).isEqualTo("""{"error":"invalid_request"}""")
+                401 -> assertThat(change.body()).isEqualTo("""{"error":"unauthorized"}""")
                 403 -> assertThat(change.body()).isEqualTo("""{"error":"forbidden"}""")
                 404 -> assertThat(change.body()).isEmpty()
             }
@@ -277,7 +269,7 @@ class AdminUserIntegrationTests : PostgresIntegrationTest() {
 
         for (query in queries) {
             // when
-            val response = send("GET", "$PATH?$query")
+            val response = send("GET", "$PATH?$query", actor)
 
             // then
             assertThat(response.statusCode()).describedAs(query).isEqualTo(400)
@@ -402,7 +394,8 @@ class AdminUserIntegrationTests : PostgresIntegrationTest() {
             .timeout(Duration.ofSeconds(30)).method(method,
                 body?.let(HttpRequest.BodyPublishers::ofString) ?: HttpRequest.BodyPublishers.noBody())
             .apply {
-                if (actor != null) header("X-User-Id", actor)
+                if (actor != null) header("Authorization", "Bearer " +
+                    (actor.toLongOrNull()?.let(TestJwt::sign) ?: actor))
                 if (body != null) header("Content-Type", "application/json")
             }.build()
 

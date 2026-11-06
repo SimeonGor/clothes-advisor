@@ -160,7 +160,7 @@ class ReferenceDataIntegrationTests : AccountBackedIntegrationTest() {
     }
 
     @Test
-    fun `dictionaries are public regardless of actor header`() {
+    fun `dictionaries require an active account`() {
 
         // given
         val user = createUser()
@@ -182,7 +182,7 @@ class ReferenceDataIntegrationTests : AccountBackedIntegrationTest() {
             val response = request(path, actorId)
 
             // then
-            assertThat(response.statusCode()).isEqualTo(200)
+            assertThat(response.statusCode()).isEqualTo(403)
         }
     }
 
@@ -208,13 +208,13 @@ class ReferenceDataIntegrationTests : AccountBackedIntegrationTest() {
 
     private fun request(
         path: String,
-        actorId: String? = null,
+        actorId: String? = actorId(createUser()),
         method: String = "GET",
     ): HttpResponse<String> {
         val request =
             HttpRequest.newBuilder(URI("http://localhost:$port$path"))
                 .method(method, HttpRequest.BodyPublishers.noBody())
-        if (actorId != null) request.header("X-User-Id", "$actorId")
+        if (actorId != null) request.header("Authorization", bearer(actorId))
         return client.send(request.build(), HttpResponse.BodyHandlers.ofString())
     }
 

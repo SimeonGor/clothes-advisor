@@ -1,5 +1,5 @@
 import React from "react";
-import { Link, Navigate, Route, Routes, useParams } from "react-router-dom";
+import { Link, Navigate, Route, Routes, useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { allPages, ApiError, request, resourceErrorMessage, type Account, type Actor, type WorkspaceContext } from "./api";
 import { Wardrobe, WardrobeDetail } from "./wardrobe";
@@ -33,7 +33,7 @@ export function Access({ actor, pending, onPending }: Props) {
   });
   const directory = useQuery({
     queryKey: ["access-directory", actor.id],
-    queryFn: ({ signal }) => allPages<Account>("/api/admin/users", undefined, signal),
+    queryFn: ({ signal }) => allPages<Person>("/api/stylists", actor.id, signal),
   });
   const [selected, setSelected] = React.useState("");
   const [confirmGrant, setConfirmGrant] = React.useState(false);
@@ -41,8 +41,7 @@ export function Access({ actor, pending, onPending }: Props) {
   const [failure, setFailure] = React.useState("");
   const [success, setSuccess] = React.useState("");
   const busy = React.useRef(false);
-  const candidates = (directory.data ?? []).filter((person) => person.role === "STYLIST"
-    && person.status === "ACTIVE" && !grants.data?.some((grant) => grant.id === person.id));
+  const candidates = (directory.data ?? []).filter((person) => !grants.data?.some((grant) => grant.id === person.id));
 
   async function change(id: number, method: "PUT" | "DELETE") {
     if (busy.current || pending) return;
@@ -118,9 +117,11 @@ export function Clients({ actor, pending }: Props) {
 }
 
 export function Accounts({ actor, pending }: Props) {
-  const query = useQuery({ queryKey: ["account-directory", actor.id], queryFn: ({ signal }) => allPages<Account>("/api/admin/users", undefined, signal) });
+  const query = useQuery({ queryKey: ["account-directory", actor.id], queryFn: ({ signal }) => allPages<Account>("/api/admin/users", actor.id, signal) });
   return <main className={styles.main}>
     <Intro title="Аккаунты" description="Управление ролями, статусами и модерация содержимого." />
+    <Link className={styles.textButton} to="/accounts/new" aria-disabled={pending}
+      onClick={(event) => { if (pending) event.preventDefault(); }}>Создать аккаунт ↗</Link>
     {query.isLoading && <p className={styles.state}>Загружаем аккаунты…</p>}
     {query.isError && <ReadError error={query.error} retry={() => void query.refetch()} />}
     {query.data?.length === 0 && <p className={styles.state}>Аккаунтов пока нет.</p>}
@@ -131,6 +132,77 @@ export function Accounts({ actor, pending }: Props) {
   </main>;
 }
 
+export function AccountCreator({ actor, pending, onPending }: Props) {
+  const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const [login, setLogin] = React.useState("");
+  const [role, setRole] = React.useState("USER");
+  const [failure, setFailure] = React.useState("");
+  const passwordInput = React.useRef<HTMLInputElement>(null);
+  const busy = React.useRef(false);
+  const mounted = React.useRef(false);
+  React.useEffect(() => {
+    mounted.current = true;
+    const input = passwordInput.current;
+    return () => { mounted.current = false; if (input) input.value = ""; };
+  }, []);
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    if (busy.current || pending) return;
+    const password = passwordInput.current?.value ?? "";
+    if (!login.trim() || login.length > 100 || !password.trim() || password.length < 12 || password.length > 128) {
+      setFailure("Укажите логин до 100 символов и пароль от 12 до 128 символов. Поля не могут состоять только из пробелов.");
+      return;
+    }
+    busy.current = true;
+    onPending(true);
+    setFailure("");
+    try {
+      const saved = await request<AccountDetails>("/api/admin/users", actor.id, {
+        method: "POST", body: JSON.stringify({ login, password, role }),
+      });
+      if (passwordInput.current) passwordInput.current.value = "";
+      if (!mounted.current) return;
+      queryClient.setQueryData(accountKey(actor, saved.id), saved);
+      await queryClient.invalidateQueries({ queryKey: ["account-directory", actor.id] });
+      if (mounted.current) navigate(`/accounts/${saved.id}`);
+    } catch (error) {
+      if (mounted.current) setFailure(error instanceof ApiError && error.status === 409
+        ? "Этот логин уже занят. Укажите другой логин."
+        : resourceErrorMessage(error, true));
+    } finally {
+      if (passwordInput.current) passwordInput.current.value = "";
+      busy.current = false;
+      onPending(false);
+    }
+  }
+
+  return <main className={styles.main}>
+    <Intro title="Создать аккаунт" description="Задайте логин, начальный пароль и роль нового аккаунта." />
+    <Link className={styles.textButton} to="/accounts" aria-disabled={pending}
+      onClick={(event) => { if (pending) event.preventDefault(); }}>← К аккаунтам</Link>
+    <form className={styles.itemForm} onSubmit={(event) => void submit(event)}>
+      <label className={styles.nameField}>ЛОГИН
+        <input required maxLength={100} autoComplete="off" value={login} disabled={pending}
+          onChange={(event) => setLogin(event.target.value)} />
+      </label>
+      <label className={styles.nameField}>ПАРОЛЬ
+        <input ref={passwordInput} required type="password" minLength={12} maxLength={128}
+          autoComplete="new-password" disabled={pending} />
+      </label>
+      <label className={styles.nameField}>РОЛЬ
+        <select value={role} disabled={pending} onChange={(event) => setRole(event.target.value)}>
+          <option value="USER">USER</option><option value="STYLIST">STYLIST</option><option value="ADMIN">ADMIN</option>
+        </select>
+      </label>
+      <button className={styles.create} type="submit" disabled={pending}>Создать аккаунт</button>
+    </form>
+    <p className={styles.muted}>Пароль: от 12 до 128 символов. Пробелы в начале и конце сохраняются.</p>
+    {failure && <p role="alert" className={styles.error}>{failure}</p>}
+  </main>;
+}
+
 export function OwnerWorkspace({ kind, actor, pending, onPending }: Props & { kind: "client" | "admin" }) {
   const { ownerId } = useParams();
   const id = Number(ownerId);
@@ -138,7 +210,7 @@ export function OwnerWorkspace({ kind, actor, pending, onPending }: Props & { ki
   const clients = useQuery({ queryKey: clientsKey(actor), enabled: kind === "client" && valid,
     queryFn: ({ signal }) => allPages<Person>("/api/stylist/clients", actor.id, signal) });
   const account = useQuery({ queryKey: accountKey(actor, id), enabled: kind === "admin" && valid,
-    queryFn: ({ signal }) => request<AccountDetails>(`/api/admin/users/${id}`, undefined, { signal }) });
+    queryFn: ({ signal }) => request<AccountDetails>(`/api/admin/users/${id}`, actor.id, { signal }) });
   const query = kind === "client" ? clients : account;
   const owner = kind === "client" ? clients.data?.find((person) => person.id === id) : account.data;
   const transientError = !(query.error instanceof ApiError) || query.error.status >= 500;
@@ -191,16 +263,21 @@ function AccountEditor({ actor, pending, onPending, owner }: Props & { owner: Ac
   const [success, setSuccess] = React.useState("");
   const [conflict, setConflict] = React.useState(false);
   const [reloading, setReloading] = React.useState(false);
+  const passwordInput = React.useRef<HTMLInputElement>(null);
   const busy = React.useRef(false);
   const ownAccount = actor.id === owner.id;
   const path = `/api/admin/users/${owner.id}`;
+  React.useEffect(() => {
+    const input = passwordInput.current;
+    return () => { if (input) input.value = ""; };
+  }, []);
 
   async function reload() {
     if (busy.current) return;
     busy.current = true;
     setReloading(true);
     try {
-      const fresh = await request<AccountDetails>(path);
+      const fresh = await request<AccountDetails>(path, actor.id);
       setDraft(fresh);
       queryClient.setQueryData(accountKey(actor, owner.id), fresh);
       setConflict(false);
@@ -229,6 +306,37 @@ function AccountEditor({ actor, pending, onPending, owner }: Props & { owner: Ac
       setConflict(error instanceof ApiError && error.status === 409);
     } finally { busy.current = false; onPending(false); }
   }
+  async function submitPassword(event: React.FormEvent) {
+    event.preventDefault();
+    if (busy.current || pending || conflict) return;
+    const password = passwordInput.current?.value ?? "";
+    if (!password.trim() || password.length < 12 || password.length > 128) {
+      setFailure("Укажите пароль от 12 до 128 символов, не состоящий только из пробелов.");
+      setSuccess("");
+      return;
+    }
+    busy.current = true;
+    onPending(true);
+    setFailure("");
+    setSuccess("");
+    try {
+      const saved = await request<AccountDetails>(`${path}/password`, actor.id, {
+        method: "PUT", body: JSON.stringify({ password, version: draft.version }),
+      });
+      if (passwordInput.current) passwordInput.current.value = "";
+      setDraft(saved);
+      queryClient.setQueryData(accountKey(actor, owner.id), saved);
+      await queryClient.invalidateQueries({ queryKey: ["account-directory", actor.id] });
+      setSuccess("Пароль сохранён.");
+    } catch (error) {
+      setFailure(resourceErrorMessage(error, true));
+      setConflict(error instanceof ApiError && error.status === 409);
+    } finally {
+      if (passwordInput.current) passwordInput.current.value = "";
+      busy.current = false;
+      onPending(false);
+    }
+  }
   return <main className={styles.main}>
     <Intro title={owner.login} description={`№${owner.id} · Текущая роль: ${owner.role} · Статус: ${owner.status}`} />
     <p className={styles.muted}>Создан: {new Date(owner.createdAt).toLocaleString("ru-RU")} · Изменён: {new Date(owner.modifiedAt).toLocaleString("ru-RU")}</p>
@@ -246,7 +354,16 @@ function AccountEditor({ actor, pending, onPending, owner }: Props & { owner: Ac
       </label>
       <button className={styles.create} type="submit" disabled={pending || reloading || conflict || ownAccount}>Сохранить роль и статус</button>
     </form>
-    {failure && <p className={styles.error} role="alert">{failure} Значения формы сохранены.</p>}
+    <h2>Задать пароль</h2>
+    <p className={styles.muted}>От 12 до 128 символов. Пробелы в начале и конце сохраняются. После смены пароля сессии не смогут продлеваться; уже выданный доступ действует до истечения срока.</p>
+    <form className={styles.itemForm} onSubmit={(event) => void submitPassword(event)}>
+      <label className={styles.nameField}>НОВЫЙ ПАРОЛЬ
+        <input ref={passwordInput} required type="password" minLength={12} maxLength={128}
+          autoComplete="new-password" disabled={pending || reloading || conflict} />
+      </label>
+      <button className={styles.create} type="submit" disabled={pending || reloading || conflict}>Сохранить пароль</button>
+    </form>
+    {failure && <p className={styles.error} role="alert">{failure}</p>}
     {success && <p className={styles.success} role="status">{success}</p>}
     {conflict && <div className={styles.error}><p>Загрузите актуальные данные: это заменит значения формы.</p>
       <button type="button" disabled={pending || reloading} onClick={() => void reload()}>Обновить данные</button></div>}
