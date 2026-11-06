@@ -1,0 +1,283 @@
+@startuml data
+!pragma layout smetana
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName SansSerif
+skinparam defaultFontSize 14
+skinparam shadowing false
+skinparam classAttributeIconSize 0
+skinparam packageStyle rectangle
+skinparam nodesep 55
+skinparam ranksep 65
+skinparam ArrowColor #52677F
+hide methods
+hide circle
+
+package "account_db · account-service" as account #FFF8E9 {
+  entity "app_user" as user #FFF5DF {
+    * id: bigint <<PK>>
+    --
+    * login: text <<UK>>
+    * password_hash: text
+    * role: USER | STYLIST | ADMIN
+    * status: ACTIVE | BLOCKED
+    * version: bigint
+    * created_at: timestamptz
+    * modified_at: timestamptz
+  }
+  entity "app_user_history" as user_history #FFF5DF {
+    * user_id: bigint <<PK, FK>>
+    * version: bigint <<PK>>
+    --
+    * login: text
+    * role: USER | STYLIST | ADMIN
+    * status: ACTIVE | BLOCKED
+    * modified_at: timestamptz
+    * archived_at: timestamptz
+  }
+  entity "access_grant" as grant #FFF5DF {
+    * owner_id: bigint <<PK, FK>>
+    * stylist_id: bigint <<PK, FK>>
+  }
+  user ||--o{ user_history : user_id
+  user ||--o{ grant : owner_id
+  user ||--o{ grant : stylist_id
+}
+
+package "wardrobe_db · wardrobe-service" as wardrobe #F2F8F5 {
+  entity "capsule" as capsule #F2EDFB {
+    * id : bigint <<PK>>
+    --
+    * owner_id : bigint
+    * name : varchar(300)
+    * source : USER / AI
+    occasion : varchar(300)
+    preferred_style : varchar(300)
+    explanation : varchar(2000)
+    * created_at : timestamptz
+  }
+  entity "capsule_weather" as capsule_weather #E8F5EF {
+    * capsule_id : bigint <<PK, FK>>
+    --
+    * temperature_c : numeric
+    * precipitation_type_id : bigint <<FK>>
+    * wind_speed_mps : numeric
+  }
+  entity "capsule_item" as capsule_item #E8F5EF {
+    * capsule_id : bigint <<PK, FK>>
+    * wardrobe_item_id : bigint <<PK, FK>>
+    --
+    * position : integer
+    UNIQUE(capsule_id, position)
+  }
+  entity "calendar_entry" as calendar_entry #F2EDFB {
+    * id : bigint <<PK>>
+    --
+    * owner_id : bigint
+    * calendar_date : date
+    * outfit_id : bigint <<FK>>
+    * status : PLANNED / WORN
+    * version : bigint
+    * created_at : timestamptz
+    * modified_at : timestamptz
+    UNIQUE(owner_id, calendar_date, outfit_id)
+  }
+  entity "calendar_entry_history" as calendar_history #F2EDFB {
+    * entry_id : bigint <<PK>>
+    * version : bigint <<PK>>
+    --
+    * owner_id : bigint
+    * calendar_date : date
+    * outfit_id : bigint
+    * status : PLANNED / WORN
+    * created_at : timestamptz
+    * modified_at : timestamptz
+    * archived_at : timestamptz
+  }
+  entity "stylist_request" as stylist_request #F2EDFB {
+    * id: bigint <<PK>>
+    --
+    * owner_id: bigint <<account ID>>
+    * stylist_id: bigint <<account ID>>
+    * wishes: varchar(2000)
+    * status: PENDING | CANCELLED | ANSWERED
+    * version: bigint
+    * created_at: timestamptz
+    * modified_at: timestamptz
+  }
+  entity "stylist_request_weather" as request_weather #E8F5EF {
+    * request_id: bigint <<PK, FK>>
+    --
+    * temperature_c: numeric
+    * precipitation_type_id: bigint <<FK>>
+    * wind_speed_mps: numeric
+  }
+  entity "stylist_request_history" as request_history #F2EDFB {
+    * request_id: bigint <<PK, FK>>
+    * version: bigint <<PK>>
+    --
+    * owner_id: bigint <<account ID>>
+    * stylist_id: bigint <<account ID>>
+    * wishes: varchar(2000)
+    * status: PENDING | CANCELLED | ANSWERED
+    * created_at: timestamptz
+    * modified_at: timestamptz
+    * archived_at: timestamptz
+  }
+  entity "stylist_request_answer" as request_answer #F2EDFB {
+    * request_id: bigint <<PK, FK>>
+    --
+    * outfit_id: bigint <<UK, FK>>
+    * created_at: timestamptz
+  }
+  entity "style_preferences" as preferences #E8F5EF {
+    * owner_id: bigint <<PK, account ID>>
+    --
+    * preferred_colors_and_materials: varchar(2000)
+    * avoidances: varchar(2000)
+    * additional_wishes: varchar(2000)
+    * version: bigint
+    * created_at: timestamptz
+    * modified_at: timestamptz
+  }
+  entity "style_preferences_history" as preferences_history #E8F5EF {
+    * owner_id: bigint <<PK, account ID>>
+    * version: bigint <<PK>>
+    --
+    * preferred_colors_and_materials: varchar(2000)
+    * avoidances: varchar(2000)
+    * additional_wishes: varchar(2000)
+    * created_at: timestamptz
+    * modified_at: timestamptz
+    * archived_at: timestamptz
+  }
+  preferences -[hidden]down-> preferences_history
+  entity "idempotency_command" as command #FFF5DF {
+    * id: bigint <<PK>>
+    --
+    * actor_id: bigint <<account ID>>
+    * operation: varchar(40)
+    * command_key: varchar(255)
+    * fingerprint: char(64)
+    * state: RUNNING | SUCCEEDED | FAILED
+    response_json: text
+    response_status: integer
+    * created_at: timestamptz
+    * modified_at: timestamptz
+    --
+    UNIQUE (actor_id, operation, command_key)
+  }
+  entity "wardrobe_category" as category #E8F5EF {
+    * id: bigint <<PK>>
+    --
+    * code: text <<UK>>
+    * name: text
+  }
+  entity "wardrobe_item" as item #F0F6FC {
+    * id: bigint <<PK>>
+    --
+    * owner_id: bigint <<account ID>>
+    * category_id: bigint <<FK>>
+    * name: text
+    * color: text
+    * material: text
+    * availability: AVAILABLE | IN_LAUNDRY | STORED
+    * version: bigint
+    * created_at: timestamptz
+    * modified_at: timestamptz
+  }
+  entity "wardrobe_item_history" as item_history #F0F6FC {
+    * wardrobe_item_id: bigint <<PK>>
+    * version: bigint <<PK>>
+    --
+    * category_id: bigint <<FK>>
+    * name: text
+    * color: text
+    * material: text
+    * availability: AVAILABLE | IN_LAUNDRY | STORED
+    * modified_at: timestamptz
+    * archived_at: timestamptz
+  }
+  entity "wardrobe_item_photo" as photo #E8F5EF {
+    * id: bigint <<PK>>
+    --
+    * wardrobe_item_id: bigint <<FK>>
+    * s3_key: text <<UK>>
+    * content_type: text
+    * size_bytes: bigint
+    * created_at: timestamptz
+  }
+  entity "outfit" as outfit #F0F6FC {
+    * id: bigint <<PK>>
+    --
+    * owner_id: bigint <<account ID>>
+    * author_id: bigint <<account ID>>
+    * source: USER | STYLIST | AI
+    * name: text
+    occasion: varchar(300)
+    preferred_style: varchar(300)
+    explanation: varchar(2000)
+    * created_at: timestamptz
+  }
+  entity "outfit_item" as composition #F0F6FC {
+    * outfit_id: bigint <<PK, FK>>
+    * wardrobe_item_id: bigint <<PK, FK>>
+    --
+    * position: integer
+    --
+    UNIQUE (outfit_id, position)
+  }
+  entity "outfit_weather" as weather #E8F5EF {
+    * outfit_id: bigint <<PK, FK>>
+    --
+    * temperature_c: numeric
+    * precipitation_type_id: bigint <<FK>>
+    * wind_speed_mps: numeric
+  }
+  entity "precipitation_type" as precipitation #E8F5EF {
+    * id: bigint <<PK>>
+    --
+    * code: text <<UK>>
+    * name: text
+  }
+  entity "outfit_rating" as rating #F2EDFB {
+    * outfit_id: bigint <<PK, FK>>
+    * stylist_id: bigint <<PK, account ID>>
+    --
+    * vote: LIKE | DISLIKE
+    * version: bigint
+    * created_at: timestamptz
+    * modified_at: timestamptz
+  }
+  entity "outfit_rating_history" as rating_history #F2EDFB {
+    * outfit_id: bigint <<PK>>
+    * stylist_id: bigint <<PK, account ID>>
+    * version: bigint <<PK>>
+    --
+    * vote: LIKE | DISLIKE
+    * modified_at: timestamptz
+    * archived_at: timestamptz
+  }
+  category ||--o{ item : category_id
+  category ||--o{ item_history : category_id
+  item ||--o{ photo : wardrobe_item_id
+  item ||--o{ composition : wardrobe_item_id
+  outfit ||--|{ composition : outfit_id
+  outfit ||--|| weather : outfit_id
+  precipitation ||--o{ weather : precipitation_type_id
+  stylist_request ||--|| request_weather : request_id
+  stylist_request ||--o{ request_history : request_id
+  stylist_request ||--o| request_answer : request_id
+  outfit ||--o| request_answer : outfit_id
+  outfit -[hidden]right-> stylist_request
+  outfit ||--o{ calendar_entry : outfit_id
+  calendar_entry -[hidden]right-> calendar_history
+  capsule ||--|{ capsule_item : capsule_id
+  capsule ||--o| capsule_weather : capsule_id
+  precipitation ||--o{ capsule_weather : precipitation_type_id
+  item ||--o{ capsule_item : wardrobe_item_id
+  precipitation ||--o{ request_weather : precipitation_type_id
+  outfit ||--o{ rating : outfit_id
+  rating -[hidden]down-> rating_history
+}
+account -[hidden]right-> wardrobe
+@enduml

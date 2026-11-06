@@ -1,12 +1,103 @@
+x-runtime-security: &runtime-security
+  security_opt:
+    - no-new-privileges:true
+
 services:
+  frontend:
+    <<: *runtime-security
+    networks:
+      - backend
+    build:
+      context: ./frontend
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080/app/"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  config-server:
+    <<: *runtime-security
+    networks:
+      - backend
+    build:
+      context: .
+      dockerfile: config-server/Dockerfile
+    environment:
+      SPRING_CLOUD_CONFIG_SERVER_NATIVE_SEARCH_LOCATIONS: "file:/config/{application}/"
+    volumes:
+      - type: bind
+        source: ./config-repository
+        target: /config
+        read_only: true
+        bind:
+          create_host_path: false
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8888/actuator/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  discovery-server:
+    <<: *runtime-security
+    networks:
+      - edge
+      - backend
+    build:
+      context: .
+      dockerfile: discovery-server/Dockerfile
+    environment:
+      CONFIG_SERVER_URL: http://config-server:8888
+    ports:
+      - "127.0.0.1:8761:8761"
+    depends_on:
+      config-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8761/actuator/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api-gateway:
+    <<: *runtime-security
+    networks:
+      - edge
+      - backend
+    build:
+      context: .
+      dockerfile: api-gateway/Dockerfile
+    environment:
+      CONFIG_SERVER_URL: http://config-server:8888
+      EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
+      FRONTEND_URL: http://frontend:8080
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
+    ports:
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
+    depends_on:
+      config-server:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+      frontend:
+        condition: service_healthy
+      app:
+        condition: service_healthy
+      account-service:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/actuator/health/readiness"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   postgres:
+    networks:
+      - wardrobe-data
     image: postgres:18-alpine
     environment:
       POSTGRES_DB: ${DB_NAME:-clothes_advisor}
       POSTGRES_USER: ${DB_USER:-clothes_advisor}
       POSTGRES_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
-    ports:
-      - "127.0.0.1:${DB_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql
     healthcheck:
@@ -16,38 +107,167 @@ services:
       retries: 10
 
   app:
+    <<: *runtime-security
+    networks:
+      - backend
+      - wardrobe-data
+      - egress
     build:
       context: .
+      dockerfile: wardrobe-service/Dockerfile
       args:
         APP_UID: ${APP_UID:?Set APP_UID to the credential owner UID (id -u)}
     environment:
       DB_URL: jdbc:postgresql://postgres:5432/${DB_NAME:-clothes_advisor}
+      EUREKA_INSTANCE_HOSTNAME: app
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "false"
       DB_USER: ${DB_USER:-clothes_advisor}
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
+      CONFIG_SERVER_URL: http://config-server:8888
+      EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
       S3_ENDPOINT: ${S3_ENDPOINT:-https://storage.yandexcloud.net}
       S3_BUCKET: ${S3_BUCKET:?S3_BUCKET must be set}
       YANDEX_SERVICE_ACCOUNT_KEY_FILE: /run/secrets/yandex-service-account-key
-      OPENAI_MODEL: ${OPENAI_MODEL:-}
-      CHATGPT_CREDENTIALS_DIR: /run/chatgpt
-      CHATGPT_TRUST_STORE: ${CHATGPT_TRUST_STORE:-}
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
     secrets:
       - yandex-service-account-key
+    depends_on:
+      config-server:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/actuator/health/readiness"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  account-postgres:
+    networks:
+      - account-data
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: account_db
+      POSTGRES_USER: account
+      POSTGRES_PASSWORD: ${ACCOUNT_DB_PASSWORD:?ACCOUNT_DB_PASSWORD must be set}
+    volumes:
+      - account-postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  account-service:
+    <<: *runtime-security
+    networks:
+      - backend
+      - account-data
+    build:
+      context: .
+      dockerfile: account-service/Dockerfile
+    environment:
+      DB_R2DBC_URL: r2dbc:postgresql://account-postgres:5432/account_db
+      EUREKA_INSTANCE_HOSTNAME: account-service
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "false"
+      DB_URL: jdbc:postgresql://account-postgres:5432/account_db
+      DB_USER: account
+      DB_PASSWORD: ${ACCOUNT_DB_PASSWORD:?ACCOUNT_DB_PASSWORD must be set}
+      CONFIG_SERVER_URL: http://config-server:8888
+      EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
+    depends_on:
+      config-server:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+      account-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/actuator/health/readiness"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  chatgpt-token-refresher:
+    <<: *runtime-security
+    networks:
+      - egress
+    build:
+      context: .
+      dockerfile: chatgpt-token-refresher/Dockerfile
+      args:
+        APP_UID: ${APP_UID:?Set APP_UID to the credential owner UID (id -u)}
+    environment:
+      CHATGPT_TRUST_STORE: ${CHATGPT_TRUST_STORE:-}
     volumes:
       - type: bind
         source: ${CHATGPT_CREDENTIALS_DIR:?Set CHATGPT_CREDENTIALS_DIR to an existing absolute path}
-        target: /run/chatgpt
-        read_only: true
+        target: /run/chatgpt-private
         bind:
           create_host_path: false
-    ports:
-      - "127.0.0.1:${APP_PORT:-8080}:8080"
+      - chatgpt-access:/run/chatgpt
+    stop_grace_period: 30s
+    healthcheck:
+      test: ["CMD", "test", "-f", "/tmp/chatgpt-refresher-ready"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  recommendation-service:
+    <<: *runtime-security
+    networks:
+      - backend
+      - egress
+    build:
+      context: .
+      dockerfile: recommendation-service/Dockerfile
+      args:
+        APP_UID: ${APP_UID:?Set APP_UID to the credential owner UID (id -u)}
+    environment:
+      CONFIG_SERVER_URL: http://config-server:8888
+      EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
+      OPENAI_MODEL: ${OPENAI_MODEL:-}
+      EUREKA_INSTANCE_HOSTNAME: recommendation-service
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "false"
+      CHATGPT_CREDENTIALS_DIR: /run/chatgpt
+      CHATGPT_TRUST_STORE: ${CHATGPT_TRUST_STORE:-}
+    volumes:
+      - type: volume
+        source: chatgpt-access
+        target: /run/chatgpt
+        read_only: true
+        volume:
+          nocopy: true
     depends_on:
-      postgres:
+      chatgpt-token-refresher:
         condition: service_healthy
+      config-server:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/actuator/health/readiness"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+networks:
+  edge:
+  backend:
+    internal: true
+  wardrobe-data:
+    internal: true
+  account-data:
+    internal: true
+  egress:
 
 volumes:
   postgres-data:
+  account-postgres-data:
+  chatgpt-access:
 
 secrets:
   yandex-service-account-key:

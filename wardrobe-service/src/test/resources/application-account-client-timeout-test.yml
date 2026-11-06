@@ -1,0 +1,3 @@
+app:
+  account-client:
+    read-timeout: 200ms

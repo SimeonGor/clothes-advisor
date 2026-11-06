@@ -1,0 +1,103 @@
+package ru.itmo.clothesadvisor.dto.ai
+
+import java.math.BigDecimal
+import org.assertj.core.api.Assertions.assertThat
+import org.junit.jupiter.api.Test
+import tools.jackson.databind.json.JsonMapper
+
+class ItemSelectionDtosTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhotoFixture() {
+    private val mapper = JsonMapper.builder().findAndAddModules().build()
+
+    @Test
+    fun `optional preferences round trip with only three texts`() {
+        // given
+        val request = ItemSelectionRequest(
+            ItemSelectionWeather(BigDecimal.ZERO, BigDecimal.ZERO, "NONE", "None"),
+            emptyList(),
+            stylePreferences = ItemSelectionStylePreferences("  Blue  ", "", "Loose fit"),
+        )
+
+        // when
+        val json = mapper.writeValueAsString(request)
+        val decoded = mapper.readValue(json, ItemSelectionRequest::class.java)
+
+        // then
+        assertThat(decoded).isEqualTo(request)
+        assertThat(mapper.readTree(json).path("stylePreferences").propertyNames().toList())
+            .containsExactlyInAnyOrder("preferredColorsAndMaterials", "avoidances", "additionalWishes")
+        assertThat(json).doesNotContain("ownerId", "version", "createdAt", "modifiedAt")
+    }
+
+    @Test
+    fun `request and ordered response round trip with only recommendation fields`() {
+
+        // given
+        val request =
+            ItemSelectionRequest(
+                ItemSelectionWeather(
+                    BigDecimal("-1.23456789"),
+                    BigDecimal("2.30"),
+                    "RAIN",
+                    "Rain",
+                ),
+                listOf(
+                    ItemSelectionCandidate(
+                        12,
+                        "Jacket",
+                        "OUTERWEAR",
+                        "Outerwear",
+                        "Blue",
+                        "Wool",
+                        "image/png",
+                        image(),
+                    ),
+                ),
+                occasion = "Work",
+                preferredStyle = "Casual",
+            )
+        val response = ItemSelectionResponse(listOf(12, 7), "Подходит для погоды.")
+
+        // when
+        val requestJson = mapper.writeValueAsString(request)
+        val responseJson = mapper.writeValueAsString(response)
+        val decodedRequest = mapper.readerFor(ItemSelectionRequest::class.java)
+            .withAttribute(SelectionPhotos::class.java, selectionPhotos).readValue<ItemSelectionRequest>(requestJson)
+        val decodedResponse = mapper.readValue(responseJson, ItemSelectionResponse::class.java)
+
+        // then
+        assertThat(mapper.writeValueAsString(decodedRequest)).isEqualTo(requestJson)
+        assertThat(decodedResponse).isEqualTo(response)
+        val requestNode = mapper.readTree(requestJson)
+        assertThat(requestNode.propertyNames().toList())
+            .containsExactlyInAnyOrder("weather", "candidates", "occasion", "preferredStyle")
+        assertThat(requestNode.path("occasion").asString()).isEqualTo("Work")
+        assertThat(requestNode.path("preferredStyle").asString()).isEqualTo("Casual")
+        assertThat(requestNode.path("weather").propertyNames().toList())
+            .containsExactlyInAnyOrder(
+                "temperatureC",
+                "windSpeedMps",
+                "precipitationCode",
+                "precipitationName",
+            )
+        assertThat(requestNode.path("weather").path("temperatureC").decimalValue())
+            .isEqualByComparingTo(BigDecimal("-1.23456789"))
+        assertThat(requestNode.path("weather").path("windSpeedMps").decimalValue())
+            .isEqualByComparingTo(BigDecimal("2.30"))
+        val candidateNode = requestNode.path("candidates")[0]
+        assertThat(candidateNode.propertyNames().toList())
+            .containsExactlyInAnyOrder(
+                "itemId",
+                "name",
+                "categoryCode",
+                "categoryName",
+                "color",
+                "material",
+                "contentType",
+                "imageBase64",
+            )
+        assertThat(candidateNode.path("imageBase64").asString()).isEqualTo("AQID")
+        assertThat(requestJson).doesNotContain("photoId", "ownerId", "s3", "precipitationTypeId")
+        assertThat(mapper.readTree(responseJson).path("itemIds").toList().map { it.longValue() })
+            .containsExactly(12, 7)
+    }
+}

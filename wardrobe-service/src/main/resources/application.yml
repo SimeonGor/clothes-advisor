@@ -1,0 +1,51 @@
+server:
+  port: ${APP_PORT:8080}
+
+# The polling locator logs remote URIs/errors; the poller emits sanitized outcomes instead.
+logging:
+  level:
+    org.springframework.cloud.config.client.ConfigServicePropertySourceLocator: "OFF"
+
+app:
+  openai:
+    owner-login: user
+  s3:
+    endpoint: ${S3_ENDPOINT:https://storage.yandexcloud.net}
+    bucket: ${S3_BUCKET:}
+  iam:
+    service-account-key-file: ${YANDEX_SERVICE_ACCOUNT_KEY_FILE:}
+
+spring:
+  application:
+    name: wardrobe-service
+  webflux:
+    multipart:
+      max-disk-usage-per-part: 10000000B
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/clothes_advisor}
+    username: ${DB_USER:clothes_advisor}
+    password: ${DB_PASSWORD}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+  health:
+    config:
+      enabled: false
+
+---
+spring:
+  config:
+    activate:
+      on-profile: "!test"
+    import: "configserver:${CONFIG_SERVER_URL:http://localhost:8888}"
+  cloud:
+    config:
+      fail-fast: true
+      request-connect-timeout: 2000
+      request-read-timeout: 5000
