@@ -1,0 +1,89 @@
+spring:
+  reactor:
+    context-propagation: auto
+  cloud:
+    loadbalancer:
+      retry:
+        enabled: false
+    circuitbreaker:
+      bulkhead:
+        resilience4j:
+          enabled: false
+      resilience4j:
+        disable-thread-pool: true
+
+app:
+  jwt:
+    public-key: ${JWT_PUBLIC_KEY_LOCATION:file:/run/secrets/app-jwt-public-key}
+  account-client:
+    connect-timeout: 2s
+    read-timeout: 5s
+    max-response-size: 1MB
+  recommendation-client:
+    connect-timeout: 5s
+    read-timeout: 90s
+    write-timeout: 30s
+
+resilience4j:
+  circuitbreaker:
+    configs:
+      remote-service:
+        sliding-window-type: COUNT_BASED
+        sliding-window-size: 100
+        minimum-number-of-calls: 100
+        failure-rate-threshold: 50
+        wait-duration-in-open-state: 60s
+        permitted-number-of-calls-in-half-open-state: 10
+    instances:
+      RecommendationClientselectItemSelectionRequest:
+        base-config: remote-service
+        ignore-exception-predicate: ru.itmo.clothesadvisor.client.recommendation.NoSelectionFailurePredicate
+      RecommendationClientselectCapsuleItemSelectionRequest:
+        base-config: remote-service
+        ignore-exception-predicate: ru.itmo.clothesadvisor.client.recommendation.NoSelectionFailurePredicate
+      AccountClientgetUserlong:
+        base-config: remote-service
+        ignore-exception-predicate: ru.itmo.clothesadvisor.client.account.AccountDomainFailurePredicate
+      AccountClientrequireStylistAccesslonglong:
+        base-config: remote-service
+        ignore-exception-predicate: ru.itmo.clothesadvisor.client.account.AccountDomainFailurePredicate
+      AccountClientrequireAdminAccesslonglong:
+        base-config: remote-service
+        ignore-exception-predicate: ru.itmo.clothesadvisor.client.account.AccountDomainFailurePredicate
+
+springdoc:
+  default-produces-media-type: application/json
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+    persist-authorization: false
+    validator-url: ""
+  paths-to-match: /api/**
+  override-with-generic-response: false
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_SERVER_URL:http://localhost:8761/eureka/}
+    healthcheck:
+      enabled: true
+    timeout:
+      connect-timeout: 2000
+      connect-request-timeout: 2000
+      socket-timeout: 5000
+  instance:
+    prefer-ip-address: true
+    health-check-url-path: /actuator/health
+    status-page-url-path: /actuator/health
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics
+  endpoint:
+    health:
+      group:
+        readiness:
+          include: readinessState,db

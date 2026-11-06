@@ -1,0 +1,31 @@
+server:
+  port: 8888
+
+spring:
+  application:
+    name: config-server
+  profiles:
+    active: native
+  cloud:
+    config:
+      server:
+        accept-empty: false
+        native:
+          search-locations: "file:../config-repository/{application}/"
+        health:
+          repositories:
+            wardrobe-service:
+              name: wardrobe-service
+            discovery-server:
+              name: discovery-server
+            api-gateway:
+              name: api-gateway
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never

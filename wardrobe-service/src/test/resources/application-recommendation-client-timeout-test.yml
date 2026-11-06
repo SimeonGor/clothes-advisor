@@ -1,0 +1,11 @@
+app:
+  recommendation-client:
+    read-timeout: 200ms
+
+resilience4j:
+  timelimiter:
+    instances:
+      RecommendationClientselectItemSelectionRequest:
+        timeout-duration: 10s
+      RecommendationClientselectCapsuleItemSelectionRequest:
+        timeout-duration: 10s

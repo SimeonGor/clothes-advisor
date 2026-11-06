@@ -1,0 +1,43 @@
+spring:
+  cloud:
+    config:
+      enabled: false
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration
+      - org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration
+
+eureka:
+  client:
+    enabled: false
+
+---
+spring:
+  config:
+    activate:
+      on-profile: transport-server
+    import: "file:../config-repository/recommendation-service/application.yml"
+  main:
+    web-application-type: reactive
+
+---
+spring:
+  config:
+    activate:
+      on-profile: transport-client
+    import: "file:../config-repository/wardrobe-service/application.yml"
+  main:
+    web-application-type: none
+
+---
+spring:
+  config:
+    activate:
+      on-profile: transport-client
+
+management:
+  endpoint:
+    health:
+      group:
+        readiness:
+          include: readinessState

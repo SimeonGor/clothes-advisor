@@ -1,0 +1,52 @@
+server:
+  port: ${APP_PORT:8080}
+
+app:
+  auth:
+    access-token-ttl: 15m
+    refresh-token-ttl: 7d
+    refresh-cookie-secure: ${AUTH_REFRESH_COOKIE_SECURE:true}
+  jwt:
+    private-key: ${JWT_PRIVATE_KEY_LOCATION:file:/run/secrets/app-jwt-private-key}
+    public-key: ${JWT_PUBLIC_KEY_LOCATION:file:/run/secrets/app-jwt-public-key}
+
+spring:
+  reactor:
+    context-propagation: auto
+
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false
+  paths-to-match: /api/**
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_SERVER_URL:http://localhost:8761/eureka/}
+    healthcheck:
+      enabled: true
+    timeout:
+      connect-timeout: 2000
+      connect-request-timeout: 2000
+      socket-timeout: 5000
+  instance:
+    prefer-ip-address: true
+    health-check-url-path: /actuator/health
+    status-page-url-path: /actuator/health
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics
+  endpoint:
+    health:
+      show-details: never
+      group:
+        readiness:
+          include: readinessState,r2dbc
+  health:
+    config:
+      enabled: false

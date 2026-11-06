@@ -1,6 +1,0 @@
-app:
-  s3:
-    endpoint: http://127.0.0.1:1
-    bucket: test-photos
-  iam:
-    service-account-key-file: /nonexistent/test-service-account-key.json

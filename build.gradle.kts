@@ -1,64 +1,57 @@
+import org.gradle.testing.jacoco.tasks.JacocoReport
+import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
+
 plugins {
-    kotlin("jvm") version "2.3.21"
-    kotlin("plugin.spring") version "2.3.21"
-    id("org.springframework.boot") version "4.1.1"
-    jacoco
+    base
+    kotlin("jvm") version "2.3.21" apply false
+    kotlin("plugin.spring") version "2.3.21" apply false
+    id("org.springframework.boot") version "4.1.1" apply false
 }
 
-group = "ru.itmo"
+// Cross-service tests belong to the repository build, not a standalone service build.
+evaluationDependsOn(":wardrobe-service")
+evaluationDependsOn(":recommendation-service")
 
-version = "0.0.1-SNAPSHOT"
-
-dependencies {
-    implementation(platform("org.springframework.boot:spring-boot-dependencies:4.1.1"))
-    implementation("org.springframework.boot:spring-boot-starter-webmvc")
-    implementation("org.springdoc:springdoc-openapi-starter-webmvc-ui:3.1.1")
-    implementation("org.springframework.boot:spring-boot-starter-actuator")
-    implementation("org.springframework.boot:spring-boot-starter-data-jdbc")
-    implementation("org.springframework.boot:spring-boot-starter-flyway")
-    implementation("org.springframework.boot:spring-boot-starter-validation")
-    implementation("org.jetbrains.kotlin:kotlin-reflect")
-    implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
-    runtimeOnly("org.postgresql:postgresql")
-    runtimeOnly("org.flywaydb:flyway-database-postgresql")
-
-    testImplementation("org.springframework.boot:spring-boot-starter-test")
-    testImplementation("org.testcontainers:testcontainers-junit-jupiter")
-    testImplementation("org.testcontainers:testcontainers-postgresql")
-    testRuntimeOnly("org.junit.platform:junit-platform-launcher")
-}
-
-kotlin {
-    jvmToolchain(25)
-}
-
-tasks.withType<Test> {
-    useJUnitPlatform()
-}
-
-jacoco {
-    toolVersion = "0.8.14"
-}
-
-tasks.jacocoTestReport {
-    dependsOn(tasks.test)
-    reports {
-        xml.required = true
+project(":wardrobe-service") {
+    val sourceSets = extensions.getByType<SourceSetContainer>()
+    val transportTest = sourceSets.create("transportTest")
+    val kotlin = extensions.getByType<KotlinJvmProjectExtension>()
+    kotlin.target.compilations.named("transportTest") {
+        associateWith(kotlin.target.compilations.getByName("main"))
     }
-}
+    configurations[transportTest.implementationConfigurationName]
+        .extendsFrom(configurations.getByName("testImplementation"))
+    configurations[transportTest.runtimeOnlyConfigurationName]
+        .extendsFrom(configurations.getByName("testRuntimeOnly"))
 
-tasks.jacocoTestCoverageVerification {
-    dependsOn(tasks.jacocoTestReport)
-    violationRules {
-        rule {
-            limit {
-                counter = "LINE"
-                minimum = "0.70".toBigDecimal()
-            }
+    val wardrobeMain = sourceSets.named("main")
+    val recommendationMain = project(":recommendation-service")
+        .extensions.getByType<SourceSetContainer>().named("main")
+    transportTest.compileClasspath += wardrobeMain.get().output + recommendationMain.get().output
+    transportTest.runtimeClasspath += wardrobeMain.get().output +
+        recommendationMain.get().output + recommendationMain.get().runtimeClasspath
+
+    val transportTestTask = tasks.register<Test>("transportTest") {
+        description = "Isolated maximum-payload check through production Feign and WebFlux."
+        testClassesDirs = transportTest.output.classesDirs
+        classpath = transportTest.runtimeClasspath
+        maxHeapSize = "512m"
+        inputs.file(layout.projectDirectory.file("../config-repository/recommendation-service/application.yml"))
+    }
+
+    val transportReport = tasks.register<JacocoReport>("jacocoTransportTestReport") {
+        description = "Coverage of wardrobe and recommendation in the transport test."
+        group = "verification"
+        dependsOn(transportTestTask)
+        executionData(transportTestTask.get())
+        sourceSets(wardrobeMain.get(), recommendationMain.get())
+        reports {
+            html.required.set(true)
+            xml.required.set(true)
         }
     }
-}
 
-tasks.check {
-    dependsOn(tasks.jacocoTestCoverageVerification)
+    transportTestTask.configure {
+        finalizedBy(transportReport)
+    }
 }
