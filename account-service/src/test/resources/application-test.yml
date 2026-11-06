@@ -3,7 +3,7 @@ spring:
     config:
       enabled: false
   config:
-    import: "file:../config-repository/account-service/account-service.yml"
+    import: "file:../config-repository/account-service/application.yml"
   r2dbc:
     pool:
       initial-size: 1

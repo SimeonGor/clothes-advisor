@@ -36,7 +36,7 @@ project(":wardrobe-service") {
         testClassesDirs = transportTest.output.classesDirs
         classpath = transportTest.runtimeClasspath
         maxHeapSize = "512m"
-        inputs.file(layout.projectDirectory.file("../config-repository/recommendation-service/recommendation-service.yml"))
+        inputs.file(layout.projectDirectory.file("../config-repository/recommendation-service/application.yml"))
     }
 
     val transportReport = tasks.register<JacocoReport>("jacocoTransportTestReport") {

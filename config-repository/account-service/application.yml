@@ -3,7 +3,7 @@ server:
 
 app:
   auth:
-    access-token-ttl: 60s
+    access-token-ttl: 15m
     refresh-token-ttl: 7d
     refresh-cookie-secure: ${AUTH_REFRESH_COOKIE_SECURE:true}
   jwt:

@@ -134,7 +134,7 @@ Refresh-cookie использует `HttpOnly`, `SameSite=Strict`, host-only,
 браузер передаёт cookie при обновлении сессии. Вход восстанавливается после перезагрузки,
 но по умолчанию через 7 дней с исходного входа потребуется пароль. Повторное обновление срок не продлевает.
 
-Сроки задаются в [центральном YAML account-service](../../config-repository/account-service/account-service.yml):
+Сроки задаются в [центральном YAML account-service](../../config-repository/account-service/application.yml):
 `app.auth.access-token-ttl: 15m` и `app.auth.refresh-token-ttl: 7d`.
 Оба значения обязательны, должны быть положительными и содержать целое число секунд.
 Изменения применяются после перезапуска каждого экземпляра account-service: access TTL

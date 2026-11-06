@@ -14,7 +14,7 @@ class DiscoveryClientConfigurationTests {
     fun `central configuration binds Eureka HTTP timeouts`() {
 
         // given
-        val configuration = FileSystemResource("../config-repository/wardrobe-service/wardrobe-service.yml")
+        val configuration = FileSystemResource("../config-repository/wardrobe-service/application.yml")
         val sources = YamlPropertySourceLoader().load("wardrobe-service", configuration)
         val runner =
             ApplicationContextRunner()

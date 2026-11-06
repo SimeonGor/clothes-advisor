@@ -91,7 +91,7 @@ class OpenAiSelectionClientTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhotoF
             )
         }
         val promptSource = YamlPropertySourceLoader().load(
-            "prompt", FileSystemResource("../config-repository/recommendation-service/recommendation-service.yml"),
+            "prompt", FileSystemResource("../config-repository/recommendation-service/application.yml"),
         ).single()
         val promptPrefix = if (goal == SelectionGoal.OUTFIT) "app.openai.prompt" else "app.openai.capsule-prompt"
         server.createContext("/v1/responses") { exchange ->
@@ -695,12 +695,12 @@ class OpenAiSelectionClientTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhotoF
             timeout,
             SelectionPromptSettings("app.openai.prompt", null, null).apply {
                 apply(YamlPropertySourceLoader().load(
-                    "prompt", FileSystemResource("../config-repository/recommendation-service/recommendation-service.yml"),
+                    "prompt", FileSystemResource("../config-repository/recommendation-service/application.yml"),
                 ).single())
             },
             SelectionPromptSettings("app.openai.capsule-prompt", null, null).apply {
                 apply(YamlPropertySourceLoader().load(
-                    "prompt", FileSystemResource("../config-repository/recommendation-service/recommendation-service.yml"),
+                    "prompt", FileSystemResource("../config-repository/recommendation-service/application.yml"),
                 ).single())
             },
         )

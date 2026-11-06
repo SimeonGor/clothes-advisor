@@ -61,5 +61,5 @@ tasks.jacocoTestReport {
 
 tasks.withType<Test> {
     useJUnitPlatform()
-    inputs.file(layout.projectDirectory.file("../config-repository/wardrobe-service/wardrobe-service.yml"))
+    inputs.file(layout.projectDirectory.file("../config-repository/wardrobe-service/application.yml"))
 }

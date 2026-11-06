@@ -34,7 +34,10 @@ import ru.itmo.clothesadvisor.accountservice.model.user.UserRole
 import ru.itmo.clothesadvisor.accountservice.service.auth.PasswordService
 import ru.itmo.clothesadvisor.accountservice.service.user.UserManagementService
 
-@SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
+@SpringBootTest(
+    webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT,
+    properties = ["springdoc.api-docs.enabled=true"],
+)
 class UserManagementIntegrationTests : PostgresIntegrationTest() {
     @LocalServerPort private var port = 0
     @Autowired private lateinit var management: UserManagementService

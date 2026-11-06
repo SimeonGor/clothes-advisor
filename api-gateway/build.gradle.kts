@@ -30,5 +30,5 @@ kotlin {
 
 tasks.withType<Test> {
     useJUnitPlatform()
-    inputs.file(layout.projectDirectory.file("../config-repository/api-gateway/api-gateway.yml"))
+    inputs.file(layout.projectDirectory.file("../config-repository/api-gateway/application.yml"))
 }
