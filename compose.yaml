@@ -150,6 +150,35 @@ services:
       timeout: 5s
       retries: 10
 
+  file-service:
+    <<: *runtime-security
+    networks:
+      - backend
+      - egress
+    build:
+      context: .
+      dockerfile: file-service/Dockerfile
+      args:
+        APP_UID: ${APP_UID:?Set APP_UID to the credential owner UID (id -u)}
+    environment:
+      CONFIG_SERVER_URL: http://config-server:8888
+      EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
+      EUREKA_INSTANCE_HOSTNAME: file-service
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "false"
+      YANDEX_SERVICE_ACCOUNT_KEY_FILE: /run/secrets/yandex-service-account-key
+    secrets:
+      - yandex-service-account-key
+    depends_on:
+      config-server:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/actuator/health/readiness"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   account-postgres:
     networks:
       - account-data
