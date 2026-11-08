@@ -23,13 +23,15 @@ import org.springframework.test.util.ReflectionTestUtils
 import ru.itmo.clothesadvisor.fileservice.client.iam.IamTokenClient
 import ru.itmo.clothesadvisor.fileservice.client.iam.IamTokenProvider
 import ru.itmo.clothesadvisor.fileservice.config.IamProperties
+import ru.itmo.clothesadvisor.fileservice.config.S3Properties
+import ru.itmo.clothesadvisor.fileservice.service.PhotoUploadService
 import tools.jackson.databind.json.JsonMapper
 
 class FileServiceApplicationTests {
     @TempDir lateinit var directory: Path
 
     @Test
-    fun `startup and health leave IAM idle and shutdown terminates its HTTP client`() {
+    fun `startup and health leave IAM and storage idle and shutdown terminates both clients`() {
 
         // given
         val requests = AtomicInteger()
@@ -45,13 +47,14 @@ class FileServiceApplicationTests {
         try {
 
             // when
-            val iamHttpClient = SpringApplicationBuilder(
+            val (iamHttpClient, s3HttpClient) = SpringApplicationBuilder(
                 FileServiceApplication::class.java,
                 IamObservationConfiguration::class.java,
             ).profiles("test").run(
                 "--server.port=0",
                 "--app.iam.service-account-key-file=$missingKey",
                 "--app.iam.endpoint=http://127.0.0.1:${provider.address.port}/iam/v1/tokens",
+                "--S3_ENDPOINT=http://127.0.0.1:${provider.address.port}",
             ).use { context ->
                 val client = context.getBean(IamTokenClient::class.java)
                 val mapper = context.getBean(JsonMapper::class.java)
@@ -78,16 +81,24 @@ class FileServiceApplicationTests {
                     .isEqualTo("file-service")
                 assertThat(context.getBeansOfType(Clock::class.java)).hasSize(1)
                 assertThat(context.getBeansOfType(IamTokenProvider::class.java)).hasSize(1)
+                assertThat(context.getBeansOfType(PhotoUploadService::class.java)).hasSize(1)
+                val storageProperties = context.getBean(S3Properties::class.java)
+                assertThat(storageProperties.endpoint)
+                    .isEqualTo("http://127.0.0.1:${provider.address.port}")
+                assertThat(storageProperties.bucket).isEqualTo("test-bucket")
                 assertThat(context.getBean(IamProperties::class.java).serviceAccountKeyFile)
                     .isEqualTo(missingKey.toString())
                 verifyNoInteractions(client)
                 assertThat(requests).hasValue(0)
-                (ReflectionTestUtils.getField(client, "httpClient") as HttpClient).also {
-                    assertThat(it.isTerminated).isFalse()
-                }
+                val iam = ReflectionTestUtils.getField(client, "httpClient") as HttpClient
+                val s3 = context.getBean(HttpClient::class.java)
+                assertThat(iam.isTerminated).isFalse()
+                assertThat(s3.isTerminated).isFalse()
+                iam to s3
             }
 
             assertThat(iamHttpClient.isTerminated).isTrue()
+            assertThat(s3HttpClient.isTerminated).isTrue()
             assertThat(requests).hasValue(0)
         } finally {
             provider.stop(0)
