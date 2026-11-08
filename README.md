@@ -34,6 +34,8 @@ cp .env.example .env
 - `YANDEX_SERVICE_ACCOUNT_KEY_FILE` — абсолютный путь к JSON-файлу авторизованного ключа сервисного аккаунта с правами чтения и загрузки объектов в этот бакет. Храните файл вне репозитория и контекста сборки Docker; он должен быть доступен для чтения пользователю `APP_UID`.
 - `DB_PASSWORD` — пароль PostgreSQL гардероба.
 - `ACCOUNT_DB_PASSWORD` — отдельный пароль PostgreSQL аккаунтов. Оба значения из примера подходят только для локального запуска.
+- `FILE_DB_PASSWORD` — отдельный пароль PostgreSQL файлового сервиса.
+- `FILE_WARDROBE_PASSWORD_FILE` и `FILE_RECOMMENDATION_PASSWORD_FILE` — абсолютные пути к файлам с паролями служебных учётных записей `wardrobe-service` и `recommendation-service`. Файлы должны быть доступны пользователю `APP_UID`.
 - `APP_UID` — результат `id -u`; `CHATGPT_CREDENTIALS_DIR` и `OPENAI_MODEL` — настройки [подключения ChatGPT](#ai-подбор).
 - `APP_JWT_PRIVATE_KEY_FILE` и `APP_JWT_PUBLIC_KEY_FILE` — абсолютные пути к ключам JWT, созданным ниже.
 - `APP_BOOTSTRAP_ADMIN_LOGIN` и `APP_BOOTSTRAP_ADMIN_PASSWORD` — первый администратор; пароль от 12 до 128 символов. Значения с `$` в `.env` заключайте в одинарные кавычки. Действующий пароль при повторном запуске не перезаписывается; после настройки эти две переменные можно убрать.
@@ -47,7 +49,18 @@ python3 infra/kafka/prepare.py --secrets-dir "$HOME/.config/clothes-advisor/kafk
 
 Родительский каталог должен существовать. Повторная команда проверяет имеющиеся файлы и не меняет пароли или cluster ID. Добавьте полученный абсолютный путь в `.env`. Kafka включена в общий Compose: три брокера, семь топиков, TLS/SCRAM и права по сервисам. Подключение бизнес-сервисов к очередям относится к следующим этапам ЛР4. [Запуск Kafka отдельно и диагностика](docs/lab4/kafka.md).
 
-Создайте ключи один раз вне репозитория. Повторно выполнять генерацию при обновлении приложения не нужно:
+Для внутреннего файлового API создайте два пароля. Запишите пути к файлам в `.env`.
+
+```shell
+(
+  umask 077
+  cd "$HOME/.config/clothes-advisor" || exit 1
+  test -e file-wardrobe-password || openssl rand -hex 32 > file-wardrobe-password
+  test -e file-recommendation-password || openssl rand -hex 32 > file-recommendation-password
+)
+```
+
+Создайте ключи JWT один раз вне репозитория.
 
 ```shell
 mkdir -p "$HOME/.config/clothes-advisor"

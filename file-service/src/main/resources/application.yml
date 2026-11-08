@@ -1,4 +1,7 @@
 app:
+  auth:
+    wardrobe-password-file: /run/secrets/file-wardrobe-password
+    recommendation-password-file: /run/secrets/file-recommendation-password
   iam:
     service-account-key-file: ${YANDEX_SERVICE_ACCOUNT_KEY_FILE:}
 

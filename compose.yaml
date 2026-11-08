@@ -191,6 +191,8 @@ services:
       YANDEX_SERVICE_ACCOUNT_KEY_FILE: /run/secrets/yandex-service-account-key
     secrets:
       - yandex-service-account-key
+      - file-wardrobe-password
+      - file-recommendation-password
     depends_on:
       file-postgres:
         condition: service_healthy
@@ -341,6 +343,10 @@ volumes:
   chatgpt-access:
 
 secrets:
+  file-wardrobe-password:
+    file: ${FILE_WARDROBE_PASSWORD_FILE:?Set FILE_WARDROBE_PASSWORD_FILE to a private file path}
+  file-recommendation-password:
+    file: ${FILE_RECOMMENDATION_PASSWORD_FILE:?Set FILE_RECOMMENDATION_PASSWORD_FILE to a private file path}
   app-jwt-private-key:
     file: ${APP_JWT_PRIVATE_KEY_FILE:?Set APP_JWT_PRIVATE_KEY_FILE to an absolute PEM file path outside the repository}
   app-jwt-public-key:
