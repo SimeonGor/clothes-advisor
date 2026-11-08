@@ -25,7 +25,7 @@
 | recommendation.recommendation_request | PK (request_month, request_id); owner_id, input_version, input JSONB, goal, state, prompt_text/version, model, result JSONB либо error_code, result_event_id, completed_at, start_deadline, applied_at, reviewed_at, version и даты. |
 | recommendation.ai_execution_slot | connection_id PK; state FREE/RUNNING/PAUSED, execution_id, mode SYNC/ASYNC, phase PREPARING/CALL_STARTED, nullable request_month/request_id, started_at, modified_at. Координация обоих путей между репликами. |
 | recommendation.request_retention | Одна запись политики: closed_before_month; барьер закрытых периодов сохраняется после удаления партиций. |
-| file.file_object | UUID file_id PK, owner_id, уникальный object_key, content_type, size_bytes, created_at. Содержимое по file_id не меняется. |
+| file.file_object | UUID file_id PK, уникальный object_key, content_type, size_bytes, created_at. Содержимое по file_id неизменяемо. |
 | notification.notification | id PK, source_event_id, recipient_id, type, message, resource_type/resource_id, created_at, read_at; UNIQUE(source_event_id, recipient_id). |
 
 У recommendation состояния RECEIVED/RUNNING/SUCCEEDED/FAILED/UNKNOWN описывают выполнение провайдера. SUCCEEDED здесь ещё не означает сохранение образа. `applied_at` выставляется после AiJobFinalized от wardrobe; UNKNOWN требует также ручной отметки reviewed_at перед очисткой. Промпт/модель до первого исполнения отсутствуют и затем фиксируются. version используется для конкуренции, а не сравнение timestamps.
@@ -38,7 +38,7 @@ ER показывает новые структуры и необходимые 
 
 ## Файлы
 
-Wardrobe сохраняет связь photoId → вещь и бизнес-проверки. File-service владеет fileId → неизменяемый S3 object key и техническими метаданными. Это разные ID. В wardrobe остаётся неизменяемая проекция content_type/size_bytes из успешного ответа file-service: список фото не скачивает байты и сохраняет прежний HTTP-контракт. На этапе интеграции импортируется соответствие существующих s3_key к file_id; сохраняются байты и публичные photoId. Изменение ссылки wardrobe_item_photo на file_id оформляется новой миграцией, не переписыванием истории миграций.
+Wardrobe определяет владельца фотографии по связи `photoId` с вещью гардероба. В `file_db` идентификатор `fileId` связывает файл с неизменяемым ключом S3 и техническими метаданными. Таблицу создаёт [миграция file-service](../../file-service/src/main/resources/db/migration/V1__create_file_object.sql). В этапе 05 wardrobe сохранит `content_type` и `size_bytes` из ответа файлового API для списка фотографий и свяжет существующие `s3_key` с `file_id`, сохранив байты и публичные `photoId`.
 
 Политика удаления прежняя: удаление фото-метаданных не удаляет объект S3. Очистка старых recommendation_request также не удаляет фотографии. Повторный upload при неопределённом исходе и автоматическое удаление объектов без метаданных в объём не входят.
 
