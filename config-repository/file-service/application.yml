@@ -31,6 +31,9 @@ management:
       show-details: never
       probes:
         enabled: true
+      group:
+        readiness:
+          include: readinessState,r2dbc
   health:
     config:
       enabled: false

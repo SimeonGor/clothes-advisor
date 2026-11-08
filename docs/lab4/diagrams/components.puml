@@ -43,8 +43,8 @@ wardrobe <--> kafka : события гардероба / заданий\nзап
 kafka --> notify : события
 kafka <--> rec : команды / результаты\nподтверждения
 rec --> rdb
-wardrobe --> files : PUT / GET
-rec --> files : GET файлов задания
+wardrobe --> files : PUT / GET по fileId
+rec --> files : GET по fileId
 rec ..> wardrobe : проверка перед AI
 wardrobe ..> rec : legacy sync HTTP
 files --> fdb

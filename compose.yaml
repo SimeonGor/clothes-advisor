@@ -150,17 +150,38 @@ services:
       timeout: 5s
       retries: 10
 
+  file-postgres:
+    networks:
+      - file-data
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: file_db
+      POSTGRES_USER: file_service
+      POSTGRES_PASSWORD: ${FILE_DB_PASSWORD:?FILE_DB_PASSWORD must be set}
+    volumes:
+      - file-postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   file-service:
     <<: *runtime-security
     networks:
       - backend
       - egress
+      - file-data
     build:
       context: .
       dockerfile: file-service/Dockerfile
       args:
         APP_UID: ${APP_UID:?Set APP_UID to the credential owner UID (id -u)}
     environment:
+      DB_R2DBC_URL: r2dbc:postgresql://file-postgres:5432/file_db
+      DB_URL: jdbc:postgresql://file-postgres:5432/file_db
+      DB_USER: file_service
+      DB_PASSWORD: ${FILE_DB_PASSWORD:?FILE_DB_PASSWORD must be set}
       CONFIG_SERVER_URL: http://config-server:8888
       EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
       EUREKA_INSTANCE_HOSTNAME: file-service
@@ -170,7 +191,11 @@ services:
       YANDEX_SERVICE_ACCOUNT_KEY_FILE: /run/secrets/yandex-service-account-key
     secrets:
       - yandex-service-account-key
+      - file-wardrobe-password
+      - file-recommendation-password
     depends_on:
+      file-postgres:
+        condition: service_healthy
       config-server:
         condition: service_healthy
       discovery-server:
@@ -307,14 +332,21 @@ networks:
     internal: true
   account-data:
     internal: true
+  file-data:
+    internal: true
   egress:
 
 volumes:
   postgres-data:
   account-postgres-data:
+  file-postgres-data:
   chatgpt-access:
 
 secrets:
+  file-wardrobe-password:
+    file: ${FILE_WARDROBE_PASSWORD_FILE:?Set FILE_WARDROBE_PASSWORD_FILE to a private file path}
+  file-recommendation-password:
+    file: ${FILE_RECOMMENDATION_PASSWORD_FILE:?Set FILE_RECOMMENDATION_PASSWORD_FILE to a private file path}
   app-jwt-private-key:
     file: ${APP_JWT_PRIVATE_KEY_FILE:?Set APP_JWT_PRIVATE_KEY_FILE to an absolute PEM file path outside the repository}
   app-jwt-public-key:

@@ -118,7 +118,6 @@ package "file_db" #EDF4FB {
   entity "file_object" as file {
     * file_id : UUID <<PK>>
     --
-    * owner_id : BIGINT
     * object_key : TEXT <<UK>>
     * content_type : TEXT
     * size_bytes : BIGINT

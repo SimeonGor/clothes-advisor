@@ -29,7 +29,7 @@ k -> r : requestMonth / requestId / input
 r -> rd : INSERT нового input\nДубли здесь не исполняются повторно
 r --> k : ack после commit
 r -> rd : Claim job + общий слот; снимок промпта
-r -> f : GET фото своего задания
+r -> f : GET /api/files/{fileId}\nID из сохранённого задания
 f --> r : Неизменяемые байты
 r -> w : POST validate-input
 w -> w : Account: права; БД: кандидаты / фото / deadline
