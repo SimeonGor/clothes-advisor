@@ -5,6 +5,14 @@ app:
 spring:
   application:
     name: file-service
+  r2dbc:
+    url: ${DB_R2DBC_URL:r2dbc:postgresql://localhost:5432/file_db}
+    username: ${DB_USER:file_service}
+    password: ${DB_PASSWORD}
+  flyway:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/file_db}
+    user: ${DB_USER:file_service}
+    password: ${DB_PASSWORD}
 
 ---
 spring:

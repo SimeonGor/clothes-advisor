@@ -51,7 +51,7 @@ class FileServiceApplicationTests {
                 FileServiceApplication::class.java,
                 IamObservationConfiguration::class.java,
             ).profiles("test").run(
-                "--server.port=0",
+                *FileTestEnvironment.arguments(),
                 "--app.iam.service-account-key-file=$missingKey",
                 "--app.iam.endpoint=http://127.0.0.1:${provider.address.port}/iam/v1/tokens",
                 "--S3_ENDPOINT=http://127.0.0.1:${provider.address.port}",
