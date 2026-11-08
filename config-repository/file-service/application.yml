@@ -1,6 +1,11 @@
 server:
   port: ${APP_PORT:8080}
 
+app:
+  s3:
+    endpoint: ${S3_ENDPOINT:https://storage.yandexcloud.net}
+    bucket: ${S3_BUCKET:}
+
 eureka:
   client:
     service-url:
