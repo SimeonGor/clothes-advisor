@@ -1,0 +1,19 @@
+app:
+  iam:
+    service-account-key-file: ${YANDEX_SERVICE_ACCOUNT_KEY_FILE:}
+
+spring:
+  application:
+    name: file-service
+
+---
+spring:
+  config:
+    activate:
+      on-profile: "!test"
+    import: "configserver:${CONFIG_SERVER_URL:http://localhost:8888}"
+  cloud:
+    config:
+      fail-fast: true
+      request-connect-timeout: 2000
+      request-read-timeout: 5000
