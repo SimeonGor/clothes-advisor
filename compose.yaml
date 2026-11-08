@@ -165,6 +165,8 @@ services:
       EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
       EUREKA_INSTANCE_HOSTNAME: file-service
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "false"
+      S3_ENDPOINT: ${S3_ENDPOINT:-https://storage.yandexcloud.net}
+      S3_BUCKET: ${S3_BUCKET:?S3_BUCKET must be set}
       YANDEX_SERVICE_ACCOUNT_KEY_FILE: /run/secrets/yandex-service-account-key
     secrets:
       - yandex-service-account-key

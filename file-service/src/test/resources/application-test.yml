@@ -8,3 +8,6 @@ spring:
 eureka:
   client:
     enabled: false
+
+S3_ENDPOINT: http://127.0.0.1:1
+S3_BUCKET: test-bucket
