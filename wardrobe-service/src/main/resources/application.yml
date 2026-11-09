@@ -9,9 +9,6 @@ logging:
 app:
   openai:
     owner-login: user
-  s3:
-    endpoint: ${S3_ENDPOINT:https://storage.yandexcloud.net}
-    bucket: ${S3_BUCKET:}
   iam:
     service-account-key-file: ${YANDEX_SERVICE_ACCOUNT_KEY_FILE:}
 
