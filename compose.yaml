@@ -137,6 +137,7 @@ services:
     secrets:
       - yandex-service-account-key
       - app-jwt-public-key
+      - file-wardrobe-password
     depends_on:
       config-server:
         condition: service_healthy
