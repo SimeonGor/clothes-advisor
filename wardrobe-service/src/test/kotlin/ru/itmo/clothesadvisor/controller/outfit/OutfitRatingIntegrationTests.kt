@@ -61,7 +61,7 @@ import ru.itmo.clothesadvisor.repository.rating.OutfitRatingRepository
 import ru.itmo.clothesadvisor.service.outfit.OutfitService
 import ru.itmo.clothesadvisor.service.rating.OutfitRatingService
 import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemService
-import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
+import ru.itmo.clothesadvisor.client.file.FileClient
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(TestTimeConfiguration::class)
@@ -74,13 +74,13 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
     @MockitoSpyBean private lateinit var outfitRepository: OutfitRepository
     @MockitoSpyBean private lateinit var ratingRepository: OutfitRatingRepository
     @MockitoSpyBean private lateinit var ratingHistoryRepository: OutfitRatingHistoryRepository
-    @MockitoBean private lateinit var storage: S3PhotoStorage
+    @MockitoBean private lateinit var fileClient: FileClient
     private val client = HttpClient.newHttpClient()
 
     @AfterEach
     fun closeClientAndCheckStorage() {
         client.close()
-        verifyNoInteractions(storage)
+        verifyNoInteractions(fileClient)
     }
 
     @Test

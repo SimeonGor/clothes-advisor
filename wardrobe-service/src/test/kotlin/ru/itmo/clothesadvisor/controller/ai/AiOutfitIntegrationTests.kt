@@ -42,7 +42,9 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate
+import reactor.core.publisher.Mono
 import reactor.core.scheduler.Schedulers
+import ru.itmo.clothesadvisor.client.file.anyFileId
 import ru.itmo.clothesadvisor.client.recommendation.RecommendationClient
 import ru.itmo.clothesadvisor.config.AccountBackedIntegrationTest
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
@@ -70,7 +72,7 @@ import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemPhotoService
 import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemService
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItemAvailability
 import ru.itmo.clothesadvisor.storage.wardrobe.PhotoStorageUnavailableException
-import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
+import ru.itmo.clothesadvisor.client.file.FileClient
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(TestTimeConfiguration::class)
@@ -81,7 +83,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
     @Autowired private lateinit var jdbc: JdbcTemplate
     @Autowired private lateinit var transactionManager: PlatformTransactionManager
     @Autowired private lateinit var meters: MeterRegistry
-    @MockitoBean private lateinit var storage: S3PhotoStorage
+    @MockitoBean private lateinit var fileClient: FileClient
     @MockitoBean private lateinit var provider: RecommendationClient
     @MockitoSpyBean private lateinit var wardrobe: WardrobeItemRepository
     @MockitoSpyBean private lateinit var photos: WardrobeItemPhotoRepository
@@ -91,7 +93,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
     @MockitoSpyBean private lateinit var preferences: StylePreferencesRepository
     private val http = HttpClient.newHttpClient()
     private val providerCalls = AtomicInteger()
-    private val downloaded = mutableListOf<String>()
+    private val downloaded = mutableListOf<UUID>()
     private var onDownload: () -> Unit = {}
     private var select: (ItemSelectionRequest) -> ItemSelectionResponse = { selection ->
         ItemSelectionResponse(selection.candidates.map { it.itemId }.reversed(), "Подходит для погоды.")
@@ -116,12 +118,12 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
                 assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
                 assertThat(Thread.currentThread().name).startsWith("boundedElastic-")
                 assertThat(Schedulers.isInNonBlockingThread()).isFalse()
-                downloaded += call.getArgument<String>(0)
+                downloaded += call.getArgument<UUID>(0)
                 onDownload()
-                byteArrayOf(1, 2, 3)
+                Mono.just(byteArrayOf(1, 2, 3))
             }
-            .`when`(storage)
-            .get(anyString(), anyLong())
+            .`when`(fileClient)
+            .get(anyFileId(), anyString(), anyLong())
         val weather =
             ItemSelectionWeather(BigDecimal.ZERO, BigDecimal.ONE, "", "")
         val selection = ItemSelectionRequest(weather, emptyList())
@@ -198,7 +200,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
                 verify(photos).findFirstByItemIdOrderByIdAsc(itemId)
                 verify(preferences).findByOwnerId(owner.id)
                 verifyNoMoreInteractions(preferences)
-                assertThat(downloaded).containsExactly("photo-$itemId")
+                assertThat(downloaded).containsExactly(firstFileId(itemId))
                 assertThat(providerCalls).hasValue(if (duringDownload) 0 else 1)
                 assertThat(meters.get("wardrobe.ai.active").gauge().value()).isEqualTo(1.0)
                 assertThat(meters.get("wardrobe.ai.rejected").counter().count())
@@ -253,12 +255,12 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         val first = item(owner)
         val second = item(owner)
         val noPhoto = item(owner, false)
-        photo(first, "second-photo")
+        photo(first, UUID.randomUUID())
         item(user())
         select = { request ->
             assertThat(request.candidates.map { it.itemId }).containsExactly(first, second)
             assertThat(request.stylePreferences).isNull()
-            assertThat(downloaded.takeLast(2)).containsExactly("photo-$first", "photo-$second")
+            assertThat(downloaded.takeLast(2)).containsExactly(firstFileId(first), firstFileId(second))
             ItemSelectionResponse(listOf(second, first))
         }
         for (candidates in listOf(null, "null", "[$second,$noPhoto,$first]")) {
@@ -311,12 +313,12 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         }
         assertThat(downloaded)
             .containsExactly(
-                "photo-$first",
-                "photo-$second",
-                "photo-$first",
-                "photo-$second",
-                "photo-$first",
-                "photo-$second",
+                firstFileId(first),
+                firstFileId(second),
+                firstFileId(first),
+                firstFileId(second),
+                firstFileId(first),
+                firstFileId(second),
             )
         assertThat(providerCalls).hasValue(3)
 
@@ -360,7 +362,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         assertThat(replay.statusCode()).isEqualTo(201)
         assertThat(replay.body()).isEqualTo(created.body())
         assertThat(received).containsExactly(ItemSelectionStylePreferences("  Blue  ", "Wool", "Loose fit"))
-        assertThat(downloaded).containsExactly("photo-$itemId")
+        assertThat(downloaded).containsExactly(firstFileId(itemId))
         assertThat(providerCalls).hasValue(1)
         verify(preferences).findByOwnerId(owner.id)
         verifyNoMoreInteractions(preferences)
@@ -486,7 +488,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
             // then
             assertThat(invalidRequestStatus).isEqualTo(400)
         }
-        verifyNoInteractions(storage)
+        verifyNoInteractions(fileClient)
         assertThat(providerCalls).hasValue(0)
         assertNoOutfits(owner)
     }
@@ -577,7 +579,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
                 ),
             )
             .isEqualTo(21)
-        verifyNoInteractions(storage)
+        verifyNoInteractions(fileClient)
         assertThat(providerCalls).hasValue(0)
         assertNoOutfits(owner)
     }
@@ -607,7 +609,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
             // then
             assertThat(deniedActorStatus).isEqualTo(status)
         }
-        verifyNoInteractions(storage)
+        verifyNoInteractions(fileClient)
 
         // when
         val created =
@@ -638,7 +640,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
 
         // then
         assertEmpty(unconnectedAccount, 503)
-        verifyNoInteractions(provider, storage)
+        verifyNoInteractions(provider, fileClient)
         assertNoOutfits(foreign)
     }
 
@@ -656,7 +658,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
 
         // then
         assertEmpty(unavailableProvider, 503)
-        assertThat(downloaded).containsExactly("photo-$id")
+        assertThat(downloaded).containsExactly(firstFileId(id))
         assertThat(providerCalls).hasValue(1)
         assertNoOutfits(owner)
     }
@@ -699,7 +701,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
     }
 
     @Test
-    fun `photo deletion during S3 download conflicts and skips OpenAI`() {
+    fun `photo deletion during file download conflicts and skips OpenAI`() {
 
         // given
         val owner = connectedUser()
@@ -1041,7 +1043,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         assertThat(replay.statusCode()).isEqualTo(201)
         assertThat(replay.body()).isEqualTo(created.body())
         assertThat(providerCalls).hasValue(1)
-        assertThat(downloaded).containsExactly("photo-$added", "photo-$retained")
+        assertThat(downloaded).containsExactly(firstFileId(added), firstFileId(retained))
         verify(preferences).findByOwnerId(owner.id)
         verifyNoMoreInteractions(preferences)
     }
@@ -1072,8 +1074,8 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
 
         // then
         assertThat(accepted.statusCode()).isEqualTo(201)
-        assertThat(downloaded).hasSize(20).doesNotContain("photo-$removed")
-        assertThat(downloaded).doesNotContainAnyElementsOf(unavailable.map { "photo-$it" })
+        assertThat(downloaded).hasSize(20).doesNotContain(firstFileId(removed))
+        assertThat(downloaded).doesNotContainAnyElementsOf(unavailable.map { firstFileId(it) })
         verify(wardrobe).findAvailableOwnedItemsWithPhotosExcluding(owner.id, setOf(removed), 21)
 
         // when
@@ -1287,7 +1289,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
 
         // then
         assertThat(merged.statusCode()).isEqualTo(201)
-        assertThat(downloaded).containsExactly("photo-$retained", "photo-${added.first()}")
+        assertThat(downloaded).containsExactly(firstFileId(retained), firstFileId(added.first()))
 
         // when
         photoService.delete(owner.id, retained, firstPhoto(retained))
@@ -1329,7 +1331,7 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
         assertThat(explicit.statusCode()).isEqualTo(201)
         assertEmpty(forbidden, 404)
         assertEmpty(empty, 400)
-        assertThat(downloaded).containsExactly("photo-$available", "photo-$available")
+        assertThat(downloaded).containsExactly(firstFileId(available), firstFileId(available))
         assertThat(providerCalls).hasValue(2)
     }
 
@@ -1466,19 +1468,21 @@ class AiOutfitIntegrationTests : AccountBackedIntegrationTest() {
     private fun item(owner: AccountUserResponse, withPhoto: Boolean = true): Long {
         val id =
             jdbc.insertItem(owner.id, CreateWardrobeItemRequest("Shirt", 1, "White", "Cotton")).id
-        if (withPhoto) photo(id, "photo-$id")
+        if (withPhoto) photo(id, firstFileId(id))
         return id
     }
 
-    private fun photo(item: Long, key: String): Long =
+    private fun firstFileId(item: Long) = UUID(0, item)
+
+    private fun photo(item: Long, fileId: UUID): Long =
         jdbc.queryForObject(
             """
-        INSERT INTO wardrobe_item_photo (wardrobe_item_id, s3_key, content_type, size_bytes, created_at)
+        INSERT INTO wardrobe_item_photo (wardrobe_item_id, file_id, content_type, size_bytes, created_at)
         VALUES (?, ?, 'image/png', 3, ?) RETURNING id
     """,
             Long::class.java,
             item,
-            key,
+            fileId,
             java.sql.Timestamp.from(TestTimeConfiguration.FIXED_TIME),
         )!!
 

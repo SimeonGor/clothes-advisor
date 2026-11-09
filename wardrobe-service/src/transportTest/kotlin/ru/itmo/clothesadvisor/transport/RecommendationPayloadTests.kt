@@ -8,6 +8,7 @@ import java.util.Base64
 import java.nio.file.Files
 import java.net.InetSocketAddress
 import com.sun.net.httpserver.HttpServer
+import java.util.UUID
 import org.junit.jupiter.api.AfterAll
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
@@ -123,7 +124,7 @@ class RecommendationPayloadTests {
         candidateIds.forEach { id ->
             val photoId = id + 100
             val photo = WardrobeItemPhoto(
-                id, "photo-$id", "image/jpeg", 10_000_000, storedAt,
+                id, UUID.randomUUID(), "image/jpeg", 10_000_000, storedAt,
             ).apply { this.id = photoId }
             `when`(photos.findFirstByItemIdOrderByIdAsc(id)).thenReturn(photo)
             `when`(photos.findByIdAndItemIdAndItemOwnerId(photoId, id, 7)).thenReturn(photo)

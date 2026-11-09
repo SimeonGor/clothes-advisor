@@ -38,7 +38,10 @@ import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.bean.override.mockito.MockitoBean
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
 import org.springframework.transaction.support.TransactionSynchronizationManager
+import reactor.core.publisher.Mono
 import reactor.core.scheduler.Schedulers
+import ru.itmo.clothesadvisor.client.file.anyFileId
+import ru.itmo.clothesadvisor.client.file.confirmedUpload
 import ru.itmo.clothesadvisor.config.AccountBackedIntegrationTest
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
 import ru.itmo.clothesadvisor.config.insertUser
@@ -51,7 +54,7 @@ import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemPhotoRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.service.user.CurrentUserService
 import ru.itmo.clothesadvisor.storage.wardrobe.PhotoStorageUnavailableException
-import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
+import ru.itmo.clothesadvisor.client.file.FileClient
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(TestTimeConfiguration::class)
@@ -61,9 +64,9 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
     @MockitoSpyBean private lateinit var currentUsers: CurrentUserService
     @MockitoSpyBean private lateinit var items: WardrobeItemRepository
     @MockitoSpyBean private lateinit var photos: WardrobeItemPhotoRepository
-    @MockitoBean private lateinit var storage: S3PhotoStorage
+    @MockitoBean private lateinit var fileClient: FileClient
     private val client = HttpClient.newHttpClient()
-    private val objects = ConcurrentHashMap<String, ByteArray>()
+    private val objects = ConcurrentHashMap<UUID, ByteArray>()
     private val png = image("png")
     private val jpeg = image("jpeg")
 
@@ -80,18 +83,18 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
                 assertThat(Thread.currentThread().name).startsWith("boundedElastic-")
                 assertThat(Schedulers.isInNonBlockingThread()).isFalse()
                 objects[call.getArgument(0)] = call.getArgument(2)
-                null
+                confirmedUpload(call)
             }
-            .`when`(storage)
-            .put(anyString(), anyString(), anyArgument(ByteArray::class.java) ?: byteArrayOf())
+            .`when`(fileClient)
+            .put(anyFileId(), anyString(), anyArgument(ByteArray::class.java) ?: byteArrayOf())
         doAnswer { call ->
                 assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
                 assertThat(Thread.currentThread().name).startsWith("boundedElastic-")
                 assertThat(Schedulers.isInNonBlockingThread()).isFalse()
-                objects.getValue(call.getArgument(0))
+                Mono.just(objects.getValue(call.getArgument(0)))
             }
-            .`when`(storage)
-            .get(anyString(), anyLong())
+            .`when`(fileClient)
+            .get(anyFileId(), anyString(), anyLong())
     }
 
     @AfterEach fun closeClient() = client.close()
@@ -112,10 +115,10 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
                 assertThat(Schedulers.isInNonBlockingThread()).isFalse()
                 objects[call.getArgument(0)] = call.getArgument(2)
                 jdbc.update("UPDATE app_user SET status = 'BLOCKED' WHERE id = ?", ownerId)
-                null
+                confirmedUpload(call)
             }
-            .`when`(storage)
-            .put(anyString(), anyString(), anyArgument(ByteArray::class.java) ?: byteArrayOf())
+            .`when`(fileClient)
+            .put(anyFileId(), anyString(), anyArgument(ByteArray::class.java) ?: byteArrayOf())
 
         // when
         val response =
@@ -158,10 +161,10 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
                 assertThat(Thread.currentThread().name).startsWith("boundedElastic-")
                 assertThat(Schedulers.isInNonBlockingThread()).isFalse()
                 jdbc.update("UPDATE app_user SET status = 'BLOCKED' WHERE id = ?", ownerId)
-                objects.getValue(call.getArgument(0))
+                Mono.just(objects.getValue(call.getArgument(0)))
             }
-            .`when`(storage)
-            .get(anyString(), anyLong())
+            .`when`(fileClient)
+            .get(anyFileId(), anyString(), anyLong())
 
         // when
         val response = request("GET", "$ITEMS/$itemId/photos/$photoId/content", actorId)
@@ -193,7 +196,7 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
 
         // then
         assertThat(rejected.statusCode()).isEqualTo(400)
-        verifyNoInteractions(storage)
+        verifyNoInteractions(fileClient)
     }
 
     @Test
@@ -240,6 +243,10 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
             // then
             assertThat(content.statusCode()).isEqualTo(200)
             assertThat(content.body()).isEqualTo(listOf(png, jpeg)[index])
+            val fileId = jdbc.queryForObject(
+                "SELECT file_id FROM wardrobe_item_photo WHERE id = ?", UUID::class.java, number(photo, "id"),
+            )!!
+            verify(fileClient).get(fileId, photo["contentType"].toString(), number(photo, "sizeBytes"))
             assertThat(content.headers().firstValue("Content-Type"))
                 .hasValue(photo["contentType"].toString())
             assertThat(content.headers().firstValue("Cache-Control")).hasValue("no-store")
@@ -449,7 +456,7 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
 
             // then
             assertThat(oversizedBatchStatus).describedAs("chunked=%s", chunked).isEqualTo(413)
-            verifyNoInteractions(storage)
+            verifyNoInteractions(fileClient)
         }
 
         // when
@@ -457,7 +464,7 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
 
         // then
         assertThat(invalidItemStatus).isEqualTo(400)
-        verifyNoInteractions(storage)
+        verifyNoInteractions(fileClient)
 
         // when
         val maximumSizeStatus =
@@ -506,7 +513,7 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
 
         // then
         assertThat(unknownCategoryStatus).isEqualTo(400)
-        verifyNoInteractions(storage)
+        verifyNoInteractions(fileClient)
         assertThat(count("wardrobe_item", "owner_id", owner.id)).isZero()
     }
 
@@ -525,7 +532,7 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
         assertThat(fillCapacityStatus).isEqualTo(201)
 
         // given: only subsequent storage calls are observed
-        clearInvocations(storage)
+        clearInvocations(fileClient)
         repeat(2) {
 
             // when
@@ -534,7 +541,7 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
             // then
             assertThat(rejectedBatchStatus).isEqualTo(409)
         }
-        verifyNoInteractions(storage)
+        verifyNoInteractions(fileClient)
         assertThat(count("wardrobe_item_photo", "wardrobe_item_id", id)).isEqualTo(5)
         assertThat(objects).hasSize(5)
     }
@@ -554,14 +561,14 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
         assertThat(initialBatchStatus).isEqualTo(201)
 
         // given: only subsequent storage calls are observed
-        clearInvocations(storage)
+        clearInvocations(fileClient)
 
         // when
         val overCapacityStatus = multipart(actorId, path, List(3) { png }).statusCode()
 
         // then
         assertThat(overCapacityStatus).isEqualTo(409)
-        verifyNoInteractions(storage)
+        verifyNoInteractions(fileClient)
         assertThat(count("wardrobe_item_photo", "wardrobe_item_id", id)).isEqualTo(3)
         assertThat(objects).hasSize(3)
 
@@ -586,10 +593,10 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
                 assertThat(Schedulers.isInNonBlockingThread()).isFalse()
                 if (objects.isNotEmpty()) throw PhotoStorageUnavailableException()
                 objects[call.getArgument(0)] = call.getArgument(2)
-                null
+                confirmedUpload(call)
             }
-            .`when`(storage)
-            .put(anyString(), anyString(), anyArgument(ByteArray::class.java) ?: byteArrayOf())
+            .`when`(fileClient)
+            .put(anyFileId(), anyString(), anyArgument(ByteArray::class.java) ?: byteArrayOf())
 
         // when
         val failed = multipart(actorId, files = listOf(png, jpeg), item = ITEM)
@@ -619,8 +626,8 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
                 assertThat(Schedulers.isInNonBlockingThread()).isFalse()
                 throw PhotoStorageUnavailableException()
             }
-            .`when`(storage)
-            .get(anyString(), anyLong())
+            .`when`(fileClient)
+            .get(anyFileId(), anyString(), anyLong())
 
         // when
         val download = request("GET", "$ITEMS/$id/photos/$photoId/content", actorId)
@@ -665,17 +672,17 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
                 mockingDetails(photos).mockCreationSettings.defaultAnswer.answer(call)
             }
             .`when`(photos)
-            .create(anyLong(), anyString(), anyString(), anyLong())
+            .create(anyLong(), anyFileId(), anyString(), anyLong())
         doAnswer { call ->
                 assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
                 assertThat(Thread.currentThread().name).startsWith("boundedElastic-")
                 assertThat(Schedulers.isInNonBlockingThread()).isFalse()
-                val key = call.getArgument<String>(0)
+                val key = call.getArgument<UUID>(0)
                 objects[key] = call.getArgument(2)
                 if (objects.size == 2)
                     jdbc.update(
                         """
-                        INSERT INTO wardrobe_item_photo (wardrobe_item_id, s3_key, content_type, size_bytes, created_at)
+                        INSERT INTO wardrobe_item_photo (wardrobe_item_id, file_id, content_type, size_bytes, created_at)
                         VALUES (?, ?, 'image/png', ?, now())
                         """
                             .trimIndent(),
@@ -683,10 +690,10 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
                         key,
                         png.size,
                     )
-                null
+                confirmedUpload(call)
             }
-            .`when`(storage)
-            .put(anyString(), anyString(), anyArgument(ByteArray::class.java) ?: byteArrayOf())
+            .`when`(fileClient)
+            .put(anyFileId(), anyString(), anyArgument(ByteArray::class.java) ?: byteArrayOf())
 
         // when
         val rollbackStatus = multipart(actorId, files = listOf(png, png), item = ITEM).statusCode()
@@ -734,10 +741,10 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
                 assertThat(Schedulers.isInNonBlockingThread()).isFalse()
                 objects[call.getArgument(0)] = call.getArgument(2)
                 uploaded.await(10, TimeUnit.SECONDS)
-                null
+                confirmedUpload(call)
             }
-            .`when`(storage)
-            .put(anyString(), anyString(), anyArgument(ByteArray::class.java) ?: byteArrayOf())
+            .`when`(fileClient)
+            .put(anyFileId(), anyString(), anyArgument(ByteArray::class.java) ?: byteArrayOf())
         Executors.newFixedThreadPool(2).use { executor ->
 
             // when
@@ -774,10 +781,10 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
                 objects[call.getArgument(0)] = call.getArgument(2)
                 entered.countDown()
                 assertThat(release.await(10, TimeUnit.SECONDS)).isTrue()
-                null
+                confirmedUpload(call)
             }
-            .`when`(storage)
-            .put(anyString(), anyString(), anyArgument(ByteArray::class.java) ?: byteArrayOf())
+            .`when`(fileClient)
+            .put(anyFileId(), anyString(), anyArgument(ByteArray::class.java) ?: byteArrayOf())
         Executors.newSingleThreadExecutor().use { executor ->
 
             // when
@@ -823,10 +830,10 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
                     assertThat(Schedulers.isInNonBlockingThread()).isFalse()
                     entered.countDown()
                     assertThat(release.await(10, TimeUnit.SECONDS)).isTrue()
-                    objects.getValue(call.getArgument(0))
+                    Mono.just(objects.getValue(call.getArgument(0)))
                 }
-                .`when`(storage)
-                .get(anyString(), anyLong())
+                .`when`(fileClient)
+                .get(anyFileId(), anyString(), anyLong())
             Executors.newSingleThreadExecutor().use { executor ->
 
                 // when
@@ -870,7 +877,7 @@ class WardrobeItemPhotoIntegrationTests : AccountBackedIntegrationTest() {
         // then
         assertThat(response.statusCode()).isEqualTo(201)
         assertThat(number(objectBody(response), "id")).isPositive()
-        verifyNoInteractions(storage)
+        verifyNoInteractions(fileClient)
     }
 
     private fun user(role: UserRole = UserRole.USER): AccountUserResponse =

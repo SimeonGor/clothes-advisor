@@ -3,6 +3,8 @@ package ru.itmo.clothesadvisor.service.wardrobe
 import org.springframework.stereotype.Service
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionTemplate
+import ru.itmo.clothesadvisor.client.file.FileClient
+import ru.itmo.clothesadvisor.client.file.FileCreated
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemPhotoContent
 import ru.itmo.clothesadvisor.dto.wardrobe.WardrobeItemPhotoResponse
 import ru.itmo.clothesadvisor.model.EntityNotFoundException
@@ -13,7 +15,7 @@ import ru.itmo.clothesadvisor.model.wardrobe.PhotoRequestFailure
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemPhotoRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.service.user.CurrentUserService
-import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
+import ru.itmo.clothesadvisor.storage.wardrobe.PhotoStorageUnavailableException
 import ru.itmo.clothesadvisor.model.idempotency.IdempotencyOperation.ADD_WARDROBE_PHOTOS
 import ru.itmo.clothesadvisor.service.idempotency.IdempotencyService
 import tools.jackson.core.type.TypeReference
@@ -22,7 +24,7 @@ import tools.jackson.core.type.TypeReference
 internal class WardrobeItemPhotoService(
     private val items: WardrobeItemRepository,
     private val photos: WardrobeItemPhotoRepository,
-    private val storage: S3PhotoStorage,
+    private val fileClient: FileClient,
     private val users: CurrentUserService,
     private val idempotency: IdempotencyService,
     transactionManager: PlatformTransactionManager,
@@ -49,10 +51,10 @@ internal class WardrobeItemPhotoService(
             val validatedPhotos = validatePhotos(files, allowEmpty = false)
             checkPhotoCapacity(existingCount, validatedPhotos.size)
 
-            upload(validatedPhotos)
+            val uploaded = upload(validatedPhotos)
 
             users.requireActive(ownerId)
-            completion.commit { saveMetadata(ownerId, itemId, validatedPhotos) }
+            completion.commit { saveMetadata(ownerId, itemId, uploaded) }
         }
     }
 
@@ -70,8 +72,13 @@ internal class WardrobeItemPhotoService(
 
     fun getContent(ownerId: Long, itemId: Long, photoId: Long): WardrobeItemPhotoContent {
         val snapshot = transaction.execute { findOwnedPhoto(ownerId, itemId, photoId) }
-        val bytes = storage.get(snapshot.s3Key, snapshot.sizeBytes)
-        transaction.executeWithoutResult { findOwnedPhoto(ownerId, itemId, photoId) }
+        val bytes = fileClient.get(snapshot.fileId, snapshot.contentType, snapshot.sizeBytes).block()
+            ?: throw PhotoStorageUnavailableException()
+        transaction.executeWithoutResult {
+            if (findOwnedPhoto(ownerId, itemId, photoId).fileId != snapshot.fileId) {
+                throw EntityNotFoundException()
+            }
+        }
 
         return WardrobeItemPhotoContent(snapshot.contentType, bytes)
     }
@@ -96,25 +103,25 @@ internal class WardrobeItemPhotoService(
         }
     }
 
-    fun upload(validatedPhotos: List<ValidatedPhoto>) = validatedPhotos.forEach {
-        storage.put(it.s3Key, it.contentType, it.bytes)
+    fun upload(validatedPhotos: List<ValidatedPhoto>): List<FileCreated> = validatedPhotos.map {
+        fileClient.put(it.fileId, it.contentType, it.bytes).block() ?: throw PhotoStorageUnavailableException()
     }
 
     fun saveMetadata(
         ownerId: Long,
         itemId: Long,
-        validatedPhotos: List<ValidatedPhoto>,
+        uploaded: List<FileCreated>,
     ): List<WardrobeItemPhotoResponse> = transaction.execute {
         val item = items.lockOwned(itemId, ownerId) ?: throw EntityNotFoundException()
-        checkPhotoCapacity(photos.countByItemId(itemId), validatedPhotos.size)
+        checkPhotoCapacity(photos.countByItemId(itemId), uploaded.size)
 
-        validatedPhotos.map {
+        uploaded.map {
             toResponse(
                 photos.create(
                     requireNotNull(item.id),
-                    it.s3Key,
+                    it.fileId,
                     it.contentType,
-                    it.bytes.size.toLong(),
+                    it.sizeBytes,
                 ),
             )
         }
