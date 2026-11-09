@@ -35,6 +35,10 @@ app:
     connect-timeout: 5s
     read-timeout: 90s
     write-timeout: 30s
+  file-client:
+    connect-timeout: 5s
+    write-timeout: 30s
+    read-timeout: 90s
 
 resilience4j:
   circuitbreaker:
