@@ -130,8 +130,6 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
       CONFIG_SERVER_URL: http://config-server:8888
       EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
-      S3_ENDPOINT: ${S3_ENDPOINT:-https://storage.yandexcloud.net}
-      S3_BUCKET: ${S3_BUCKET:?S3_BUCKET must be set}
       YANDEX_SERVICE_ACCOUNT_KEY_FILE: /run/secrets/yandex-service-account-key
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
     secrets:
