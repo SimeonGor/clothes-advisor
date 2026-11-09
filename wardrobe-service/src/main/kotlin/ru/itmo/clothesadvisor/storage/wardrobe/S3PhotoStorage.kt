@@ -186,5 +186,3 @@ internal class S3PhotoStorage(
         var result = "transport"
     }
 }
-
-internal class PhotoStorageUnavailableException : RuntimeException()
