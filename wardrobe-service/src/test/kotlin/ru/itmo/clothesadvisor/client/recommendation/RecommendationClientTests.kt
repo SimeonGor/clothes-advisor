@@ -1,5 +1,6 @@
 package ru.itmo.clothesadvisor.client.recommendation
 
+import java.util.UUID
 import ru.itmo.clothesadvisor.config.idempotencyService
 
 import com.sun.net.httpserver.HttpServer
@@ -466,7 +467,7 @@ class RecommendationClientTests : ru.itmo.clothesadvisor.dto.recommendation.Sele
         val item = WardrobeItem(
             7, WardrobeCategory("TOP", "Top"), "Shirt", "White", "Cotton", storedAt,
         ).apply { id = 7 }
-        val photo = WardrobeItemPhoto(7, "key", "image/png", 3, storedAt).apply { id = 21 }
+        val photo = WardrobeItemPhoto(7, UUID.randomUUID(), "image/png", 3, storedAt).apply { id = 21 }
         `when`(transactions.getTransaction(any())).thenAnswer { SimpleTransactionStatus() }
         `when`(users.requireActive(7)).thenReturn(CurrentUser(7, "user", UserRole.USER))
         `when`(precipitation.findById(1)).thenReturn(PrecipitationType("NONE", "None"))

@@ -9,6 +9,7 @@ import java.net.URI
 import java.net.http.HttpClient
 import java.net.http.HttpRequest
 import java.net.http.HttpResponse
+import java.util.UUID
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
@@ -32,6 +33,9 @@ import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.bean.override.mockito.MockitoBean
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
 import org.springframework.transaction.support.TransactionSynchronizationManager
+import reactor.core.publisher.Mono
+import ru.itmo.clothesadvisor.client.file.anyFileId
+import ru.itmo.clothesadvisor.client.file.confirmedUpload
 import ru.itmo.clothesadvisor.client.recommendation.RecommendationClient
 import ru.itmo.clothesadvisor.config.AccountBackedIntegrationTest
 import ru.itmo.clothesadvisor.config.insertAccessGrant
@@ -45,7 +49,7 @@ import ru.itmo.clothesadvisor.dto.wardrobe.CreateWardrobeItemRequest
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.repository.idempotency.IdempotencyCommandRepository
 import ru.itmo.clothesadvisor.storage.wardrobe.PhotoStorageUnavailableException
-import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
+import ru.itmo.clothesadvisor.client.file.FileClient
 import tools.jackson.databind.json.JsonMapper
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -53,7 +57,7 @@ class IdempotencyIntegrationTests : AccountBackedIntegrationTest() {
     @LocalServerPort private var port: Int = 0
     @Autowired private lateinit var jdbc: JdbcTemplate
     @Autowired private lateinit var mapper: JsonMapper
-    @MockitoBean private lateinit var storage: S3PhotoStorage
+    @MockitoBean private lateinit var fileClient: FileClient
     @MockitoBean private lateinit var provider: RecommendationClient
     @MockitoSpyBean private lateinit var commands: IdempotencyCommandRepository
     private val http = HttpClient.newHttpClient()
@@ -68,16 +72,16 @@ class IdempotencyIntegrationTests : AccountBackedIntegrationTest() {
 
     @BeforeEach
     fun externalStubs() {
-        doAnswer {
+        doAnswer { call ->
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
             uploads.incrementAndGet()
             onUpload()
-            null
-        }.`when`(storage).put(anyString(), anyString(), any(ByteArray::class.java) ?: png)
+            confirmedUpload(call)
+        }.`when`(fileClient).put(anyFileId(), anyString(), any(ByteArray::class.java) ?: png)
         doAnswer {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
-            png
-        }.`when`(storage).get(anyString(), anyLong())
+            Mono.just(png)
+        }.`when`(fileClient).get(anyFileId(), anyString(), anyLong())
         doAnswer { call ->
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
             selections.incrementAndGet()
@@ -93,7 +97,7 @@ class IdempotencyIntegrationTests : AccountBackedIntegrationTest() {
         // given
         val owner = jdbc.insertUser("user", "hash", UserRole.USER).id
         val item = jdbc.insertItem(owner, CreateWardrobeItemRequest("Existing", 1, "White", "Cotton")).id
-        jdbc.update("INSERT INTO wardrobe_item_photo (wardrobe_item_id, s3_key, content_type, size_bytes) VALUES (?, 'fixture', 'image/png', ?)", item, png.size)
+        jdbc.update("INSERT INTO wardrobe_item_photo (wardrobe_item_id, file_id, content_type, size_bytes) VALUES (?, ?, 'image/png', ?)", item, UUID.randomUUID(), png.size)
         val actor = if (flow == "stylist") jdbc.insertUser("stylist", "hash", UserRole.STYLIST).id else owner
         if (flow == "stylist") jdbc.insertAccessGrant(owner, actor)
         val path = when (flow) {
@@ -192,7 +196,7 @@ class IdempotencyIntegrationTests : AccountBackedIntegrationTest() {
         val owner = jdbc.insertUser("user", "hash", UserRole.USER).id
         val items = listOf("Shirt", "Coat").map { name ->
             jdbc.insertItem(owner, CreateWardrobeItemRequest(name, 1, "White", "Cotton")).id.also { item ->
-                jdbc.update("INSERT INTO wardrobe_item_photo (wardrobe_item_id, s3_key, content_type, size_bytes) VALUES (?, ?, 'image/png', ?)", item, "fixture-$item", png.size)
+                jdbc.update("INSERT INTO wardrobe_item_photo (wardrobe_item_id, file_id, content_type, size_bytes) VALUES (?, ?, 'image/png', ?)", item, UUID.randomUUID(), png.size)
             }
         }
         val body = """{"name":"Daily","weather":$weather,"candidateItemIds":[${items.joinToString(",")}],"occasion":"Work","preferredStyle":"Casual"}"""

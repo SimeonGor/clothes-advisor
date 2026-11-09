@@ -33,6 +33,8 @@ import org.springframework.context.annotation.Import
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.bean.override.mockito.MockitoBean
 import org.springframework.transaction.support.TransactionSynchronizationManager
+import reactor.core.publisher.Mono
+import ru.itmo.clothesadvisor.client.file.anyFileId
 import ru.itmo.clothesadvisor.config.AccountBackedIntegrationTest
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
 import ru.itmo.clothesadvisor.config.insertAccessGrant
@@ -43,7 +45,7 @@ import ru.itmo.clothesadvisor.model.access.AccountUnavailableException
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.user.UserStatus
 import ru.itmo.clothesadvisor.storage.wardrobe.PhotoStorageUnavailableException
-import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
+import ru.itmo.clothesadvisor.client.file.FileClient
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(TestTimeConfiguration::class)
@@ -51,7 +53,7 @@ import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
 class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
     @LocalServerPort private var port: Int = 0
     @Autowired private lateinit var jdbc: JdbcTemplate
-    @MockitoBean private lateinit var storage: S3PhotoStorage
+    @MockitoBean private lateinit var fileClient: FileClient
     private val client = HttpClient.newHttpClient()
     private val passwordHash = "!"
     private val photoBytes = byteArrayOf(0, 1, 2, -1, 13, 10)
@@ -60,10 +62,10 @@ class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
     fun storageOutsideTransactions() {
         doAnswer {
                 assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
-                photoBytes
+                Mono.just(photoBytes)
             }
-            .`when`(storage)
-            .get(anyString(), anyLong())
+            .`when`(fileClient)
+            .get(anyFileId(), anyString(), anyLong())
     }
 
     @AfterEach fun closeClient() = client.close()
@@ -134,8 +136,8 @@ class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
 
         // given: storage fails on the next download
         doAnswer { throw PhotoStorageUnavailableException() }
-            .`when`(storage)
-            .get(anyString(), anyLong())
+            .`when`(fileClient)
+            .get(anyFileId(), anyString(), anyLong())
 
         // when
         val unavailable = request("GET", "$base/$item/photos/$photo/content", stylistActorId)
@@ -279,7 +281,7 @@ class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
             // then
             assertNotFound(revokedAccess)
         }
-        verifyNoInteractions(storage)
+        verifyNoInteractions(fileClient)
     }
 
     @Test
@@ -341,7 +343,7 @@ class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
 
         // then
         assertThat(preservedPhotos).hasSize(1)
-        verifyNoInteractions(storage)
+        verifyNoInteractions(fileClient)
     }
 
     @Test
@@ -381,7 +383,7 @@ class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
             // then
             assertNotFound(response)
         }
-        verifyNoInteractions(storage)
+        verifyNoInteractions(fileClient)
     }
 
     @ParameterizedTest
@@ -415,7 +417,7 @@ class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
             assertThat(response.statusCode()).isEqualTo(expected)
             if (expected == 404) assertThat(response.body()).isEmpty()
         }
-        verifyNoInteractions(storage)
+        verifyNoInteractions(fileClient)
         assertThat(grants(owner, stylist)).isEqualTo(1)
 
         // given: the next role or status change
@@ -463,10 +465,10 @@ class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
                 assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
                 entered.countDown()
                 assertThat(release.await(10, TimeUnit.SECONDS)).isTrue()
-                photoBytes
+                Mono.just(photoBytes)
             }
-            .`when`(storage)
-            .get(anyString(), anyLong())
+            .`when`(fileClient)
+            .get(anyFileId(), anyString(), anyLong())
         Executors.newSingleThreadExecutor().use { executor ->
 
             // when
@@ -519,7 +521,7 @@ class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
             assertNotFound(download.get(20, TimeUnit.SECONDS))
         }
         assertThat(grants(owner, stylist)).isEqualTo(if (mutation == "revoke") 0 else 1)
-        clearInvocations(storage)
+        clearInvocations(fileClient)
         if (mutation == "photo-delete" || mutation == "item-delete") {
 
             // when
@@ -532,7 +534,7 @@ class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
 
             // then
             assertNotFound(deletedContent)
-            verifyNoInteractions(storage)
+            verifyNoInteractions(fileClient)
         }
     }
 
@@ -572,7 +574,7 @@ class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
         assertThat(creation.body()).isEmpty()
         assertThat(jdbc.queryForObject("SELECT count(*) FROM outfit", Long::class.java)).isZero()
         assertThat(checks).isEqualTo(if (afterDownload) 3 else 2)
-        verify(storage, times(if (afterDownload) 1 else 0)).get(anyString(), anyLong())
+        verify(fileClient, times(if (afterDownload) 1 else 0)).get(anyFileId(), anyString(), anyLong())
     }
 
     private fun user(
@@ -611,13 +613,13 @@ class StylistWardrobeIntegrationTests : AccountBackedIntegrationTest() {
     private fun photo(itemId: Long): Long =
         jdbc.queryForObject(
             """
-            INSERT INTO wardrobe_item_photo (wardrobe_item_id, s3_key, content_type, size_bytes, created_at)
+            INSERT INTO wardrobe_item_photo (wardrobe_item_id, file_id, content_type, size_bytes, created_at)
             VALUES (?, ?, 'image/png', ?, ?) RETURNING id
             """
                 .trimIndent(),
             Long::class.java,
             itemId,
-            UUID.randomUUID().toString(),
+            UUID.randomUUID(),
             photoBytes.size,
             Timestamp.from(TestTimeConfiguration.FIXED_TIME),
         )!!

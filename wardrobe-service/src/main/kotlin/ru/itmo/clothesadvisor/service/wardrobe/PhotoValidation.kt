@@ -10,7 +10,7 @@ import ru.itmo.clothesadvisor.model.wardrobe.PhotoRequestFailure
 internal const val MAX_PHOTO_BYTES = 10_000_000
 internal const val MAX_ITEM_PHOTOS = 5
 
-internal data class ValidatedPhoto(val s3Key: String, val contentType: String, val bytes: ByteArray)
+internal data class ValidatedPhoto(val fileId: UUID, val contentType: String, val bytes: ByteArray)
 
 internal fun validatePhotos(files: List<ByteArray>, allowEmpty: Boolean): List<ValidatedPhoto> {
     if (files.size > MAX_ITEM_PHOTOS || (!allowEmpty && files.isEmpty())) {
@@ -49,7 +49,7 @@ internal fun validatePhotos(files: List<ByteArray>, allowEmpty: Boolean): List<V
                         reader.dispose()
                     }
                 }
-            ValidatedPhoto(UUID.randomUUID().toString(), contentType, bytes)
+            ValidatedPhoto(UUID.randomUUID(), contentType, bytes)
         } catch (_: IOException) {
             throw PhotoRequestException(PhotoRequestFailure.INVALID_REQUEST)
         }

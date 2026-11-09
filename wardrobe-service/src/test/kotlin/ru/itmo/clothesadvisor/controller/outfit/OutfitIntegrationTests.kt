@@ -50,7 +50,7 @@ import ru.itmo.clothesadvisor.repository.outfit.OutfitRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.service.outfit.OutfitService
 import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemService
-import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
+import ru.itmo.clothesadvisor.client.file.FileClient
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(TestTimeConfiguration::class)
@@ -63,13 +63,13 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
     @Autowired private lateinit var composition: OutfitItemRepository
     @MockitoSpyBean private lateinit var wardrobe: WardrobeItemRepository
     @MockitoSpyBean private lateinit var outfitRepository: OutfitRepository
-    @MockitoBean private lateinit var storage: S3PhotoStorage
+    @MockitoBean private lateinit var fileClient: FileClient
     private val client = HttpClient.newHttpClient()
 
     @AfterEach
     fun closeClientAndCheckStorage() {
         client.close()
-        verifyNoInteractions(storage)
+        verifyNoInteractions(fileClient)
     }
 
     @Test
@@ -624,10 +624,10 @@ class OutfitIntegrationTests : AccountBackedIntegrationTest() {
         val actorId = actorId(owner)
         val item = item(owner)
         jdbc.update(
-            """INSERT INTO wardrobe_item_photo (wardrobe_item_id, s3_key, content_type, size_bytes, created_at)
+            """INSERT INTO wardrobe_item_photo (wardrobe_item_id, file_id, content_type, size_bytes, created_at)
             VALUES (?, ?, 'image/png', 1, ?)""",
             item,
-            UUID.randomUUID().toString(),
+            UUID.randomUUID(),
             java.sql.Timestamp.from(TestTimeConfiguration.FIXED_TIME),
         )
         val outfit = outfits.create(owner.id, input(listOf(item)))
