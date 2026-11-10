@@ -9,8 +9,6 @@ logging:
 app:
   openai:
     owner-login: user
-  iam:
-    service-account-key-file: ${YANDEX_SERVICE_ACCOUNT_KEY_FILE:}
 
 spring:
   application:

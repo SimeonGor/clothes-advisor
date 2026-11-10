@@ -35,7 +35,7 @@ cp .env.example .env
 - `DB_PASSWORD` — пароль PostgreSQL гардероба.
 - `ACCOUNT_DB_PASSWORD` — отдельный пароль PostgreSQL аккаунтов. Оба значения из примера подходят только для локального запуска.
 - `FILE_DB_PASSWORD` — отдельный пароль PostgreSQL файлового сервиса.
-- `FILE_WARDROBE_PASSWORD_FILE` и `FILE_RECOMMENDATION_PASSWORD_FILE` — абсолютные пути к файлам с паролями служебных учётных записей `wardrobe-service` и `recommendation-service`. Файлы должны быть доступны пользователю `APP_UID`.
+- `FILE_WARDROBE_PASSWORD_FILE` и `FILE_RECOMMENDATION_PASSWORD_FILE` — абсолютные пути к файлам с разными паролями служебных учётных записей. Wardrobe обращается к файловому API с паролем из `FILE_WARDROBE_PASSWORD_FILE`. Пользователю `APP_UID` нужен доступ на чтение этих файлов.
 - `APP_UID` — результат `id -u`; `CHATGPT_CREDENTIALS_DIR` и `OPENAI_MODEL` — настройки [подключения ChatGPT](#ai-подбор).
 - `APP_JWT_PRIVATE_KEY_FILE` и `APP_JWT_PUBLIC_KEY_FILE` — абсолютные пути к ключам JWT, созданным ниже.
 - `APP_BOOTSTRAP_ADMIN_LOGIN` и `APP_BOOTSTRAP_ADMIN_PASSWORD` — первый администратор; пароль от 12 до 128 символов. Значения с `$` в `.env` заключайте в одинарные кавычки. Действующий пароль при повторном запуске не перезаписывается; после настройки эти две переменные можно убрать.
@@ -94,7 +94,7 @@ docker compose up --build -d
 
 Миграции не исправляют старые данные автоматически. Если в существующей БД есть названия длиннее 300 символов или логины, цвет и материал длиннее 100, новые ограничения остановят запуск: такие записи нужно сначала проверить и исправить вручную.
 
-File-service загружает и читает фотографии через HTTP API Yandex Object Storage с IAM-токеном. Укажите путь к JSON-файлу авторизованного ключа сервисного аккаунта в `YANDEX_SERVICE_ACCOUNT_KEY_FILE`. Compose монтирует ключ для чтения в `/run/secrets/yandex-service-account-key`. [Аутентификация Object Storage](https://yandex.cloud/ru/docs/storage/api-ref/authentication) · [Создание ключа](https://yandex.cloud/ru/docs/iam/operations/authorized-key/create)
+File-service загружает и читает фотографии через HTTP API Yandex Object Storage с IAM-токеном. Укажите путь к JSON-файлу авторизованного ключа сервисного аккаунта в `YANDEX_SERVICE_ACCOUNT_KEY_FILE`. Compose монтирует этот ключ только в контейнер file-service, для чтения по пути `/run/secrets/yandex-service-account-key`. [Аутентификация Object Storage](https://yandex.cloud/ru/docs/storage/api-ref/authentication) · [Создание ключа](https://yandex.cloud/ru/docs/iam/operations/authorized-key/create)
 
 File-service получает IAM-токен по подписанному JWT при первом обращении к Object Storage и перечитывает ключ при обновлении токена. Если IAM временно недоступен, сервис использует действующий токен и повторяет попытку через 30 секунд. Без действующего токена загрузка и скачивание возвращают 503. Список фотографий wardrobe читает из своей БД.
 
