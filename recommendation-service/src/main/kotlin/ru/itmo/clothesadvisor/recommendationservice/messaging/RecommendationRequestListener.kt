@@ -1,5 +1,6 @@
 package ru.itmo.clothesadvisor.recommendationservice.messaging
 
+import io.micrometer.tracing.Span
 import java.time.Instant
 import java.time.format.DateTimeParseException
 import java.util.UUID
@@ -7,6 +8,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.springframework.context.annotation.Profile
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.stereotype.Component
+import ru.itmo.clothesadvisor.observability.DurableTrace
 import ru.itmo.clothesadvisor.recommendationservice.config.SelectionJsonConfiguration
 import ru.itmo.clothesadvisor.recommendationservice.request.RecommendationRequestStore
 import ru.itmo.clothesadvisor.recommendationservice.request.RecommendationRequested
@@ -19,6 +21,7 @@ import tools.jackson.databind.JsonNode
 internal class RecommendationRequestListener(
     private val store: RecommendationRequestStore,
     private val rejections: DeliveryRejections,
+    private val trace: DurableTrace = DurableTrace.disabled,
 ) {
     private val mapper = SelectionJsonConfiguration.mapper().rebuild()
         .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
@@ -32,9 +35,12 @@ internal class RecommendationRequestListener(
             rejections.record(record, failure.reason).block()
             return
         }
-        store.acceptDelivery(command) { rejection ->
-            rejections.record(record, rejection.name.lowercase())
-        }.block()
+        val parent = DurableTrace.header(record.headers().lastHeader(DurableTrace.HEADER)?.value())
+        trace.child(parent, "ai-selection.requests process", Span.Kind.CONSUMER) { traceparent ->
+            store.acceptDelivery(command, traceparent) { rejection ->
+                rejections.record(record, rejection.name.lowercase())
+            }.block()
+        }
     }
 
     private fun decode(key: String?, bytes: ByteArray?): RecommendationRequested {

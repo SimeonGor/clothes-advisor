@@ -1,5 +1,6 @@
 package ru.itmo.clothesadvisor.notification
 
+import io.micrometer.tracing.Span
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
@@ -18,6 +19,7 @@ import org.springframework.kafka.listener.ContainerProperties
 import org.springframework.kafka.listener.DefaultErrorHandler
 import org.springframework.stereotype.Component
 import org.springframework.util.backoff.FixedBackOff
+import ru.itmo.clothesadvisor.observability.DurableTrace
 
 @Configuration
 @Profile("!test")
@@ -44,7 +46,10 @@ internal class KafkaConfiguration {
 }
 
 @Component
-internal class KafkaEvents(private val events: DomainEvents, private val notifications: Notifications) {
+internal class KafkaEvents(
+    private val events: DomainEvents, private val notifications: Notifications,
+    private val trace: DurableTrace = DurableTrace.disabled,
+) {
     @KafkaListener(topics = [ACCESS, REQUESTS, OUTFITS, RATINGS, JOBS], groupId = "notification-service.events")
     fun consume(record: ConsumerRecord<ByteArray, ByteArray>) {
         val notification = try {
@@ -55,6 +60,9 @@ internal class KafkaEvents(private val events: DomainEvents, private val notific
             return
         }
         // This is a dedicated Kafka listener thread. Returning acknowledges the record.
-        notifications.save(notification).block(Duration.ofSeconds(30))
+        val parent = DurableTrace.header(record.headers().lastHeader(DurableTrace.HEADER)?.value())
+        trace.child(parent, "${record.topic()} notify", Span.Kind.CONSUMER) {
+            notifications.save(notification).block(Duration.ofSeconds(30))
+        }
     }
 }

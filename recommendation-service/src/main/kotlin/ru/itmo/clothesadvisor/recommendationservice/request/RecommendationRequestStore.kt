@@ -10,6 +10,7 @@ import org.springframework.stereotype.Repository
 import org.springframework.transaction.ReactiveTransactionManager
 import org.springframework.transaction.reactive.TransactionalOperator
 import reactor.core.publisher.Mono
+import ru.itmo.clothesadvisor.observability.DurableTrace
 import ru.itmo.clothesadvisor.recommendationservice.config.SelectionJsonConfiguration
 
 internal data class RecommendationFinalization(val id: UUID, val month: LocalDate, val owner: Long, val outcome: String)
@@ -25,8 +26,8 @@ class RecommendationRequestStore(
 
     // The outer transaction keeps the shared retention lock from admission through terminal replay.
     internal fun acceptDelivery(
-        command: RecommendationRequested, onRejected: (RequestAcceptance) -> Mono<Void>,
-    ): Mono<Void> = accept(command).flatMap { decision ->
+        command: RecommendationRequested, traceparent: String? = null, onRejected: (RequestAcceptance) -> Mono<Void>,
+    ): Mono<Void> = accept(command, traceparent).flatMap { decision ->
         when (decision) {
             RequestAcceptance.ACCEPTED -> Mono.empty()
             RequestAcceptance.DUPLICATE -> requestReplay(command)
@@ -67,7 +68,7 @@ class RecommendationRequestStore(
         }
     }
 
-    fun accept(command: RecommendationRequested): Mono<RequestAcceptance> = Mono.defer {
+    fun accept(command: RecommendationRequested, traceparent: String? = DurableTrace.capture()): Mono<RequestAcceptance> = Mono.defer {
         if (command.inputVersion != 1) return@defer Mono.just(RequestAcceptance.UNSUPPORTED_INPUT_VERSION)
         if (!command.validForAdmission()) return@defer Mono.just(RequestAcceptance.INVALID_INPUT)
 
@@ -87,16 +88,16 @@ class RecommendationRequestStore(
             }
         }.one().switchIfEmpty(Mono.error(IllegalStateException("Missing request retention policy")))
             .flatMap { period ->
-                if (period == RequestAcceptance.ACCEPTED) insertOrCompare(command) else Mono.just(period)
+                if (period == RequestAcceptance.ACCEPTED) insertOrCompare(command, traceparent) else Mono.just(period)
             }.let(transaction::transactional)
     }
 
-    private fun insertOrCompare(command: RecommendationRequested): Mono<RequestAcceptance> =
+    private fun insertOrCompare(command: RecommendationRequested, traceparent: String?): Mono<RequestAcceptance> =
         database.sql(
             """
             INSERT INTO recommendation_request
-                (request_month, request_id, owner_id, goal, input_version, accepted_at, start_deadline, input)
-            VALUES (:month, :id, :owner, :goal, :version, :accepted, :deadline, CAST(:input AS jsonb))
+                (request_month, request_id, owner_id, goal, input_version, accepted_at, start_deadline, input, traceparent)
+            VALUES (:month, :id, :owner, :goal, :version, :accepted, :deadline, CAST(:input AS jsonb), :traceparent)
             ON CONFLICT (request_month, request_id) DO NOTHING
             """,
         ).bind("month", command.requestMonth)
@@ -107,6 +108,7 @@ class RecommendationRequestStore(
             .bind("accepted", command.acceptedAt.atOffset(ZoneOffset.UTC))
             .bind("deadline", command.startDeadline.atOffset(ZoneOffset.UTC))
             .bind("input", json.writeValueAsString(command.input))
+            .let { if (traceparent == null) it.bindNull("traceparent", String::class.java) else it.bind("traceparent", traceparent) }
             .fetch().rowsUpdated().flatMap { inserted ->
                 if (inserted == 1L) Mono.just(RequestAcceptance.ACCEPTED) else compareExisting(command)
             }

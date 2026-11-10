@@ -12,6 +12,7 @@ import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.r2dbc.core.DatabaseClient
 import org.springframework.scheduling.annotation.EnableScheduling
+import ru.itmo.clothesadvisor.observability.DurableTrace
 
 @Configuration(proxyBeanMethods = false)
 @EnableScheduling
@@ -25,6 +26,6 @@ internal class AccessOutboxConfiguration {
     }
 
     @Bean
-    fun accessOutboxRelay(database: DatabaseClient, producer: Producer<String, String>) =
-        AccessOutboxRelay(database, producer)
+    fun accessOutboxRelay(database: DatabaseClient, producer: Producer<String, String>, trace: DurableTrace) =
+        AccessOutboxRelay(database, producer, trace)
 }

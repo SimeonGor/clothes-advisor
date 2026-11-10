@@ -92,7 +92,7 @@ internal class AccessGrantServiceTests {
         // given
         `when`(users.findById(1)).thenReturn(Mono.just(user(1, role)))
         `when`(users.findById(2)).thenReturn(Mono.just(user(2, UserRole.STYLIST)))
-        `when`(grants.grant(1, 2)).thenReturn(Mono.just(1), Mono.just(0))
+        `when`(grants.grant(1, 2, null)).thenReturn(Mono.just(1), Mono.just(0))
 
         // when
         val result = service.grant(1, 2)
@@ -102,14 +102,14 @@ internal class AccessGrantServiceTests {
         StepVerifier.create(result).verifyComplete()
         StepVerifier.create(result).verifyComplete()
         verify(users, times(2)).findById(2)
-        verify(grants, times(2)).grant(1, 2)
+        verify(grants, times(2)).grant(1, 2, null)
     }
 
     @Test
     fun `revoke never resolves target and accepts absent grant`() {
         // given
         `when`(users.findById(1)).thenReturn(Mono.just(user(1)))
-        `when`(grants.revoke(1, 2)).thenReturn(Mono.just(1), Mono.just(0))
+        `when`(grants.revoke(1, 2, null)).thenReturn(Mono.just(1), Mono.just(0))
 
         // when
         val result = service.revoke(1, 2)
@@ -118,7 +118,7 @@ internal class AccessGrantServiceTests {
         StepVerifier.create(result).verifyComplete()
         StepVerifier.create(result).verifyComplete()
         verify(users, never()).findById(2)
-        verify(grants, times(2)).revoke(1, 2)
+        verify(grants, times(2)).revoke(1, 2, null)
     }
 
     @Test

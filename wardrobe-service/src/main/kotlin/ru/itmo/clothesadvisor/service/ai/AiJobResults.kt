@@ -31,7 +31,7 @@ internal class AiJobResults(
 ) {
     private val transaction = TransactionTemplate(manager)
 
-    fun apply(event: AiExecutionEvent, onRejected: (String) -> Unit) {
+    fun apply(event: AiExecutionEvent, traceparent: String? = null, onRejected: (String) -> Unit) {
         val authorized = if (event.outcome == "SUCCEEDED" && jobs.isActive(event.id, event.month, event.owner)) {
             validation.authorized(event.owner)
         } else null
@@ -61,7 +61,7 @@ internal class AiJobResults(
                 else -> success(job, event, checkNotNull(authorized))
             }
             if (applied.error == "invalid_ai_response" && event.outcome == "SUCCEEDED") onRejected("invalid_ai_response")
-            jobs.complete(event.id, applied, digest)
+            jobs.complete(event.id, applied, digest, traceparent)
             jobs.enqueueFinalization(event.id)
         }
     }

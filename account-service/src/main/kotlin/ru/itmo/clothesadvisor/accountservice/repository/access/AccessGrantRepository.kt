@@ -30,12 +30,12 @@ internal interface AccessGrantRepository : R2dbcRepository<AccessGrant, AccessGr
             INSERT INTO access_grant (owner_id, stylist_id) VALUES (:ownerId, :stylistId)
             ON CONFLICT (owner_id, stylist_id) DO NOTHING RETURNING owner_id, stylist_id
         )
-        INSERT INTO outbox_event (type, aggregate_id, payload)
+        INSERT INTO outbox_event (type, aggregate_id, payload, traceparent)
         SELECT 'AccessGranted', concat(owner_id, '/', stylist_id),
-            jsonb_build_object('ownerId', owner_id, 'stylistId', stylist_id) FROM changed
+            jsonb_build_object('ownerId', owner_id, 'stylistId', stylist_id), :traceparent FROM changed
         """,
     )
-    fun grant(ownerId: Long, stylistId: Long): Mono<Int>
+    fun grant(ownerId: Long, stylistId: Long, traceparent: String?): Mono<Int>
 
     @Modifying
     @Query(
@@ -44,12 +44,12 @@ internal interface AccessGrantRepository : R2dbcRepository<AccessGrant, AccessGr
             DELETE FROM access_grant WHERE owner_id = :ownerId AND stylist_id = :stylistId
             RETURNING owner_id, stylist_id
         )
-        INSERT INTO outbox_event (type, aggregate_id, payload)
+        INSERT INTO outbox_event (type, aggregate_id, payload, traceparent)
         SELECT 'AccessRevoked', concat(owner_id, '/', stylist_id),
-            jsonb_build_object('ownerId', owner_id, 'stylistId', stylist_id) FROM changed
+            jsonb_build_object('ownerId', owner_id, 'stylistId', stylist_id), :traceparent FROM changed
         """,
     )
-    fun revoke(ownerId: Long, stylistId: Long): Mono<Int>
+    fun revoke(ownerId: Long, stylistId: Long, traceparent: String?): Mono<Int>
 
     @Query(
         """

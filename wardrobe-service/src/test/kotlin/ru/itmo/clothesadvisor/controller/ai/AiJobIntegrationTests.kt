@@ -62,8 +62,12 @@ class AiJobIntegrationTests : AccountBackedIntegrationTest() {
     @Test
     fun `acceptance freezes private and model input and replay returns the original queued receipt`() {
         jdbc.update("INSERT INTO style_preferences (owner_id, preferred_colors_and_materials, version) VALUES (?, 'blue', 1)", owner)
-        val response = call(outfits, body, "once")
+        val traceId = "0123456789abcdef0123456789abcdef"
+        val originalParent = "00-$traceId-1020304050607080-01"
+        val response = call(outfits, body, "once", traceparent = originalParent)
         assertThat(response.statusCode()).isEqualTo(202)
+        val durableParent = value("SELECT traceparent FROM outbox_event")
+        assertThat(durableParent).matches("00-$traceId-[0-9a-f]{16}-01").isNotEqualTo(originalParent)
         val jobId = json(response)["jobId"].asString()
         val path = response.headers().firstValue("Location").orElseThrow()
         assertThat(path).isEqualTo("$jobs/$jobId")
@@ -95,6 +99,7 @@ class AiJobIntegrationTests : AccountBackedIntegrationTest() {
         val replay = call(outfits, body, "once")
         assertThat(replay.statusCode()).isEqualTo(202)
         assertThat(replay.body()).isEqualTo(response.body())
+        assertThat(value("SELECT traceparent FROM outbox_event")).isEqualTo(durableParent)
         assertThat(replay.headers().firstValue("Location")).hasValue(path)
         val status = json(call(path))
         assertThat(status["status"].asString()).isEqualTo("SUCCEEDED")
@@ -265,10 +270,13 @@ class AiJobIntegrationTests : AccountBackedIntegrationTest() {
         return id
     }
 
-    private fun call(path: String, body: String? = null, key: String? = null, actor: Long? = owner): HttpResponse<String> {
+    private fun call(
+        path: String, body: String? = null, key: String? = null, actor: Long? = owner, traceparent: String? = null,
+    ): HttpResponse<String> {
         val request = HttpRequest.newBuilder(URI("http://127.0.0.1:$port$path"))
         if (actor != null) request.header("Authorization", bearer(actor.toString()))
         if (key != null) request.header("Idempotency-Key", key)
+        if (traceparent != null) request.header("traceparent", traceparent)
         if (body != null) request.header("Content-Type", "application/json").POST(HttpRequest.BodyPublishers.ofString(body))
         return http.send(request.build(), HttpResponse.BodyHandlers.ofString())
     }

@@ -1,5 +1,6 @@
 package ru.itmo.clothesadvisor.recommendationservice.execution
 
+import io.micrometer.tracing.Span
 import jakarta.annotation.PostConstruct
 import jakarta.annotation.PreDestroy
 import java.io.IOException
@@ -12,6 +13,7 @@ import ru.itmo.clothesadvisor.client.ai.OpenAiSelectionClient
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionCandidate
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionRequest
 import ru.itmo.clothesadvisor.dto.ai.SelectionPhotos
+import ru.itmo.clothesadvisor.observability.DurableTrace
 import ru.itmo.clothesadvisor.recommendationservice.model.ai.AiSelectionException
 import ru.itmo.clothesadvisor.recommendationservice.model.ai.AiSelectionFailure
 
@@ -21,6 +23,7 @@ internal class ExecutionWorker(
     private val store: ExecutionStore,
     private val inputs: ExecutionInputs,
     private val client: OpenAiSelectionClient,
+    private val trace: DurableTrace = DurableTrace.disabled,
 ) {
     // External calls can occupy this thread for a minute. Outbox and config polling run independently.
     private val polling = Executors.newSingleThreadScheduledExecutor(Thread.ofPlatform().name("ai-worker").factory())
@@ -43,6 +46,14 @@ internal class ExecutionWorker(
     fun tick() {
         store.expireWaiting()
         val job = store.claimAsync() ?: return
+        trace.child(job.traceparent, "ai-selection execute", Span.Kind.CONSUMER) { traceparent ->
+            if (traceparent != null && !store.rememberExecutionTrace(job, traceparent)) return@child
+            log.info("Executing AI selection jobId={}", job.id)
+            execute(job)
+        }
+    }
+
+    private fun execute(job: ExecutionJob) {
         val photos = SelectionPhotos()
         try {
             val candidates = job.input.candidates.map { candidate ->

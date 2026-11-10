@@ -4,6 +4,7 @@ import org.springframework.data.domain.PageRequest
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import reactor.core.publisher.Mono
+import ru.itmo.clothesadvisor.observability.DurableTrace
 import ru.itmo.clothesadvisor.accountservice.dto.access.AccessRecipientResponse
 import ru.itmo.clothesadvisor.accountservice.dto.access.StylistClientResponse
 import ru.itmo.clothesadvisor.accountservice.model.EntityNotFoundException
@@ -26,13 +27,13 @@ internal class AccessGrantService(
             users.findById(stylistId)
                 .filter { it.role == UserRole.STYLIST && it.status == UserStatus.ACTIVE }
                 .switchIfEmpty(Mono.error(EntityNotFoundException("Stylist not found")))
-                .flatMap { grants.grant(ownerId, stylistId) }
+                .flatMap { grants.grant(ownerId, stylistId, DurableTrace.capture()) }
         }.then()
     }
 
     @Transactional
     fun revoke(ownerId: Long, stylistId: Long): Mono<Void> = Mono.defer {
-        currentUser.requireActive(ownerId).flatMap { grants.revoke(ownerId, stylistId) }.then()
+        currentUser.requireActive(ownerId).flatMap { grants.revoke(ownerId, stylistId, DurableTrace.capture()) }.then()
     }
 
     fun listRecipients(ownerId: Long, page: PageRequest): Mono<List<AccessRecipientResponse>> =

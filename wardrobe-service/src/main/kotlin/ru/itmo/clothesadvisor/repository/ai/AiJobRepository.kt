@@ -7,6 +7,7 @@ import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.stereotype.Repository
 import ru.itmo.clothesadvisor.dto.ai.*
 import ru.itmo.clothesadvisor.model.EntityNotFoundException
+import ru.itmo.clothesadvisor.observability.DurableTrace
 import ru.itmo.clothesadvisor.service.ai.AppliedAiJob
 import ru.itmo.clothesadvisor.service.ai.AiJobInput
 import ru.itmo.clothesadvisor.service.ai.AiSelectionGoal
@@ -51,9 +52,10 @@ internal class AiJobRepository(private val jdbc: JdbcTemplate, private val mappe
         )
         jdbc.update(
             """
-            INSERT INTO outbox_event (event_id, type, schema_version, aggregate_id, payload, created_at)
-            VALUES (?, 'RecommendationRequested', 1, ?, ?::jsonb, ?)
+            INSERT INTO outbox_event (event_id, type, schema_version, aggregate_id, payload, created_at, traceparent)
+            VALUES (?, 'RecommendationRequested', 1, ?, ?::jsonb, ?, ?)
             """, UUID.randomUUID(), jobId.toString(), mapper.writeValueAsString(request), java.sql.Timestamp.from(request.acceptedAt),
+            DurableTrace.capture(),
         )
         return JobAccepted(jobId)
     }
@@ -121,11 +123,11 @@ internal class AiJobRepository(private val jdbc: JdbcTemplate, private val mappe
     fun storedDigest(id: UUID): ByteArray? =
         jdbc.queryForObject("SELECT provider_result_digest FROM ai_job WHERE job_id=?", ByteArray::class.java, id)
 
-    fun complete(id: UUID, applied: AppliedAiJob, digest: ByteArray) {
+    fun complete(id: UUID, applied: AppliedAiJob, digest: ByteArray, traceparent: String?) {
         jdbc.update(
             """UPDATE ai_job SET input=NULL, status=?,result_type=?,result_id=?,error_code=?,
-               provider_result_digest=?,version=version+1,modified_at=clock_timestamp() WHERE job_id=?""",
-            applied.status, applied.type, applied.id, applied.error, digest, id,
+               provider_result_digest=?,finalization_traceparent=?,version=version+1,modified_at=clock_timestamp() WHERE job_id=?""",
+            applied.status, applied.type, applied.id, applied.error, digest, traceparent, id,
         )
     }
 
@@ -133,10 +135,10 @@ internal class AiJobRepository(private val jdbc: JdbcTemplate, private val mappe
     fun enqueueFinalization(id: UUID) {
         val eventId = UUID.nameUUIDFromBytes("AiJobFinalized/$id".toByteArray(Charsets.UTF_8))
         jdbc.update(
-            """INSERT INTO outbox_event (event_id,type,schema_version,aggregate_id,payload,created_at)
+            """INSERT INTO outbox_event (event_id,type,schema_version,aggregate_id,payload,created_at,traceparent)
                SELECT ?, 'AiJobFinalized',1,job_id::text,
                  jsonb_build_object('requestId',job_id,'requestMonth',request_month,'ownerId',owner_id,
-                                    'applicationOutcome',status), modified_at
+                                    'applicationOutcome',status), modified_at, finalization_traceparent
                FROM ai_job WHERE job_id=?
                ON CONFLICT(event_id) DO UPDATE SET published_at=NULL, next_attempt_at=clock_timestamp()
                WHERE outbox_event.published_at IS NOT NULL""", eventId, id,

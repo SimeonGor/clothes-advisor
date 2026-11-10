@@ -1,16 +1,22 @@
 package ru.itmo.clothesadvisor.recommendationservice.messaging
 
+import io.micrometer.tracing.Span
 import java.util.UUID
+import org.apache.kafka.clients.producer.ProducerRecord
 import org.slf4j.LoggerFactory
 import org.springframework.context.annotation.Profile
 import org.springframework.kafka.core.KafkaTemplate
 import org.springframework.r2dbc.core.DatabaseClient
 import org.springframework.scheduling.annotation.Scheduled
 import org.springframework.stereotype.Component
+import ru.itmo.clothesadvisor.observability.DurableTrace
 
 @Component
 @Profile("kafka")
-class ExecutionOutboxRelay(private val database: DatabaseClient, private val kafka: KafkaTemplate<String, String>) {
+class ExecutionOutboxRelay(
+    private val database: DatabaseClient, private val kafka: KafkaTemplate<String, String>,
+    private val trace: DurableTrace = DurableTrace.disabled,
+) {
     private val logger = LoggerFactory.getLogger(javaClass)
 
     @Scheduled(fixedDelay = 250)
@@ -20,12 +26,17 @@ class ExecutionOutboxRelay(private val database: DatabaseClient, private val kaf
                 row.get("event_id", UUID::class.java)!!, row.get("type", String::class.java)!!,
                 row.get("aggregate_id", String::class.java)!!, row.get("attempts", Int::class.javaObjectType)!!,
                 row.get("request_month", String::class.java), row.get("envelope", String::class.java)!!,
+                row.get("traceparent", String::class.java),
             )
         }.one().block() ?: return
         try {
             check(event.type == "RecommendationStarted" || event.type == "RecommendationFinished")
             val key = "${requireNotNull(event.month)}/${event.aggregateId}"
-            kafka.send("ai-selection.execution-events", key, event.envelope).get()
+            trace.child(event.traceparent, "ai-selection.execution-events publish", Span.Kind.PRODUCER) { parent ->
+                val record = ProducerRecord("ai-selection.execution-events", key, event.envelope)
+                parent?.let { record.headers().add(DurableTrace.HEADER, it.toByteArray(Charsets.US_ASCII)) }
+                kafka.send(record).get()
+            }
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
             return
@@ -43,6 +54,7 @@ class ExecutionOutboxRelay(private val database: DatabaseClient, private val kaf
 
     private data class Event(
         val id: UUID, val type: String, val aggregateId: String, val attempts: Int, val month: String?, val envelope: String,
+        val traceparent: String?,
     )
 
     private companion object {
@@ -57,6 +69,10 @@ class ExecutionOutboxRelay(private val database: DatabaseClient, private val kaf
             SET attempts = attempts + 1, next_attempt_at = clock_timestamp() + interval '60 seconds'
             FROM due WHERE e.event_id = due.event_id
             RETURNING e.event_id, e.type, e.aggregate_id, e.attempts, e.payload->>'requestMonth' AS request_month,
+                CASE WHEN pg_input_is_valid(e.payload->>'requestMonth', 'date') AND pg_input_is_valid(e.aggregate_id, 'uuid')
+                     THEN (SELECT coalesce(r.execution_traceparent, r.traceparent) FROM recommendation_request r
+                           WHERE r.request_month = (e.payload->>'requestMonth')::date AND r.request_id = e.aggregate_id::uuid)
+                END AS traceparent,
                 jsonb_build_object(
                     'eventId', e.event_id, 'eventType', e.type, 'schemaVersion', e.schema_version,
                     'aggregateId', e.aggregate_id,
