@@ -1,164 +1,114 @@
 @startuml data
 !pragma layout smetana
-skinparam backgroundColor #FFFFFF
+skinparam backgroundColor white
 skinparam defaultFontName SansSerif
-skinparam defaultFontSize 13
 skinparam shadowing false
 skinparam packageStyle rectangle
-skinparam nodesep 40
-skinparam ranksep 45
+skinparam nodesep 35
+skinparam ranksep 40
 hide circle
-package "wardrobe_db" #E9F5EF {
+
+package "Wardrobe" #E5F3EB {
   entity "ai_job" as job {
-    * job_id : UUID <<PK>>
+    * job_id : uuid <<PK>>
     --
-    * owner_id : BIGINT
-    * request_month : DATE
-    * type : TEXT
-    * status : TEXT
-    input : JSONB
-    result_type : TEXT
-    result_id : BIGINT
-    error_code : TEXT
-    * start_deadline : TIMESTAMPTZ
-    * version : BIGINT
-    * created_at : TIMESTAMPTZ
-    * modified_at : TIMESTAMPTZ
+    * owner_id : bigint
+    * request_month : date
+    * status : text
+    input : jsonb
+    result_id : bigint
+    provider_result_digest : bytea
   }
-  entity "idempotency_command\nсуществующая, без изменений" as idem {
-    * id : BIGINT <<PK>>
+  entity "idempotency_command" as idem {
+    * id : bigint <<PK>>
     --
-    * actor_id : BIGINT <<UK1>>
-    * operation : VARCHAR(40) <<UK1>>
-    * command_key : VARCHAR(255) <<UK1>>
-    * fingerprint : CHAR(64)
-    * state : TEXT
-    response_json : TEXT
-    response_status : INTEGER
-    * created_at : TIMESTAMPTZ
-    * modified_at : TIMESTAMPTZ
+    * actor_id, operation, command_key <<UNIQUE>>
+    * fingerprint : char(64)
+    response_status : integer
+    response_json : text
   }
   entity "outbox_event" as wo {
-    * event_id : UUID <<PK>>
+    * event_id : uuid <<PK>>
     --
-    * aggregate_id : TEXT
-    * type : TEXT
-    * schema_version : INTEGER
-    * payload : JSONB
-    * created_at : TIMESTAMPTZ
-    published_at : TIMESTAMPTZ
-    next_attempt_at : TIMESTAMPTZ
-    * attempts : INTEGER
+    * type, aggregate_id : text
+    * payload : jsonb
+    published_at : timestamptz
   }
-  entity "wardrobe_item_photo\nцелевая ссылка на файл" as photo {
-    * id : BIGINT <<PK>>
+  entity "wardrobe_item_photo" as photo {
+    * id : bigint <<PK>>
     --
-    * wardrobe_item_id : BIGINT <<FK>>
-    * file_id : UUID <<ID>>
-    * content_type : TEXT
-    * size_bytes : BIGINT
-    * created_at : TIMESTAMPTZ
+    * wardrobe_item_id : bigint <<FK>>
+    * file_id : uuid <<UNIQUE>>
   }
 }
-package "recommendation_db" #F2EDFB {
-  entity "recommendation_request\nмесячные UTC-партиции" as request {
-    * request_month : DATE <<PK>>
-    * request_id : UUID <<PK>>
+package "Recommendation" #EEE8F7 {
+  entity "recommendation_request" as req {
+    * request_month, request_id <<PK>>
     --
-    * owner_id : BIGINT
-    * goal : TEXT
-    * input_version : INTEGER
-    * input : JSONB
-    * state : TEXT
-    * version : BIGINT
-    prompt_text : TEXT
-    prompt_version : INTEGER
-    model : TEXT
-    result : JSONB
-    error_code : TEXT
-    result_event_id : UUID
-    completed_at : TIMESTAMPTZ
-    applied_at : TIMESTAMPTZ
-    reviewed_at : TIMESTAMPTZ
-    * start_deadline : TIMESTAMPTZ
-    * created_at : TIMESTAMPTZ
-    * modified_at : TIMESTAMPTZ
+    * input : jsonb
+    * state : text
+    result_event_id : uuid
+    applied_at : timestamptz
+    application_outcome : text
+    reviewed_at : timestamptz
   }
   entity "ai_execution_slot" as slot {
-    * connection_id : TEXT <<PK>>
+    * connection_id : text <<PK>>
     --
-    * state : TEXT
-    execution_id : UUID
-    mode : TEXT
-    phase : TEXT
-    request_month : DATE
-    request_id : UUID
-    started_at : TIMESTAMPTZ
-    * modified_at : TIMESTAMPTZ
+    * state : text
+    execution_id : uuid
+    mode, phase : text
+    request_month, request_id
   }
   entity "request_retention" as retention {
-    * id : INTEGER <<PK>>
+    * singleton : boolean <<PK>>
     --
-    * closed_before_month : DATE
+    * closed_before_month : date
+    pending_drop_xid : xid8
   }
   entity "outbox_event" as ro {
-    * event_id : UUID <<PK>>
+    * event_id : uuid <<PK>>
     --
-    * aggregate_id : TEXT
-    * type : TEXT
-    * schema_version : INTEGER
-    * payload : JSONB
-    * created_at : TIMESTAMPTZ
-    published_at : TIMESTAMPTZ
-    next_attempt_at : TIMESTAMPTZ
-    * attempts : INTEGER
+    * payload : jsonb
+    published_at : timestamptz
   }
 }
-package "file_db" #EDF4FB {
+package "File" #DEEAF6 {
   entity "file_object" as file {
-    * file_id : UUID <<PK>>
+    * file_id : uuid <<PK>>
     --
-    * object_key : TEXT <<UK>>
-    * content_type : TEXT
-    * size_bytes : BIGINT
-    * created_at : TIMESTAMPTZ
+    * object_key : text <<UNIQUE>>
+    * content_type : text
+    * size_bytes : bigint
   }
 }
-package "notification_db" #FFF5DF {
-  entity "notification" as notification {
-    * id : BIGINT <<PK>>
+package "Notification" #FFF1D6 {
+  entity "notification" as n {
+    * id : bigint <<PK>>
     --
-    * source_event_id : UUID <<UK1>>
-    * recipient_id : BIGINT <<UK1>>
-    * type : TEXT
-    * message : TEXT
-    resource_type : TEXT
-    resource_id : TEXT
-    * created_at : TIMESTAMPTZ
-    read_at : TIMESTAMPTZ
+    * source_event_id, recipient_id <<UNIQUE>>
+    resource_type, resource_id : text
+    read_at : timestamptz
   }
 }
-package "account_db" #E9F5EF {
+package "Account" #E5F3EB {
   entity "outbox_event" as ao {
-    * event_id : UUID <<PK>>
+    * event_id : uuid <<PK>>
     --
-    * aggregate_id : TEXT
-    * type : TEXT
-    * schema_version : INTEGER
-    * payload : JSONB
-    * created_at : TIMESTAMPTZ
-    published_at : TIMESTAMPTZ
-    next_attempt_at : TIMESTAMPTZ
-    * attempts : INTEGER
+    * type, aggregate_id : text
+    * payload : jsonb
+    published_at : timestamptz
   }
 }
-job ||..o| request : месяц + ID\nбез FK
-job ||..o{ wo : события job\nлогическая связь
-request ||..o{ ro : события запроса\nлогическая связь
-request |o..o| slot : ASYNC\nбез удерживающего FK
-photo }o..|| file : file_id\nбез межбазового FK
-wo ||..o{ notification : событие / получатель\nбез FK
-ao ||..o{ notification : событие / получатель\nбез FK
+job ||..o| req : месяц и ID
+job ||..o{ wo : события задания
+req ||..o{ ro : события исполнения
+req |o..o| slot : ASYNC
+photo |o..|| file : file_id
+note bottom of n
+  source_event_id указывает на событие одного издателя
+  (Account или Wardrobe). Между БД нет внешнего ключа.
+end note
 idem -[hidden]down-> job
-retention -[hidden]down-> request
+retention -[hidden]down-> req
 @enduml

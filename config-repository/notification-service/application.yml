@@ -1,6 +1,11 @@
 server:
   port: ${APP_PORT:8080}
 
+springdoc:
+  api-docs:
+    enabled: false
+  paths-to-match: /api/me/notifications,/api/me/notifications/**
+
 app:
   jwt:
     public-key: ${JWT_PUBLIC_KEY_LOCATION:file:/run/secrets/app-jwt-public-key}

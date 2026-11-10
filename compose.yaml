@@ -248,6 +248,7 @@ services:
       DB_R2DBC_URL: r2dbc:postgresql://notification-postgres:5432/notification_db
       DB_USER: notification_service
       DB_PASSWORD: ${NOTIFICATION_DB_PASSWORD:?NOTIFICATION_DB_PASSWORD must be set}
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
       CONFIG_SERVER_URL: http://config-server:8888
       EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
       EUREKA_INSTANCE_HOSTNAME: notification-service

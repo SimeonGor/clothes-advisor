@@ -9,7 +9,7 @@ autonumber
 actor "USER" as user
 participant "Gateway" as gw
 participant "Wardrobe" as w
-database "wardrobe_db" as wd
+database "БД Wardrobe" as wd
 queue "Kafka" as k
 participant "Recommendation" as r
 database "recommendation_db" as rd
@@ -28,13 +28,13 @@ w -> k : ai-selection.requests\nRecommendationRequested
 k -> r : requestMonth / requestId / input
 r -> rd : INSERT нового input\nДубли здесь не исполняются повторно
 r --> k : ack после commit
-r -> rd : Claim job + общий слот; снимок промпта
+r -> rd : Захватить job и общий слот (PREPARING)
 r -> f : GET /api/files/{fileId}\nID из сохранённого задания
 f --> r : Неизменяемые байты
 r -> w : POST validate-input
 w -> w : Account: права; БД: кандидаты / фото / deadline
 w --> r : 204 разрешено
-r -> rd : CALL_STARTED с проверкой execution_id
+r -> rd : Сохранить снимок промпта/модели\nи фазу CALL_STARTED по execution_id
 r -> ai : Единственный запрос, без транзакции БД
 alt Подтверждённый исход
   ai --> r : Выбранные ID / отказ
@@ -52,9 +52,9 @@ end
 w --> k : ack после commit
 w -> k : ai-jobs.events\nAiJobFinalized
 k -> r : Подтверждение применения
-r -> rd : applied_at
+r -> rd : applied_at + application_outcome
 k -> n : Конечное состояние задания
-n -> n : Уведомление; UNIQUE(eventId, recipient)
+n -> n : Одно уведомление\nна событие и адресата
 user -> gw : GET /api/v2/me/ai-jobs/{id}
 gw -> w : Проверить владельца
 w --> gw : 200: состояние / результат / ошибка
