@@ -11,6 +11,7 @@ import { App } from "./app";
 const accounts: Account[] = [
   { id: 1, login: "гардероб-один", role: "USER", status: "ACTIVE" },
   { id: 2, login: "гардероб-два", role: "ADMIN", status: "ACTIVE" },
+  { id: 3, login: "гардероб-три", role: "USER", status: "ACTIVE" },
 ];
 const wardrobeItem = (id: number): WardrobeItem => ({
   id,
@@ -80,8 +81,25 @@ function apiFetch(
   }),
   readItem: (id: number) => Promise<Response> = async (id) => json(wardrobe.find((entry) => entry.id === id) ?? wardrobeItem(id)),
 ) {
+  let savedOutfit: Outfit | undefined;
   return vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input);
+    if (url.startsWith("/api/v2/me/ai-jobs?page=")) return json([], { "X-Total-Count": "0" });
+    if (url === "/api/v2/outfits/ai") {
+      const response = await create(JSON.parse(String(init?.body)) as Record<string, unknown>);
+      if (response.status >= 400) return response;
+      savedOutfit = await response.json() as Outfit;
+      return {
+        ok: true, status: 202,
+        headers: new Headers({ Location: "/api/v2/me/ai-jobs/550e8400-e29b-41d4-a716-446655440000" }),
+        json: async () => ({ jobId: "550e8400-e29b-41d4-a716-446655440000", status: "QUEUED" }),
+      } as Response;
+    }
+    if (url === "/api/v2/me/ai-jobs/550e8400-e29b-41d4-a716-446655440000") {
+      return json({ jobId: "550e8400-e29b-41d4-a716-446655440000", type: "OUTFIT_SELECTION", status: "SUCCEEDED",
+        result: { type: "OUTFIT", id: savedOutfit?.id ?? 42, url: "https://untrusted.invalid/ignored" }, error: null });
+    }
+    if (url.startsWith("/api/outfits/") && savedOutfit && Number(url.split("/").pop()) === savedOutfit.id) return json(savedOutfit);
     if (url.startsWith("/api/weather/precipitation-types")) {
       return json([{ id: 7, name: "Ясно", code: "CLEAR" }]);
     }
@@ -98,9 +116,6 @@ function apiFetch(
     if (/^\/api\/wardrobe\/items\/\d+$/.test(url)) {
       const id = Number(url.split("/").pop());
       return readItem(id);
-    }
-    if (url === "/api/outfits/ai") {
-      return create(JSON.parse(String(init?.body)) as Record<string, unknown>);
     }
     return failed(404);
   });
@@ -153,14 +168,133 @@ describe("Экран «Сегодня»", () => {
     // then: запрос сохраняет числа и не передаёт пустой список кандидатов.
 
     await screen.findByText(/ОБРАЗ СОХРАНЁН/);
-    const sent = fetchMock.mock.calls.find(([url]) => url === "/api/outfits/ai");
+    const sent = fetchMock.mock.calls.find(([url]) => url === "/api/v2/outfits/ai");
     const body = JSON.parse(String(sent?.[1]?.body));
     expect(body).toEqual({
       name: "Ясное утро",
       weather: { temperatureC: -2.5, windSpeedMps: 1.75, precipitationTypeId: 7 },
     });
+    expect(new Headers(sent?.[1]?.headers).get("Idempotency-Key")).toBeTruthy();
+    expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith("/api/v2/me/ai-jobs/"))).toBe(true);
+    expect(fetchMock.mock.calls.some(([url]) => String(url) === "/api/outfits/91")).toBe(true);
     expect(screen.getByText("Новое утро")).toBeTruthy();
     expect(screen.queryByRole("region", { name: "Почему этот образ" })).toBeNull();
+  });
+
+  it("восстанавливает задание текущего пользователя после перезагрузки без нового POST", async () => {
+    sessionStorage.setItem("ai-job:1:outfit:new", JSON.stringify({ actorId: 1, operation: "outfit", jobId: "550e8400-e29b-41d4-a716-446655440000", key: "saved-key" }));
+    const baseFetch = apiFetch([wardrobeItem(1)]);
+    const calls: string[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); calls.push(`${init?.method ?? "GET"} ${url}`);
+      if (url === "/api/v2/me/ai-jobs/550e8400-e29b-41d4-a716-446655440000") {
+        return json({ jobId: "550e8400-e29b-41d4-a716-446655440000", type: "OUTFIT_SELECTION", status: "RUNNING", result: null, error: null });
+      }
+      return baseFetch(input, init);
+    }));
+
+    mountToday();
+
+    expect(await screen.findByRole("status")).toBeTruthy();
+    expect(calls.some((call) => call.includes("/api/v2/me/ai-jobs/"))).toBe(true);
+    expect(calls.some((call) => call.includes("POST /api/v2/outfits/ai"))).toBe(false);
+    expect(sessionStorage.getItem("ai-job:1:outfit:new")).toContain("saved-key");
+  });
+
+  it("пагинирует историю по 50 и открывает завершённую капсулу без POST", async () => {
+    const calls: Array<{ url: string; method: string }> = [];
+    const firstPage = Array.from({ length: 50 }, (_, index) => ({
+      jobId: `job-${index}`, type: "OUTFIT_SELECTION", status: "FAILED", createdAt: "2026-01-01T00:00:00Z",
+      modifiedAt: "2026-01-01T00:01:00Z", result: null, error: { code: "selection_unavailable", message: "Нет результата" },
+    }));
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); const method = init?.method ?? "GET"; calls.push({ url, method });
+      if (url === "/api/v2/me/ai-jobs?page=0&size=50") return json(firstPage, { "X-Total-Count": "51" });
+      if (url === "/api/v2/me/ai-jobs?page=1&size=50") return json([{
+        jobId: "completed-capsule", type: "CAPSULE_SELECTION", status: "SUCCEEDED", createdAt: "2026-10-01T00:00:00Z",
+        modifiedAt: "2026-10-01T00:01:00Z", result: { type: "CAPSULE", id: 77, url: "https://untrusted.invalid/ignored" }, error: null,
+      }], { "X-Total-Count": "51" });
+      if (url === "/api/v2/me/ai-jobs/completed-capsule") return json({
+        jobId: "completed-capsule", type: "CAPSULE_SELECTION", status: "SUCCEEDED", createdAt: "2026-10-01T00:00:00Z",
+        modifiedAt: "2026-10-01T00:01:00Z", result: { type: "CAPSULE", id: 77, url: "https://untrusted.invalid/ignored" }, error: null,
+      });
+      return failed(404);
+    }));
+    mountToday();
+
+    expect(await screen.findByRole("button", { name: "Далее →" })).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Далее →" }));
+    const completedRow = await screen.findByRole("button", { name: /AI-капсула.*Готово/ });
+    fireEvent.click(completedRow);
+
+    const resultLink = await screen.findByRole("link", { name: "Открыть сохранённый результат ↗" });
+    expect(resultLink.getAttribute("href")).toBe("/capsules/77");
+    expect(calls.filter((call) => call.url.startsWith("/api/v2/me/ai-jobs?page=")).map((call) => call.url)).toEqual([
+      "/api/v2/me/ai-jobs?page=0&size=50", "/api/v2/me/ai-jobs?page=1&size=50",
+    ]);
+    expect(calls.some((call) => call.url.includes("untrusted.invalid"))).toBe(false);
+    expect(calls.some((call) => call.method === "POST")).toBe(false);
+  });
+
+  it("advances history row status from selected detail without reverting another row", async () => {
+    const jobs = ["job-a", "job-b"].map((jobId) => ({
+      jobId, type: "OUTFIT_SELECTION", status: "QUEUED", createdAt: "2026-11-01T00:00:00Z",
+      modifiedAt: "2026-11-01T00:00:00Z", result: null, error: null,
+    }));
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === "/api/v2/me/ai-jobs?page=0&size=50") return json(jobs, { "X-Total-Count": "2" });
+      if (url === "/api/v2/me/ai-jobs/job-a") return json({
+        ...jobs[0], status: "SUCCEEDED", modifiedAt: "2026-11-01T00:01:00Z",
+        result: { type: "OUTFIT", id: 71, url: "/api/outfits/71" },
+      });
+      if (url === "/api/v2/me/ai-jobs/job-b") return json({
+        ...jobs[1], status: "RUNNING", modifiedAt: "2026-11-01T00:01:00Z",
+      });
+      return failed(404);
+    }));
+    mountToday();
+
+    const queuedRows = await screen.findAllByRole("button", { name: /Подбор образа.*В очереди/ });
+    fireEvent.click(queuedRows[0]);
+    await screen.findByRole("heading", { name: "Готово" });
+    expect(await screen.findByRole("button", { name: /Подбор образа.*Готово/ })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: /Подбор образа.*В очереди/ }));
+    await screen.findByRole("heading", { name: "Выполняется" });
+    expect(screen.getByRole("button", { name: /Подбор образа.*Готово/ })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /Подбор образа.*Выполняется/ })).toBeTruthy();
+  });
+
+  it("не показывает результат списка, пришедший после смены аккаунта", async () => {
+    let resolveFirst!: (response: Response) => void;
+    let firstRequested!: () => void;
+    const firstRequest = new Promise<void>((resolve) => { firstRequested = resolve; });
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.startsWith("/api/v2/me/ai-jobs?page=")) {
+        if (new Headers(init?.headers).get("Authorization") === "Bearer test-token-1") {
+          firstRequested();
+          return new Promise<Response>((resolve) => { resolveFirst = resolve; });
+        }
+        return json([{ jobId: "new-user-job", type: "OUTFIT_SELECTION", status: "FAILED", createdAt: "2026-11-01T00:00:00Z",
+          modifiedAt: "2026-11-01T00:01:00Z", result: null, error: { code: "selection_unavailable", message: "Нет результата" } }], { "X-Total-Count": "1" });
+      }
+      return failed(404);
+    }));
+    authenticatedActor(accounts[0]);
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const props = (account: Account) => <Today account={account} onLogout={vi.fn()} onPending={vi.fn()} pending={false} />;
+    const view = render(<QueryClientProvider client={client}><MemoryRouter>{props(accounts[0])}</MemoryRouter></QueryClientProvider>);
+    await firstRequest;
+    authenticatedActor(accounts[2]);
+    view.rerender(<QueryClientProvider client={client}><MemoryRouter>{props(accounts[2])}</MemoryRouter></QueryClientProvider>);
+
+    expect(await screen.findByRole("button", { name: /Подбор образа.*Ошибка/ })).toBeTruthy();
+    await act(async () => resolveFirst(json([{ jobId: "old-user-job", type: "OUTFIT_SELECTION", status: "FAILED", createdAt: "2026-01-01T00:00:00Z",
+      modifiedAt: "2026-01-01T00:01:00Z", result: null, error: { code: "selection_unavailable", message: "Старый аккаунт" } }], { "X-Total-Count": "1" })));
+    expect(screen.queryByText("Старый аккаунт")).toBeNull();
+    expect(screen.queryByRole("button", { name: /old-user-job/ })).toBeNull();
   });
 
   it("сохраняет выбор между страницами и передаёт более 20 кандидатов без обрезки", async () => {
@@ -204,7 +338,7 @@ describe("Экран «Сегодня»", () => {
     // then: все выбранные идентификаторы попадают в запрос.
 
     await screen.findByText(/ОБРАЗ СОХРАНЁН · №42/);
-    const sent = fetchMock.mock.calls.find(([url]) => url === "/api/outfits/ai");
+    const sent = fetchMock.mock.calls.find(([url]) => url === "/api/v2/outfits/ai");
     const body = JSON.parse(String(sent?.[1]?.body));
     expect(body.candidateItemIds).toEqual(Array.from({ length: 24 }, (_, index) => index + 1));
     expect(await screen.findByText("Сохранено вещей: 2.")).toBeTruthy();
@@ -266,7 +400,7 @@ describe("Экран «Сегодня»", () => {
     // then: выбранный ID не исчезает молча и POST ждёт явного снятия выбора.
 
     expect((await screen.findByRole("alert")).textContent).toContain("Снимите выбор");
-    expect(fetchMock.mock.calls.some(([url]) => url === "/api/outfits/ai")).toBe(false);
+    expect(fetchMock.mock.calls.some(([url]) => url === "/api/v2/outfits/ai")).toBe(false);
 
     // when: пользователь возвращается к вещи, снимает её и отправляет пустой выбор.
 
@@ -281,8 +415,8 @@ describe("Экран «Сегодня»", () => {
 
     // then: явное снятие возвращает прежнее поведение «весь гардероб».
 
-    await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => url === "/api/outfits/ai")).toBe(true));
-    const sent = fetchMock.mock.calls.find(([url]) => url === "/api/outfits/ai");
+    await waitFor(() => expect(fetchMock.mock.calls.some(([url]) => url === "/api/v2/outfits/ai")).toBe(true));
+    const sent = fetchMock.mock.calls.find(([url]) => url === "/api/v2/outfits/ai");
     expect(JSON.parse(String(sent?.[1]?.body))).not.toHaveProperty("candidateItemIds");
   });
 
@@ -322,7 +456,7 @@ describe("Экран «Сегодня»", () => {
     expect(explanation.textContent).toContain(saved.explanation);
     expect(explanation.querySelector("a, img, script, iframe, form, strong")).toBeNull();
     expect(fetchMock.mock.calls.some(([url]) => String(url).startsWith(hostileUrl))).toBe(false);
-    const sent = fetchMock.mock.calls.find(([url]) => url === "/api/outfits/ai");
+    const sent = fetchMock.mock.calls.find(([url]) => url === "/api/v2/outfits/ai");
     expect(JSON.parse(String(sent?.[1]?.body))).toMatchObject({ occasion: "Встреча", preferredStyle: "Спокойный" });
     expect(occasion.disabled).toBe(true);
     expect(style.disabled).toBe(true);
@@ -340,9 +474,16 @@ describe("Экран «Сегодня»", () => {
     expect(occasion.disabled).toBe(false);
   });
 
-  it("не дублирует ожидающий POST и сохраняет форму после ошибки", async () => {
+  it("не дублирует POST, freezes его input после ошибки и требует подтверждения для нового body", async () => {
     let finish!: (response: Response) => void;
-    const create = vi.fn(() => new Promise<Response>((resolve) => { finish = resolve; }));
+    let attempts = 0;
+    const create = vi.fn((_body: Record<string, unknown>) => {
+      attempts += 1;
+      if (attempts === 1) return new Promise<Response>((resolve) => { finish = resolve; });
+      return Promise.resolve(json({ id: 92, ownerId: 1, authorId: 1, source: "AI", likes: 0, dislikes: 0,
+        createdAt: "2026-01-01T00:00:00Z", name: "Новый образ", itemIds: [], weather: {} }));
+    });
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
     const fetchMock = apiFetch([], create);
     vi.stubGlobal("fetch", fetchMock);
     mountToday();
@@ -374,7 +515,22 @@ describe("Экран «Сегодня»", () => {
     expect((name as HTMLInputElement).value).toBe("Оставить это");
     expect(occasion.value).toBe("  Работа  ");
     expect(style.value).toBe("Минимализм");
+    expect((name as HTMLInputElement).disabled).toBe(true);
+    fireEvent.change(name, { target: { value: "Не менять" } });
     expect(create).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(await screen.findByRole("button", { name: "Новая попытка" }));
+    expect(confirm).toHaveBeenCalledTimes(1);
+    expect((name as HTMLInputElement).disabled).toBe(false);
+    fireEvent.change(name, { target: { value: "Новое имя" } });
+    fireEvent.change(await readyPrecipitationSelect(), { target: { value: "7" } });
+    fireEvent.submit(form);
+    await screen.findByText(/ОБРАЗ СОХРАНЁН/);
+    expect(create).toHaveBeenCalledTimes(2);
+    expect(create.mock.calls[0][0].name).toBe("Оставить это");
+    expect(create.mock.calls[1][0].name).toBe("Новое имя");
+    const posts = fetchMock.mock.calls.filter(([url]) => url === "/api/v2/outfits/ai");
+    expect(new Headers(posts[1][1]?.headers).get("Idempotency-Key")).not.toBe(new Headers(posts[0][1]?.headers).get("Idempotency-Key"));
   });
 
   it("входит заново и отзывает URL фото после выхода", async () => {
