@@ -8,6 +8,10 @@ import ru.itmo.clothesadvisor.dto.ai.ItemSelectionStylePreferences
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionWeather
 import ru.itmo.clothesadvisor.recommendationservice.model.ai.SelectionGoal
 
+// R2DBC encodes earlier values as -infinity. PostgreSQL excludes the upper endpoint.
+private val firstFiniteTimestamp = Instant.parse("-4712-01-01T00:00:00Z")
+private val endOfFiniteTimestamps = Instant.parse("+294277-01-01T00:00:00Z")
+
 data class RecommendationRequested(
     val requestMonth: LocalDate,
     val requestId: UUID,
@@ -19,8 +23,9 @@ data class RecommendationRequested(
     val input: RecommendationInput,
 ) {
     internal fun validForAdmission(): Boolean =
-        ownerId > 0 && requestMonth == LocalDate.ofInstant(acceptedAt, ZoneOffset.UTC).withDayOfMonth(1) &&
-            startDeadline > acceptedAt && startDeadline.nano % 1000 == 0 && acceptedAt.nano % 1000 == 0 &&
+        ownerId > 0 && acceptedAt >= firstFiniteTimestamp && startDeadline < endOfFiniteTimestamps &&
+            startDeadline > acceptedAt && requestMonth == LocalDate.ofInstant(acceptedAt, ZoneOffset.UTC).withDayOfMonth(1) &&
+            startDeadline.nano % 1000 == 0 && acceptedAt.nano % 1000 == 0 &&
             (goal != SelectionGoal.CAPSULE || input.requiredItemIds.isNullOrEmpty()) && input.validForAdmission()
 }
 
@@ -49,7 +54,6 @@ data class RecommendationInput(
         if (weather.windSpeedMps.signum() < 0 || candidates.size !in 1..20 ||
             (occasion?.length ?: 0) > 300 || (preferredStyle?.length ?: 0) > 300
         ) return false
-
         if (stylePreferences != null && listOf(
                 stylePreferences.preferredColorsAndMaterials, stylePreferences.avoidances,
                 stylePreferences.additionalWishes,

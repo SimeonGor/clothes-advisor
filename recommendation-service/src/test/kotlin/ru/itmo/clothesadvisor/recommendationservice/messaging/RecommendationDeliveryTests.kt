@@ -48,8 +48,9 @@ class RecommendationDeliveryTests {
              "occurredAt":"$accepted","aggregateId":"$id","payload":{
              "requestId":"$id","requestMonth":"$month","ownerId":7,"goal":"OUTFIT","inputVersion":1,
              "acceptedAt":"$accepted","startDeadline":"${month}T00:15:00Z","input":{
+               "stylePreferences":{"preferredColorsAndMaterials":"blue","avoidances":"wool","additionalWishes":""},
                "weather":{"temperatureC":12.1234567890123456789,"windSpeedMps":0,"precipitationCode":"NONE","precipitationName":"None"},
-               "candidates":[{"itemId":1,"name":"shirt","categoryCode":"TOP","categoryName":"Top","color":"blue","material":"cotton",
+               "candidates":[{"itemId":1,"name":"рубашка 👕 \\u0000","categoryCode":"TOP","categoryName":"Top","color":"blue","material":"cotton",
                               "photoId":2,"fileId":"${UUID.randomUUID()}","contentType":"image/jpeg","sizeBytes":123}]}}}
         """.trimIndent()
         sql("CREATE SEQUENCE blocked_delivery")
@@ -58,12 +59,28 @@ class RecommendationDeliveryTests {
         sql("CREATE TRIGGER fail_accept BEFORE INSERT ON recommendation_request FOR EACH ROW EXECUTE FUNCTION fail_accept()")
         val traceId = "0123456789abcdef0123456789abcdef"
         val traceparent = "00-$traceId-1020304050607080-01"
+        val nulName = wire.replace("""\\u0000""", """\u0000""")
+        val invalidOffsets = listOf(
+            send(key, nulName),
+            send(key, wire.replace("None", """rain\u0000""")),
+            send(key, wire.replace("wool", """wool\u0000""")),
+            send(key, wire.replace("12.1234567890123456789", "1e200000")),
+            send(key, wire.replace("12.1234567890123456789", "1e-20000")),
+            send(key, wire.replace(accepted, "-1000000000-01-01T00:00:00Z")),
+            send(key, wire.replace("${month}T00:15:00Z", "+300000-01-01T00:00:00Z")),
+        )
         val first = send(key, wire, traceparent)
         await().atMost(Duration.ofSeconds(45)).until { value("SELECT is_called FROM blocked_delivery") == "t" }
         assertThat(committed()).isLessThanOrEqualTo(first)
         assertThat(value("SELECT count(*) FROM recommendation_request")).isEqualTo("0")
         sql("DROP TRIGGER fail_accept ON recommendation_request")
         awaitCommit(first)
+        requests.receive(ConsumerRecord(TOPIC, 0, invalidOffsets.first(), key, nulName.toByteArray()))
+        for (offset in invalidOffsets) {
+            assertThat(value("""SELECT count(*) FROM kafka_delivery_rejection WHERE topic='$TOPIC'
+                AND partition_id=0 AND record_offset=$offset AND reason='invalid_input'""")).isEqualTo("1")
+        }
+        assertThat(value("SELECT input->'candidates'->0->>'name' FROM recommendation_request")).isEqualTo("""рубашка 👕 \u0000""")
         val admissionParent = value("SELECT traceparent FROM recommendation_request")
         assertThat(admissionParent).matches("00-$traceId-[0-9a-f]{16}-01").isNotEqualTo(traceparent)
         assertThat(value("SELECT state FROM recommendation_request")).isEqualTo("RECEIVED")
