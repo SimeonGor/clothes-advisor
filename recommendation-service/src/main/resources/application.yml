@@ -20,8 +20,25 @@ spring:
     activate:
       on-profile: "!test"
     import: "configserver:${CONFIG_SERVER_URL:http://localhost:8888}"
+  r2dbc:
+    url: ${DB_R2DBC_URL:r2dbc:postgresql://localhost:5432/recommendation_db}
+    username: ${DB_USER:recommendation_service}
+    password: ${DB_PASSWORD}
+  flyway:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/recommendation_db}
+    user: ${DB_USER:recommendation_service}
+    password: ${DB_PASSWORD}
   cloud:
     config:
       fail-fast: true
       request-connect-timeout: 2000
       request-read-timeout: 5000
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,r2dbc

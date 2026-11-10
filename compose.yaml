@@ -283,11 +283,28 @@ services:
       timeout: 5s
       retries: 10
 
+  recommendation-postgres:
+    networks:
+      - recommendation-data
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: recommendation_db
+      POSTGRES_USER: recommendation_service
+      POSTGRES_PASSWORD: ${RECOMMENDATION_DB_PASSWORD:?RECOMMENDATION_DB_PASSWORD must be set}
+    volumes:
+      - recommendation-postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   recommendation-service:
     <<: *runtime-security
     networks:
       - backend
       - egress
+      - recommendation-data
     build:
       context: .
       dockerfile: recommendation-service/Dockerfile
@@ -297,6 +314,10 @@ services:
       CONFIG_SERVER_URL: http://config-server:8888
       EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
       OPENAI_MODEL: ${OPENAI_MODEL:-}
+      DB_R2DBC_URL: r2dbc:postgresql://recommendation-postgres:5432/recommendation_db
+      DB_URL: jdbc:postgresql://recommendation-postgres:5432/recommendation_db
+      DB_USER: recommendation_service
+      DB_PASSWORD: ${RECOMMENDATION_DB_PASSWORD:?RECOMMENDATION_DB_PASSWORD must be set}
       EUREKA_INSTANCE_HOSTNAME: recommendation-service
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "false"
       CHATGPT_CREDENTIALS_DIR: /run/chatgpt
@@ -309,6 +330,8 @@ services:
         volume:
           nocopy: true
     depends_on:
+      recommendation-postgres:
+        condition: service_healthy
       chatgpt-token-refresher:
         condition: service_healthy
       config-server:
@@ -329,6 +352,8 @@ networks:
     internal: true
   account-data:
     internal: true
+  recommendation-data:
+    internal: true
   file-data:
     internal: true
   egress:
@@ -337,6 +362,7 @@ volumes:
   postgres-data:
   account-postgres-data:
   file-postgres-data:
+  recommendation-postgres-data:
   chatgpt-access:
 
 secrets:
