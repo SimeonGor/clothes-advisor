@@ -20,6 +20,10 @@ spring:
               uri: lb://account-service
               predicates:
                 - Path=/api/auth/**,/api/stylists,/api/admin/users,/api/admin/users/*,/api/admin/users/*/password,/api/me/stylist-access,/api/me/stylist-access/*,/api/stylist/clients
+            - id: notification-api
+              uri: lb://notification-service
+              predicates:
+                - Path=/api/me/notifications,/api/me/notifications/**
             - id: wardrobe-api
               uri: lb://wardrobe-service
               predicates:
