@@ -4,6 +4,8 @@ FROM eclipse-temurin:25-jdk AS build
 WORKDIR /workspace
 COPY gradlew ./
 COPY gradle/ ./gradle/
+COPY observability/build.gradle.kts /observability/
+COPY observability/src/main/ /observability/src/main/
 COPY file-service/build.gradle.kts file-service/settings.gradle.kts ./
 COPY file-service/src/main/ ./src/main/
 RUN --mount=type=cache,id=clothes-advisor-gradle,target=/root/.gradle,sharing=locked \

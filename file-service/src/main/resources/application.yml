@@ -6,6 +6,8 @@ app:
     service-account-key-file: ${YANDEX_SERVICE_ACCOUNT_KEY_FILE:}
 
 spring:
+  config:
+    import: "classpath:observability.yml"
   application:
     name: file-service
   r2dbc:

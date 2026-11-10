@@ -11,6 +11,8 @@ app:
     owner-login: user
 
 spring:
+  config:
+    import: "classpath:observability.yml"
   application:
     name: wardrobe-service
   webflux:
