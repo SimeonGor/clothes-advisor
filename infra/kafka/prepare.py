@@ -2,6 +2,7 @@
 """Prepare immutable local Kafka credentials outside the repository; never rotate."""
 import argparse
 import base64
+import errno
 import hashlib
 import json
 import os
@@ -10,6 +11,7 @@ import secrets
 import stat
 import subprocess
 import sys
+import tempfile
 import uuid
 
 
@@ -22,9 +24,10 @@ CONFIG = {"version": 1, "nodes": [1, 2, 3], "principals": PRINCIPALS,
 
 
 def openssl(*args):
-    result = subprocess.run(["openssl", *map(str, args)], capture_output=True)
+    result = subprocess.run(["openssl", *map(str, args)], stdin=subprocess.DEVNULL, capture_output=True)
     if result.returncode:
         raise ValueError("OpenSSL failed; partial credentials retained, do not use them")
+    return result.stdout
 
 
 def write(path, text, mode=0o444):
@@ -47,12 +50,77 @@ def hashes(directory):
     return result
 
 
+def verify_monitor(directory, ca_cert):
+    attributes = directory.lstat()
+    if (not stat.S_ISDIR(attributes.st_mode) or attributes.st_uid != os.getuid()
+            or stat.S_IMODE(attributes.st_mode) != 0o700):
+        raise ValueError("Monitor directory must be owned by the current user and have mode 0700")
+    expected = {"ca.pem", "certificate.pem", "key.pem"}
+    if {p.name for p in directory.iterdir()} != expected:
+        raise ValueError("Incomplete or unexpected monitor files")
+    for name in expected:
+        attributes = (directory / name).lstat()
+        if (not stat.S_ISREG(attributes.st_mode) or attributes.st_uid != os.getuid()
+                or attributes.st_nlink != 1 or stat.S_IMODE(attributes.st_mode) != 0o444):
+            raise ValueError("Unsafe monitor credential file")
+
+    if (directory / "ca.pem").read_bytes() != ca_cert.read_bytes():
+        raise ValueError("Monitor CA differs from the Kafka CA")
+    cert, key = directory / "certificate.pem", directory / "key.pem"
+    openssl("verify", "-trusted", ca_cert, "-purpose", "sslclient", cert)
+    subject = openssl("x509", "-in", cert, "-noout", "-subject", "-nameopt", "RFC2253")
+    if subject.strip() != b"subject=CN=kafka-monitor":
+        raise ValueError("Unexpected monitor certificate subject")
+    for extension, expected_value in (("basicConstraints", b"CA:FALSE"),
+                                      ("extendedKeyUsage", b"TLS Web Client Authentication")):
+        output = openssl("x509", "-in", cert, "-noout", "-ext", extension)
+        if output.rstrip().split(b"\n")[-1].strip() != expected_value:
+            raise ValueError("Unexpected monitor certificate constraints or purpose")
+    openssl("pkey", "-in", key, "-check", "-noout")
+    if openssl("x509", "-in", cert, "-pubkey", "-noout") != openssl("pkey", "-in", key, "-pubout"):
+        raise ValueError("Monitor certificate and key differ")
+
+
+def prepare_monitor(directory, monitor):
+    ca_cert = directory / "private/ca.pem"
+    if os.path.lexists(monitor):
+        verify_monitor(monitor, ca_cert)
+        return
+
+    # Stage on the same filesystem. The published mount contains only client material.
+    with tempfile.TemporaryDirectory(dir=monitor.parent) as temporary:
+        stage = Path(temporary)
+        bundle = stage / "monitor"
+        bundle.mkdir(mode=0o700)
+        csr, extensions = stage / "monitor.csr", stage / "monitor.extensions"
+        key, cert = bundle / "key.pem", bundle / "certificate.pem"
+        openssl("req", "-new", "-newkey", "rsa:2048", "-nodes", "-subj", "/CN=kafka-monitor",
+                "-keyout", key, "-out", csr)
+        write(extensions, "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\n"
+              "extendedKeyUsage=clientAuth\n")
+        openssl("x509", "-req", "-in", csr, "-CA", ca_cert, "-CAkey", directory / "private/ca.key",
+                "-set_serial", str(secrets.randbits(128)), "-days", "365", "-sha256",
+                "-extfile", extensions, "-out", cert)
+        write(bundle / "ca.pem", ca_cert.read_text())
+        cert.chmod(0o444)
+        key.chmod(0o444)
+        verify_monitor(bundle, ca_cert)
+        try:
+            bundle.rename(monitor)
+        except OSError as error:
+            if error.errno not in (errno.EEXIST, errno.ENOTEMPTY):
+                raise
+            # A concurrent preparation may already have published a complete bundle.
+            verify_monitor(monitor, ca_cert)
+
+
 def prepare(directory):
     if not directory.is_absolute() or directory.is_symlink():
         raise ValueError("Use an absolute, nonsymlink credentials directory outside the repository")
     directory = directory.resolve()
     if directory == ROOT or ROOT in directory.parents:
         raise ValueError("Credentials must be outside the repository")
+    monitor = directory.with_name(directory.name + ".monitor")
     if directory.exists():
         if not directory.is_dir() or directory.stat().st_uid != os.getuid():
             raise ValueError("Credentials directory must belong to the current user")
@@ -67,9 +135,12 @@ def prepare(directory):
             raise ValueError("Credentials/config mismatch; nothing was changed")
         for node in CONFIG["nodes"]:
             openssl("x509", "-in", directory / f"kafka-{node}/certificate.pem", "-checkend", "0", "-noout")
+        prepare_monitor(directory, monitor)
         print("Existing Kafka credentials verified; unchanged")
         return
 
+    if os.path.lexists(monitor):
+        raise ValueError("Monitor credentials exist without their Kafka credentials directory")
     directory.mkdir(mode=0o700)
     private = directory / "private"
     private.mkdir(mode=0o700)
@@ -128,6 +199,7 @@ def prepare(directory):
         write(target / "scram.txt", "\n".join(scram) + "\n")
     write(directory / "manifest.json", json.dumps({"config": CONFIG, "files": hashes(directory)},
                                                   indent=2) + "\n", 0o600)
+    prepare_monitor(directory, monitor)
     print("Kafka credentials prepared; keep this directory and data volumes together")
 
 
