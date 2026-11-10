@@ -6,10 +6,6 @@ import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
 import org.springframework.http.server.reactive.ServerHttpRequest
 import org.springframework.web.bind.annotation.ExceptionHandler
-import org.springframework.web.bind.annotation.GetMapping
-import org.springframework.web.bind.annotation.PathVariable
-import org.springframework.web.bind.annotation.PutMapping
-import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.ResponseStatus
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.server.ResponseStatusException
@@ -22,11 +18,8 @@ import ru.itmo.clothesadvisor.fileservice.storage.PhotoStorageUnavailableExcepti
 import ru.itmo.clothesadvisor.fileservice.storage.StoredPhotoNotFoundException
 
 @RestController
-@RequestMapping("/api/files/{fileId}")
-internal class FileController(private val files: FileService) {
-    @PutMapping
-    @ResponseStatus(HttpStatus.CREATED)
-    fun put(@PathVariable fileId: String, request: ServerHttpRequest): Mono<FileCreated> {
+internal class FileController(private val files: FileService) : FileApi {
+    override fun put(fileId: String, request: ServerHttpRequest): Mono<FileCreated> {
         val id = parseId(fileId)
         val type = request.headers.getFirst("Content-Type")?.lowercase()
         if (type != "image/png" && type != "image/jpeg") throw InvalidPhotoException()
@@ -36,8 +29,7 @@ internal class FileController(private val files: FileService) {
             .map { FileCreated(it.fileId, it.contentType, it.sizeBytes) }
     }
 
-    @GetMapping
-    fun get(@PathVariable fileId: String): Mono<ResponseEntity<ByteArray>> =
+    override fun get(fileId: String): Mono<ResponseEntity<ByteArray>> =
         files.read(parseId(fileId)).map { file ->
             ResponseEntity.ok().contentType(MediaType.parseMediaType(file.metadata.contentType))
                 .contentLength(file.metadata.sizeBytes).body(file.bytes)
@@ -71,5 +63,3 @@ internal class FileController(private val files: FileService) {
     @ResponseStatus(HttpStatus.SERVICE_UNAVAILABLE)
     fun unavailable() = Unit
 }
-
-internal data class FileCreated(val fileId: UUID, val contentType: String, val sizeBytes: Long)

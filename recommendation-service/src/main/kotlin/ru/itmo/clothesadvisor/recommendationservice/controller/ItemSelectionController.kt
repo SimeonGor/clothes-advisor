@@ -4,8 +4,6 @@ import org.springframework.http.ResponseEntity
 import org.springframework.core.io.buffer.DataBuffer
 import org.springframework.core.io.buffer.DataBufferUtils
 import org.springframework.web.bind.annotation.ExceptionHandler
-import org.springframework.web.bind.annotation.PostMapping
-import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RestController
 import org.springframework.web.server.ServerWebInputException
 import reactor.core.publisher.Mono
@@ -20,14 +18,12 @@ import ru.itmo.clothesadvisor.recommendationservice.config.SelectionJsonConfigur
 import ru.itmo.clothesadvisor.recommendationservice.service.ItemSelectionService
 
 @RestController
-class ItemSelectionController(private val service: ItemSelectionService) {
+class ItemSelectionController(private val service: ItemSelectionService) : ItemSelectionApi {
     private val reader = SelectionJsonConfiguration.mapper().readerFor(ItemSelectionRequest::class.java)
 
-    @PostMapping("/api/outfit-selections", consumes = ["application/json"])
-    fun selectOutfit(@RequestBody body: Flux<DataBuffer>) = select(body, service::selectOutfit)
+    override fun selectOutfit(body: Flux<DataBuffer>) = select(body, service::selectOutfit)
 
-    @PostMapping("/api/capsule-selections", consumes = ["application/json"])
-    fun selectCapsule(@RequestBody body: Flux<DataBuffer>) = select(body, service::selectCapsule)
+    override fun selectCapsule(body: Flux<DataBuffer>) = select(body, service::selectCapsule)
 
     private fun select(body: Flux<DataBuffer>, action: (ItemSelectionRequest) -> ItemSelectionResponse) =
         Mono.fromCallable {

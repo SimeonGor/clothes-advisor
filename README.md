@@ -174,6 +174,8 @@ curl http://127.0.0.1:8080/api/wardrobe/items \
 
 ## Сборка и тесты
 
+Для каждого контроллера HTTP-контракт лежит в соседнем интерфейсе `*Api`: маршруты, параметры, валидация и аннотации OpenAPI. Класс `*Controller` реализует этот интерфейс и вызывает сервис. Пример — [AuthApi](account-service/src/main/kotlin/ru/itmo/clothesadvisor/accountservice/controller/auth/AuthApi.kt) и [AuthController](account-service/src/main/kotlin/ru/itmo/clothesadvisor/accountservice/controller/auth/AuthController.kt).
+
 Для сборки нужен JDK 25, для интеграционных тестов — работающий Docker. Каждый backend-сервис имеет собственный `settings.gradle.kts` и собирается без Gradle-файлов остальных сервисов. Wrapper общий; команды выполняются из корня репозитория:
 
 ```shell
