@@ -35,6 +35,7 @@ import ru.itmo.clothesadvisor.config.LiveClientSettings
 import ru.itmo.clothesadvisor.config.LiveClientSettingsTests
 import ru.itmo.clothesadvisor.service.wardrobe.MAX_PHOTO_BYTES
 import ru.itmo.clothesadvisor.storage.wardrobe.PhotoStorageUnavailableException
+import ru.itmo.clothesadvisor.service.wardrobe.FileCreated
 
 @SpringBootTest(
     classes = [FileClientTests.ClientApplication::class],
