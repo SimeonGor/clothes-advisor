@@ -158,6 +158,39 @@ class PreparationCliTest(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0)
                 self.assertEqual(self.snapshot(monitor), before)
 
+    def test_config_server_upgrade_preserves_core_and_monitor_and_verifies_client_identity(self):
+        directory = self.copy_credentials("bus-upgrade")
+        monitor = directory.with_name(directory.name + ".monitor")
+        shutil.copytree(self.base / "credentials.monitor", monitor)
+        before, monitor_before = self.snapshot(directory), self.snapshot(monitor)
+        target = directory.with_name(directory.name + ".config-server")
+        upgraded = self.prepare(directory)
+        self.assertEqual(upgraded.returncode, 0, upgraded.stderr)
+        self.assertEqual(self.snapshot(directory), before)
+        self.assertEqual(self.snapshot(monitor), monitor_before)
+        self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o700)
+        self.assertEqual({p.name for p in target.iterdir()}, {"ca.pem", "certificate.pem", "key.pem"})
+        for path in target.iterdir():
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o444)
+        cert = target / "certificate.pem"
+        subject = run("openssl", "x509", "-in", cert, "-noout", "-subject", "-nameopt", "RFC2253")
+        self.assertEqual(subject.stdout.strip(), "subject=CN=config-server")
+        for purpose, allowed in (("sslclient", True), ("sslserver", False)):
+            verified = run("openssl", "verify", "-trusted", directory / "private/ca.pem", "-purpose", purpose, cert)
+            self.assertEqual(verified.returncode == 0, allowed, verified.stderr)
+        self.assertTrue((target / "key.pem").read_text().startswith("-----BEGIN PRIVATE KEY-----"))
+        issued = self.snapshot(target)
+        self.assertEqual(self.prepare(directory).returncode, 0)
+        self.assertEqual(self.snapshot(target), issued)
+
+        # A valid monitor cert with its matching key must never stand in for the publisher.
+        for name in ("certificate.pem", "key.pem"):
+            (target / name).unlink()
+            shutil.copy2(monitor / name, target / name)
+        wrong_identity = self.snapshot(target)
+        self.assertNotEqual(self.prepare(directory).returncode, 0)
+        self.assertEqual(self.snapshot(target), wrong_identity)
+
     def test_monitor_wrong_issuer_or_purpose_refused(self):
         for kind in ("wrong-issuer", "wrong-purpose"):
             with self.subTest(kind=kind):
@@ -348,21 +381,44 @@ class KafkaShellCliTest(unittest.TestCase):
         state = json.loads(before)
         self.assertEqual(set(state["topics"]), {"stylist-access.events", "stylist-requests.events",
                          "stylist-outfits.events", "outfit-ratings.events", "ai-jobs.events",
-                         "ai-selection.requests", "ai-selection.execution-events"})
+                         "ai-selection.requests", "ai-selection.execution-events", "config.refresh.events"})
         groups = {acl[acl.index("--group") + 1] for acl in state["acls"] if "--group" in acl}
         self.assertEqual(groups, {"notification-service.events", "recommendation-service.ai-jobs",
-                                 "recommendation-service.ai-selection", "wardrobe-service.ai-selection"})
+                                 "recommendation-service.ai-selection", "wardrobe-service.ai-selection",
+                                 "config-bus.config-server.", "config-bus.recommendation-service.",
+                                 "config-bus.wardrobe-service."})
         monitor = [acl for acl in state["acls"] if "User:CN=kafka-monitor" in acl]
         self.assertEqual(len(monitor), 1)
         options = set(zip(monitor[0][::2], monitor[0][1::2]))
         self.assertEqual(options, {("--allow-principal", "User:CN=kafka-monitor"),
                                    ("--operation", "Describe"), ("--resource-pattern-type", "literal")}
-                         | {("--topic", topic) for topic in state["topics"]}
-                         | {("--group", group) for group in groups})
+                         | {("--topic", topic) for topic in state["topics"] if topic != "config.refresh.events"}
+                         | {("--group", group) for group in groups if not group.startswith("config-bus.")})
         self.assertEqual(len(monitor[0]) % 2, 0)
         calls = [json.loads(line) for line in self.calls.read_text().splitlines()]
         for call in calls:
             self.assertFalse({"--delete", "--remove", "--alter", "--producer", "*"} & set(call))
+
+    def test_bus_only_config_server_can_write_and_each_instance_has_its_own_group(self):
+        result = self.provision()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = json.loads(self.state.read_text())
+        topic = state["topics"]["config.refresh.events"]
+        self.assertEqual(topic["replicas"], 3)
+        self.assertIn("min.insync.replicas=2", topic["config"])
+        bus_acls = [acl for acl in state["acls"] if "config.refresh.events" in acl
+                    or any(value.startswith("config-bus.") for value in acl) or "User:CN=config-server" in acl]
+        expected = [["--allow-principal", "User:CN=config-server", "--operation", "Write",
+                     "--topic", "config.refresh.events", "--resource-pattern-type", "literal"]]
+        for service in ("config-server", "wardrobe-service", "recommendation-service"):
+            principal = "User:CN=config-server" if service == "config-server" else "User:" + service
+            expected += [
+                ["--allow-principal", principal, "--operation", "Read", "--operation", "Describe",
+                 "--topic", "config.refresh.events", "--resource-pattern-type", "literal"],
+                ["--allow-principal", principal, "--operation", "Read", "--group", "config-bus." + service + ".",
+                 "--resource-pattern-type", "prefixed"],
+            ]
+        self.assertCountEqual(bus_acls, expected)
 
     def test_topology_mismatch_refuses_destructive_repair(self):
         # Given existing topics.

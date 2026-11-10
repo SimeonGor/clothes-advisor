@@ -77,13 +77,27 @@ services:
     <<: *runtime-security
     networks:
       - backend
+      - kafka
     build:
       context: .
       dockerfile: config-server/Dockerfile
+      args:
+        APP_UID: ${APP_UID:?Set APP_UID to the credential owner UID (id -u)}
     environment:
       <<: *telemetry
-      SPRING_CLOUD_CONFIG_SERVER_NATIVE_SEARCH_LOCATIONS: "file:/config/{application}/"
+      SPRING_PROFILES_INCLUDE: kafka
+      APP_CONFIG_REPOSITORY: /config
+      SPRING_CLOUD_BUS_ENABLED: "true"
+    depends_on:
+      kafka-provision:
+        condition: service_completed_successfully
     volumes:
+      - type: bind
+        source: ${KAFKA_SECRETS_DIR:?Set KAFKA_SECRETS_DIR}.config-server
+        target: /run/config-bus
+        read_only: true
+        bind:
+          create_host_path: false
       - type: bind
         source: ./config-repository
         target: /config
@@ -184,6 +198,7 @@ services:
     environment:
       <<: *telemetry
       DB_URL: jdbc:postgresql://postgres:5432/${DB_NAME:-clothes_advisor}
+      SPRING_CLOUD_BUS_ENABLED: "true"
       SPRING_PROFILES_INCLUDE: kafka
       SPRING_CONFIG_ADDITIONAL_LOCATION: file:/run/kafka-client/client.properties
       EUREKA_INSTANCE_HOSTNAME: app
@@ -467,6 +482,7 @@ services:
       EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
       OPENAI_MODEL: ${OPENAI_MODEL:-}
       DB_R2DBC_URL: r2dbc:postgresql://recommendation-postgres:5432/recommendation_db
+      SPRING_CLOUD_BUS_ENABLED: "true"
       DB_URL: jdbc:postgresql://recommendation-postgres:5432/recommendation_db
       DB_USER: recommendation_service
       DB_PASSWORD: ${RECOMMENDATION_DB_PASSWORD:?RECOMMENDATION_DB_PASSWORD must be set}

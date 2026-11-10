@@ -1,54 +1,53 @@
 package ru.itmo.clothesadvisor.config
 
+import java.util.concurrent.ScheduledFuture
 import org.slf4j.LoggerFactory
 import org.springframework.beans.BeanUtils
 import org.springframework.beans.factory.annotation.Qualifier
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
+import org.springframework.cloud.bus.event.RefreshRemoteApplicationEvent
 import org.springframework.cloud.config.client.ConfigClientProperties
 import org.springframework.cloud.config.client.ConfigServicePropertySourceLocator
-import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.context.annotation.Import
+import org.springframework.context.event.EventListener
 import org.springframework.core.env.Environment
+import org.springframework.scheduling.TaskScheduler
 import org.springframework.scheduling.annotation.EnableScheduling
-import org.springframework.scheduling.annotation.Scheduled
 
 @Configuration(proxyBeanMethods = false)
-@ConditionalOnProperty(prefix = "spring.cloud.config", name = ["enabled"], matchIfMissing = true)
+@ConditionalOnProperty(name = ["spring.cloud.bus.enabled"], havingValue = "true")
+@ConditionalOnProperty(name = ["spring.cloud.config.enabled"], matchIfMissing = true)
 @EnableScheduling
-internal class SelectionPromptPollingConfiguration {
-    @Bean
-    fun selectionPromptPoller(
-        @Qualifier("configDataConfigClientProperties") properties: ConfigClientProperties,
-        environment: Environment,
-        @Qualifier("outfitPromptSettings") outfitSettings: SelectionPromptSettings,
-        @Qualifier("capsulePromptSettings") capsuleSettings: SelectionPromptSettings,
-    ) = SelectionPromptPoller(properties, environment, outfitSettings, capsuleSettings)
-}
+@Import(SelectionPromptRefresh::class)
+internal class SelectionPromptRefreshConfiguration
 
-internal class SelectionPromptPoller(
-    properties: ConfigClientProperties,
+internal class SelectionPromptRefresh(
+    @Qualifier("configDataConfigClientProperties") properties: ConfigClientProperties,
     private val environment: Environment,
-    private val outfitSettings: SelectionPromptSettings,
-    private val capsuleSettings: SelectionPromptSettings,
+    private val scheduler: TaskScheduler,
+    @Qualifier("outfitPromptSettings") private val outfitSettings: SelectionPromptSettings,
+    @Qualifier("capsulePromptSettings") private val capsuleSettings: SelectionPromptSettings,
 ) {
     private val logger = LoggerFactory.getLogger(javaClass)
     private val locator = ConfigServicePropertySourceLocator(ConfigClientProperties(environment).also {
         BeanUtils.copyProperties(properties, it)
         it.profile = environment.getProperty("spring.cloud.config.profile")
             ?: (environment.activeProfiles.ifEmpty { environment.defaultProfiles }).joinToString(",")
-        // Throw instead of logging the locator's warning with a remote exception/body.
         it.isFailFast = true
     })
+    private var retry: ScheduledFuture<*>? = null
 
-    @Scheduled(
-        fixedDelayString = "\${app.openai.prompt.poll-interval:30s}",
-        initialDelayString = "\${app.openai.prompt.poll-interval:30s}",
-    )
-    fun poll() {
+    @EventListener(RefreshRemoteApplicationEvent::class)
+    @Synchronized
+    fun refresh() {
+        retry?.cancel(false)
+        retry = null
         val source = try {
             requireNotNull(locator.locate(environment))
         } catch (_: Exception) {
-            logger.warn("Selection prompts fetch failed; keeping last working prompts")
+            logger.warn("Configuration fetch failed; retaining current settings and retrying")
+            retry = scheduler.schedule(::refresh, scheduler.clock.instant().plusSeconds(5))
             return
         }
         for ((name, settings) in listOf("Outfit" to outfitSettings, "Capsule" to capsuleSettings)) {

@@ -13,7 +13,7 @@ import ru.itmo.clothesadvisor.client.account.ReloadableAccountClient
 import ru.itmo.clothesadvisor.client.recommendation.RecommendationClientConfiguration
 
 @Configuration
-@Import(AccountClientConfiguration::class, BlockingAccountClient::class, LiveClientPollingConfiguration::class,
+@Import(AccountClientConfiguration::class, BlockingAccountClient::class, LiveClientRefreshConfiguration::class,
     RecommendationClientConfiguration::class)
 @EnableConfigurationProperties(RecommendationClientProperties::class, FileClientProperties::class)
 class ExternalClientsConfiguration {

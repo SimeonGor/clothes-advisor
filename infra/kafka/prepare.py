@@ -50,51 +50,51 @@ def hashes(directory):
     return result
 
 
-def verify_monitor(directory, ca_cert):
+def verify_client(directory, ca_cert, principal):
     attributes = directory.lstat()
     if (not stat.S_ISDIR(attributes.st_mode) or attributes.st_uid != os.getuid()
             or stat.S_IMODE(attributes.st_mode) != 0o700):
-        raise ValueError("Monitor directory must be owned by the current user and have mode 0700")
+        raise ValueError(f"{principal} directory must be owned by the current user and have mode 0700")
     expected = {"ca.pem", "certificate.pem", "key.pem"}
     if {p.name for p in directory.iterdir()} != expected:
-        raise ValueError("Incomplete or unexpected monitor files")
+        raise ValueError(f"Incomplete or unexpected {principal} files")
     for name in expected:
         attributes = (directory / name).lstat()
         if (not stat.S_ISREG(attributes.st_mode) or attributes.st_uid != os.getuid()
                 or attributes.st_nlink != 1 or stat.S_IMODE(attributes.st_mode) != 0o444):
-            raise ValueError("Unsafe monitor credential file")
+            raise ValueError(f"Unsafe {principal} credential file")
 
     if (directory / "ca.pem").read_bytes() != ca_cert.read_bytes():
-        raise ValueError("Monitor CA differs from the Kafka CA")
+        raise ValueError(f"{principal} CA differs from the Kafka CA")
     cert, key = directory / "certificate.pem", directory / "key.pem"
     openssl("verify", "-trusted", ca_cert, "-purpose", "sslclient", cert)
     subject = openssl("x509", "-in", cert, "-noout", "-subject", "-nameopt", "RFC2253")
-    if subject.strip() != b"subject=CN=kafka-monitor":
-        raise ValueError("Unexpected monitor certificate subject")
+    if subject.strip() != f"subject=CN={principal}".encode():
+        raise ValueError(f"Unexpected {principal} certificate subject")
     for extension, expected_value in (("basicConstraints", b"CA:FALSE"),
                                       ("extendedKeyUsage", b"TLS Web Client Authentication")):
         output = openssl("x509", "-in", cert, "-noout", "-ext", extension)
         if output.rstrip().split(b"\n")[-1].strip() != expected_value:
-            raise ValueError("Unexpected monitor certificate constraints or purpose")
+            raise ValueError(f"Unexpected {principal} certificate constraints or purpose")
     openssl("pkey", "-in", key, "-check", "-noout")
     if openssl("x509", "-in", cert, "-pubkey", "-noout") != openssl("pkey", "-in", key, "-pubout"):
-        raise ValueError("Monitor certificate and key differ")
+        raise ValueError(f"{principal} certificate and key differ")
 
 
-def prepare_monitor(directory, monitor):
+def prepare_client(directory, target, principal):
     ca_cert = directory / "private/ca.pem"
-    if os.path.lexists(monitor):
-        verify_monitor(monitor, ca_cert)
+    if os.path.lexists(target):
+        verify_client(target, ca_cert, principal)
         return
 
     # Stage on the same filesystem. The published mount contains only client material.
-    with tempfile.TemporaryDirectory(dir=monitor.parent) as temporary:
+    with tempfile.TemporaryDirectory(dir=target.parent) as temporary:
         stage = Path(temporary)
-        bundle = stage / "monitor"
+        bundle = stage / "bundle"
         bundle.mkdir(mode=0o700)
-        csr, extensions = stage / "monitor.csr", stage / "monitor.extensions"
+        csr, extensions = stage / "client.csr", stage / "client.extensions"
         key, cert = bundle / "key.pem", bundle / "certificate.pem"
-        openssl("req", "-new", "-newkey", "rsa:2048", "-nodes", "-subj", "/CN=kafka-monitor",
+        openssl("req", "-new", "-newkey", "rsa:2048", "-nodes", "-subj", f"/CN={principal}",
                 "-keyout", key, "-out", csr)
         write(extensions, "basicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\n"
               "extendedKeyUsage=clientAuth\n")
@@ -104,14 +104,14 @@ def prepare_monitor(directory, monitor):
         write(bundle / "ca.pem", ca_cert.read_text())
         cert.chmod(0o444)
         key.chmod(0o444)
-        verify_monitor(bundle, ca_cert)
+        verify_client(bundle, ca_cert, principal)
         try:
-            bundle.rename(monitor)
+            bundle.rename(target)
         except OSError as error:
             if error.errno not in (errno.EEXIST, errno.ENOTEMPTY):
                 raise
             # A concurrent preparation may already have published a complete bundle.
-            verify_monitor(monitor, ca_cert)
+            verify_client(target, ca_cert, principal)
 
 
 def prepare(directory):
@@ -120,7 +120,8 @@ def prepare(directory):
     directory = directory.resolve()
     if directory == ROOT or ROOT in directory.parents:
         raise ValueError("Credentials must be outside the repository")
-    monitor = directory.with_name(directory.name + ".monitor")
+    clients = ((directory.with_name(directory.name + ".monitor"), "kafka-monitor"),
+               (directory.with_name(directory.name + ".config-server"), "config-server"))
     if directory.exists():
         if not directory.is_dir() or directory.stat().st_uid != os.getuid():
             raise ValueError("Credentials directory must belong to the current user")
@@ -135,12 +136,13 @@ def prepare(directory):
             raise ValueError("Credentials/config mismatch; nothing was changed")
         for node in CONFIG["nodes"]:
             openssl("x509", "-in", directory / f"kafka-{node}/certificate.pem", "-checkend", "0", "-noout")
-        prepare_monitor(directory, monitor)
+        for target, principal in clients:
+            prepare_client(directory, target, principal)
         print("Existing Kafka credentials verified; unchanged")
         return
 
-    if os.path.lexists(monitor):
-        raise ValueError("Monitor credentials exist without their Kafka credentials directory")
+    if any(os.path.lexists(target) for target, _ in clients):
+        raise ValueError("Client credentials exist without their Kafka credentials directory")
     directory.mkdir(mode=0o700)
     private = directory / "private"
     private.mkdir(mode=0o700)
@@ -199,7 +201,8 @@ def prepare(directory):
         write(target / "scram.txt", "\n".join(scram) + "\n")
     write(directory / "manifest.json", json.dumps({"config": CONFIG, "files": hashes(directory)},
                                                   indent=2) + "\n", 0o600)
-    prepare_monitor(directory, monitor)
+    for target, principal in clients:
+        prepare_client(directory, target, principal)
     print("Kafka credentials prepared; keep this directory and data volumes together")
 
 

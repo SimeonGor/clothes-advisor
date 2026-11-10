@@ -1,4 +1,20 @@
 spring:
+  cloud:
+    stream:
+      bindings:
+        springCloudBusInput:
+          group: config-bus.${spring.application.name}.${CONFIG_BUS_INSTANCE:${HOSTNAME:${random.uuid}}}
+      kafka:
+        binder:
+          brokers: ${spring.kafka.bootstrap-servers}
+          auto-create-topics: false
+        bindings:
+          springCloudBusInput:
+            consumer:
+              start-offset: earliest
+              configuration:
+                key.deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
+                value.deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
   kafka:
     bootstrap-servers: kafka-1:9092,kafka-2:9092,kafka-3:9092
     properties:
