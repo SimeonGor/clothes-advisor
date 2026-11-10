@@ -19,6 +19,8 @@ import ru.itmo.clothesadvisor.config.SelectionPromptSettings
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionRequest
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionResponse
 import ru.itmo.clothesadvisor.dto.ai.SelectionImage
+import ru.itmo.clothesadvisor.recommendationservice.execution.SelectionExecutionProvider
+import ru.itmo.clothesadvisor.recommendationservice.execution.SelectionInstructions
 import ru.itmo.clothesadvisor.recommendationservice.model.ai.AiSelectionException
 import ru.itmo.clothesadvisor.recommendationservice.model.ai.AiSelectionFailure
 import ru.itmo.clothesadvisor.recommendationservice.model.ai.SelectionGoal
@@ -31,8 +33,6 @@ import tools.jackson.core.JacksonException
 import tools.jackson.databind.DeserializationFeature
 import tools.jackson.databind.json.JsonMapper
 
-internal data class SelectionInstructions(val model: String, val promptVersion: Long, val promptText: String)
-
 class OpenAiSelectionClient internal constructor(
     private val http: HttpClient?,
     private val mapper: JsonMapper,
@@ -42,8 +42,8 @@ class OpenAiSelectionClient internal constructor(
     private val timeout: Duration,
     private val outfitPromptSettings: SelectionPromptSettings,
     private val capsulePromptSettings: SelectionPromptSettings,
-) : AutoCloseable, ItemSelectionProvider {
-    internal fun instructions(goal: SelectionGoal): SelectionInstructions {
+) : AutoCloseable, ItemSelectionProvider, SelectionExecutionProvider {
+    override fun instructions(goal: SelectionGoal): SelectionInstructions {
         val promptSettings = when (goal) {
             SelectionGoal.OUTFIT -> outfitPromptSettings
             SelectionGoal.CAPSULE -> capsulePromptSettings
@@ -58,7 +58,7 @@ class OpenAiSelectionClient internal constructor(
     override fun select(goal: SelectionGoal, selection: ItemSelectionRequest): ItemSelectionResponse =
         select(goal, selection, instructions(goal)) {}
 
-    internal fun select(
+    override fun select(
         goal: SelectionGoal,
         selection: ItemSelectionRequest,
         instructions: SelectionInstructions,

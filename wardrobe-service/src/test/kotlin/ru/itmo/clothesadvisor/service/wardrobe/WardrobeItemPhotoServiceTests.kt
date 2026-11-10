@@ -39,12 +39,11 @@ import ru.itmo.clothesadvisor.model.wardrobe.PhotoRequestFailure
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemPhotoRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.service.user.CurrentUserService
-import ru.itmo.clothesadvisor.client.file.FileClient
 
 class WardrobeItemPhotoServiceTests {
     private val items = mock(WardrobeItemRepository::class.java)
     private val photos = mock(WardrobeItemPhotoRepository::class.java)
-    private val fileClient = mock(FileClient::class.java)
+    private val fileClient = mock(PhotoFiles::class.java)
     private val users = mock(CurrentUserService::class.java)
     private val transactions =
         mock(PlatformTransactionManager::class.java).also {

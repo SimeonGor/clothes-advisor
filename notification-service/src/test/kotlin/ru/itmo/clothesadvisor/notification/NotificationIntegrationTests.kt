@@ -80,10 +80,10 @@ class NotificationIntegrationTests {
     }
 
     private fun record(topic: String, type: String, fields: String, eventId: UUID = UUID.randomUUID(),
-        at: String = "2026-01-01T00:00:00Z", version: Int = 1): ConsumerRecord<ByteArray, ByteArray> {
+        at: String = "2026-01-01T00:00:00Z", version: Int = 1, offset: Long = 22): ConsumerRecord<ByteArray, ByteArray> {
         val body = """{"eventId":"$eventId","eventType":"$type","schemaVersion":$version,"occurredAt":"$at",
             "aggregateId":"42","payload":{"ownerId":17,$fields}}"""
-        return ConsumerRecord(topic, 0, 22, byteArrayOf(), body.toByteArray())
+        return ConsumerRecord(topic, 0, offset, byteArrayOf(), body.toByteArray())
     }
 
     private fun request(path: String = "", token: String? = owner, method: String = "GET"): HttpResponse<String> {
@@ -197,6 +197,32 @@ class NotificationIntegrationTests {
         ).forEach(events::consume)
         assertThat(request().body()).isEqualTo("[]")
         assertThat(request(token = stylist).body()).isEqualTo("[]")
+    }
+
+    @Test
+    fun `unrepresentable event times are quarantined and the following finite timestamps are stored`() {
+        val invalid = listOf("+300000-01-01T00:00:00Z", "+294276-12-31T23:59:59.999999500Z",
+            "-4713-12-31T23:59:59.999999999Z")
+        for ((index, at) in invalid.withIndex()) {
+            val record = record(OUTFITS, "StylistOutfitCreated", """"outfitId":31""", at = at, offset = index.toLong())
+            events.consume(record)
+            events.consume(record)
+        }
+        val valid = listOf("-4712-01-01T00:00:00Z", "+294276-12-31T23:59:59.999999499Z")
+        for ((index, at) in valid.withIndex()) {
+            events.consume(record(OUTFITS, "StylistOutfitCreated", """"outfitId":31""",
+                at = at, offset = (invalid.size + index).toLong()))
+        }
+        val rejections = sql.sql("SELECT * FROM notification_rejected_event ORDER BY record_offset")
+            .fetch().all().collectList().block()!!
+        assertThat(rejections).hasSize(invalid.size)
+        for ((index, row) in rejections.withIndex()) {
+            assertThat(row).containsExactlyInAnyOrderEntriesOf(mapOf("topic" to OUTFITS,
+                "partition_id" to 0, "record_offset" to index.toLong(), "reason" to "INVALID_EVENT"))
+        }
+        val times = sql.sql("SELECT created_at AT TIME ZONE 'UTC' AS utc FROM notification ORDER BY created_at")
+            .map { row, _ -> row.get("utc", java.time.LocalDateTime::class.java)!!.toString() }.all().collectList().block()!!
+        assertThat(times).containsExactly("-4712-01-01T00:00", "+294276-12-31T23:59:59.999999")
     }
 
     @Test

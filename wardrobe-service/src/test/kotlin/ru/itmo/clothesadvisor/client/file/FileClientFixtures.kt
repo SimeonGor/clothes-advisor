@@ -4,6 +4,7 @@ import java.util.UUID
 import org.mockito.ArgumentMatchers.any
 import org.mockito.invocation.InvocationOnMock
 import reactor.core.publisher.Mono
+import ru.itmo.clothesadvisor.service.wardrobe.FileCreated
 
 internal fun anyFileId(): UUID = any(UUID::class.java) ?: UUID(0, 0)
 

@@ -6,14 +6,12 @@ import reactor.core.publisher.Mono
 import reactor.core.scheduler.Schedulers
 import ru.itmo.clothesadvisor.fileservice.model.FileObject
 import ru.itmo.clothesadvisor.fileservice.repository.FileObjectRepository
-import ru.itmo.clothesadvisor.fileservice.storage.S3PhotoStorage
-import ru.itmo.clothesadvisor.fileservice.storage.StoredPhotoNotFoundException
 
 @Service
 internal class FileService(
     private val files: FileObjectRepository,
     private val uploads: PhotoUploadService,
-    private val storage: S3PhotoStorage,
+    private val storage: PhotoStorage,
 ) {
     fun create(fileId: UUID, type: String, bytes: ByteArray): Mono<FileObject> =
         files.existsById(fileId).flatMap { exists ->

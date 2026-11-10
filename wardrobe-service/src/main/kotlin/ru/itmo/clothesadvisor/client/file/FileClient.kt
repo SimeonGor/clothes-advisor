@@ -15,21 +15,21 @@ import org.springframework.web.reactive.function.client.WebClient
 import reactor.core.publisher.Mono
 import reactor.netty.http.client.HttpClient
 import ru.itmo.clothesadvisor.config.LiveClientSettings
+import ru.itmo.clothesadvisor.service.wardrobe.FileCreated
 import ru.itmo.clothesadvisor.service.wardrobe.MAX_PHOTO_BYTES
+import ru.itmo.clothesadvisor.service.wardrobe.PhotoFiles
 import ru.itmo.clothesadvisor.storage.wardrobe.PhotoStorageUnavailableException
 import tools.jackson.core.StreamReadFeature
 import tools.jackson.databind.DeserializationFeature
 import tools.jackson.databind.json.JsonMapper
 
-internal data class FileCreated(val fileId: UUID, val contentType: String, val sizeBytes: Long)
-
-internal class FileClient(private val builder: WebClient.Builder, private val settings: LiveClientSettings) {
+internal class FileClient(private val builder: WebClient.Builder, private val settings: LiveClientSettings) : PhotoFiles {
     private val mapper = JsonMapper.builder()
         .enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
         .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS)
         .build()
 
-    fun put(fileId: UUID, contentType: String, bytes: ByteArray): Mono<FileCreated> = Mono.defer {
+    override fun put(fileId: UUID, contentType: String, bytes: ByteArray): Mono<FileCreated> = Mono.defer {
         val expected = FileCreated(fileId, contentType, bytes.size.toLong())
         validatePhoto(contentType, expected.sizeBytes)
         client().put().uri(FILE_PATH, fileId)
@@ -50,7 +50,7 @@ internal class FileClient(private val builder: WebClient.Builder, private val se
             }
     }.onErrorMap { PhotoStorageUnavailableException() }
 
-    fun get(fileId: UUID, contentType: String, sizeBytes: Long): Mono<ByteArray> = Mono.defer {
+    override fun get(fileId: UUID, contentType: String, sizeBytes: Long): Mono<ByteArray> = Mono.defer {
         validatePhoto(contentType, sizeBytes)
         client().get().uri(FILE_PATH, fileId).exchangeToMono { response ->
             val types = response.headers().header(HttpHeaders.CONTENT_TYPE)

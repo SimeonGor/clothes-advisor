@@ -9,7 +9,6 @@ import org.springframework.stereotype.Repository
 import org.springframework.transaction.ReactiveTransactionManager
 import org.springframework.transaction.reactive.TransactionalOperator
 import reactor.core.publisher.Mono
-import ru.itmo.clothesadvisor.client.ai.SelectionInstructions
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionResponse
 import ru.itmo.clothesadvisor.recommendationservice.config.SelectionJsonConfiguration
 import ru.itmo.clothesadvisor.recommendationservice.model.ai.SelectionGoal
