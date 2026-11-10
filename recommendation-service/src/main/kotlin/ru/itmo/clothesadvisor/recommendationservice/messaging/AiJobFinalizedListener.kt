@@ -27,7 +27,7 @@ internal class AiJobFinalizedListener(
     private val mapper = JsonMapper.builder().enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
         .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build()
 
-    @KafkaListener(topics = ["ai-jobs.events"], groupId = "recommendation-service.ai-jobs")
+    @KafkaListener(topics = ["ai-jobs.events"], groupId = "\${app.kafka.groups.ai-jobs}")
     fun receive(record: ConsumerRecord<String, ByteArray>) {
         val ack = try {
             decode(record)

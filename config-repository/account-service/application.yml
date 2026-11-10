@@ -11,18 +11,6 @@ app:
     public-key: ${JWT_PUBLIC_KEY_LOCATION:file:/run/secrets/app-jwt-public-key}
 
 spring:
-  kafka:
-    bootstrap-servers: kafka-1:9092,kafka-2:9092,kafka-3:9092
-    properties:
-      security.protocol: SASL_SSL
-      sasl.mechanism: SCRAM-SHA-512
-      ssl.endpoint.identification.algorithm: https
-    producer:
-      acks: all
-      properties:
-        enable.idempotence: true
-    consumer:
-      enable-auto-commit: false
   reactor:
     context-propagation: auto
 

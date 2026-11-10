@@ -1,29 +1,21 @@
 package ru.itmo.clothesadvisor.accountservice.messaging
 
-import java.nio.file.Files
-import java.nio.file.Path
-import java.util.Properties
-import org.apache.kafka.clients.producer.KafkaProducer
 import org.apache.kafka.clients.producer.Producer
-import org.apache.kafka.common.serialization.StringSerializer
-import org.springframework.beans.factory.annotation.Value
-import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
+import org.springframework.context.annotation.Profile
+import org.springframework.kafka.core.ProducerFactory
 import org.springframework.r2dbc.core.DatabaseClient
 import org.springframework.scheduling.annotation.EnableScheduling
 import ru.itmo.clothesadvisor.observability.DurableTrace
 
 @Configuration(proxyBeanMethods = false)
 @EnableScheduling
-@ConditionalOnProperty("app.kafka.client-properties")
+@Profile("kafka")
 internal class AccessOutboxConfiguration {
     @Bean(destroyMethod = "close")
-    fun accessProducer(@Value("\${app.kafka.client-properties}") clientFile: Path): Producer<String, String> {
-        val properties = Properties()
-        Files.newInputStream(clientFile).use(properties::load)
-        return KafkaProducer(properties, StringSerializer(), StringSerializer())
-    }
+    fun accessProducer(factory: ProducerFactory<String, String>): Producer<String, String> =
+        factory.createProducer()
 
     @Bean
     fun accessOutboxRelay(database: DatabaseClient, producer: Producer<String, String>, trace: DurableTrace) =

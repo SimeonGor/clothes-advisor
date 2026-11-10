@@ -18,7 +18,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-webflux")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springframework.boot:spring-boot-starter-data-r2dbc")
-    implementation("org.apache.kafka:kafka-clients")
+    implementation("org.springframework.boot:spring-boot-starter-kafka")
     implementation("org.springframework.boot:spring-boot-starter-flyway")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.security:spring-security-crypto")
@@ -58,6 +58,7 @@ tasks.jacocoTestReport {
 tasks.withType<Test> {
     useJUnitPlatform()
     inputs.file(layout.projectDirectory.file("../config-repository/account-service/application.yml"))
+    inputs.file(layout.projectDirectory.file("../config-repository/account-service/application-kafka.yml"))
     inputs.dir(layout.projectDirectory.dir("../ops/account-transfer"))
     inputs.dir(
         layout.projectDirectory.dir("../wardrobe-service/src/main/resources/db/migration"),
