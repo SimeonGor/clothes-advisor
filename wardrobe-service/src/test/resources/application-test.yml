@@ -27,5 +27,3 @@ springdoc:
 app:
   file-client:
     password-file: src/test/resources/file-wardrobe-test-password
-  iam:
-    service-account-key-file: /nonexistent/test-service-account-key.json

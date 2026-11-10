@@ -130,10 +130,8 @@ services:
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
       CONFIG_SERVER_URL: http://config-server:8888
       EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
-      YANDEX_SERVICE_ACCOUNT_KEY_FILE: /run/secrets/yandex-service-account-key
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
     secrets:
-      - yandex-service-account-key
       - app-jwt-public-key
       - file-wardrobe-password
     depends_on:
