@@ -17,6 +17,10 @@ internal const val OUTFITS = "stylist-outfits.events"
 internal const val RATINGS = "outfit-ratings.events"
 internal const val JOBS = "ai-jobs.events"
 
+// R2DBC maps earlier instants to -infinity and rounds to the nearest microsecond.
+private val firstFiniteTimestamp = Instant.parse("-4712-01-01T00:00:00Z")
+private val firstTimestampRoundingPastPostgresRange = Instant.parse("+294277-01-01T00:00:00Z").minusNanos(500)
+
 internal enum class RejectionReason { INVALID_EVENT, UNSUPPORTED_VERSION }
 
 internal class InvalidDomainEvent(val reason: RejectionReason = RejectionReason.INVALID_EVENT) : RuntimeException()
@@ -36,6 +40,9 @@ internal class DomainEvents {
             val type = event.text("eventType")
             event.text("aggregateId")
             val occurredAt = Instant.parse(event.text("occurredAt"))
+            if (occurredAt < firstFiniteTimestamp || occurredAt >= firstTimestampRoundingPastPostgresRange) {
+                throw InvalidDomainEvent()
+            }
             val payload = event.path("payload")
             val owner = payload.id("ownerId")
             fun build(recipient: Long, message: String, resource: NotificationResource?) =
