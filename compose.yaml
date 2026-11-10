@@ -216,6 +216,66 @@ services:
       timeout: 5s
       retries: 10
 
+  notification-postgres:
+    networks:
+      - notification-data
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: notification_db
+      POSTGRES_USER: notification_service
+      POSTGRES_PASSWORD: ${NOTIFICATION_DB_PASSWORD:?NOTIFICATION_DB_PASSWORD must be set}
+    volumes:
+      - notification-postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  notification-service:
+    <<: *runtime-security
+    networks:
+      - backend
+      - kafka
+      - notification-data
+    build:
+      context: .
+      dockerfile: notification-service/Dockerfile
+      args:
+        APP_UID: ${APP_UID:?Set APP_UID to the credential owner UID (id -u)}
+    environment:
+      DB_URL: jdbc:postgresql://notification-postgres:5432/notification_db
+      DB_R2DBC_URL: r2dbc:postgresql://notification-postgres:5432/notification_db
+      DB_USER: notification_service
+      DB_PASSWORD: ${NOTIFICATION_DB_PASSWORD:?NOTIFICATION_DB_PASSWORD must be set}
+      CONFIG_SERVER_URL: http://config-server:8888
+      EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
+      EUREKA_INSTANCE_HOSTNAME: notification-service
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "false"
+    secrets:
+      - app-jwt-public-key
+    volumes:
+      - type: bind
+        source: ${KAFKA_SECRETS_DIR:?Set KAFKA_SECRETS_DIR to the prepared absolute directory}/notification-service
+        target: /run/kafka-client
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      notification-postgres:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+      kafka-provision:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/actuator/health/readiness"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   account-postgres:
     networks:
       - account-data
@@ -395,6 +455,8 @@ networks:
     internal: true
   file-data:
     internal: true
+  notification-data:
+    internal: true
   egress:
 
 volumes:
@@ -402,6 +464,7 @@ volumes:
   account-postgres-data:
   file-postgres-data:
   recommendation-postgres-data:
+  notification-postgres-data:
   chatgpt-access:
 
 secrets:
