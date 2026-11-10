@@ -1,0 +1,124 @@
+{
+  "uid": "ca-diagnostics",
+  "title": "Clothes Advisor · Логи и трассы",
+  "tags": ["clothes-advisor"],
+  "schemaVersion": 39,
+  "editable": false,
+  "time": {"from": "now-30m","to": "now"},
+  "timezone": "browser",
+  "refresh": "15s",
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "label": "Сервис",
+        "type": "custom",
+        "query": "account-service,api-gateway,config-server,discovery-server,file-service,notification-service,recommendation-service,wardrobe-service",
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".+",
+        "current": {"text": "All","value": "$__all"}
+      },
+      {
+        "name": "search",
+        "type": "textbox",
+        "label": "Текст в логах",
+        "query": "",
+        "current": {"text": "","value": ""}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 3,
+      "title": "Записи по уровням за период",
+      "type": "table",
+      "description": "Фактически полученные Loki записи по уровню за выбранный период. Если уровень не встречался, для него нет серии. Фильтр текста ниже не влияет на эти счётчики.",
+      "gridPos": {"x": 0,"y": 0,"w": 12,"h": 7},
+      "datasource": {"type": "loki","uid": "loki"},
+      "targets": [
+        {"refId": "A","expr": "sum by (severity_text) (count_over_time({service_name=~\"${service:regex}\"} | severity_text != \"\" [$__range]))","queryType": "instant","legendFormat": "{{severity_text}}"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "none","decimals": 0},
+        "overrides": []
+      },
+      "options": {
+        "showHeader": true,
+        "cellHeight": "sm",
+        "sortBy": [
+          {"displayName": "Записей","desc": true}
+        ]
+      },
+      "transformations": [
+        {
+          "id": "organize",
+          "options": {"excludeByName": {"Time": true},"renameByName": {"severity_text": "Уровень","Value": "Записей","Value #A":"Записей"}}
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Записи по уровням за минуту",
+      "type": "timeseries",
+      "description": "Число полученных записей по уровню за каждое скользящее минутное окно. Фильтр сервиса применяется до подсчёта.",
+      "gridPos": {"x": 12,"y": 0,"w": 12,"h": 7},
+      "datasource": {"type": "loki","uid": "loki"},
+      "targets": [
+        {"refId": "A","expr": "sum by (severity_text) (count_over_time({service_name=~\"${service:regex}\"} | severity_text != \"\" [1m]))","queryType": "range","legendFormat": "{{severity_text}}"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "short","decimals": 0},
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list","placement": "bottom"}
+      }
+    },
+    {
+      "id": 1,
+      "type": "logs",
+      "title": "Логи приложений",
+      "datasource": {"type": "loki","uid": "loki"},
+      "gridPos": {"x": 0,"y": 7,"w": 24,"h": 10},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "loki","uid": "loki"},
+          "expr": "{service_name=~\"${service:regex}\"} |= ${search:doublequote}",
+          "queryType": "range"
+        }
+      ],
+      "description": "Поиск по тексту, включая jobId. Откройте запись и поле trace_id, чтобы перейти к трассе.",
+      "options": {"showTime": true,"showLabels": false,"enableLogDetails": true,"sortOrder": "Descending","wrapLogMessage": true}
+    },
+    {
+      "id": 2,
+      "type": "table",
+      "title": "Распределённые трассы",
+      "datasource": {"type": "tempo","uid": "tempo"},
+      "gridPos": {"x": 0,"y": 17,"w": 24,"h": 10},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "tempo","uid": "tempo"},
+          "queryType": "traceql",
+          "query": "{ resource.service.name =~ \"${service:regex}\" && (span:kind = server || span:kind = consumer) }",
+          "tableType": "traces",
+          "limit": 50
+        }
+      ],
+      "description": "Выберите trace ID, чтобы увидеть операции сервисов и их длительность."
+    }
+  ],
+  "links": [
+    {
+      "type": "dashboards",
+      "title": "Дашборды Clothes Advisor",
+      "tags": ["clothes-advisor"],
+      "asDropdown": true,
+      "includeVars": false,
+      "keepTime": true
+    }
+  ]
+}

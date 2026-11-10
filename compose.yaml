@@ -5,7 +5,62 @@ x-runtime-security: &runtime-security
   security_opt:
     - no-new-privileges:true
 
+x-telemetry: &telemetry
+  MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://collector:4318/v1/traces
+  MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_OTLP_ENDPOINT: http://collector:4318/v1/logs
+  MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED: "true"
+  MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://collector:4318/v1/metrics
+  MANAGEMENT_OTLP_METRICS_EXPORT_STEP: 15s
+  MANAGEMENT_TRACING_SAMPLING_PROBABILITY: ${TRACE_SAMPLING_PROBABILITY:-1.0}
+  SPRING_REACTOR_CONTEXT_PROPAGATION: auto
+  LOGGING_CONFIG: classpath:telemetry-logback.xml
+
 services:
+  collector:
+    <<: *runtime-security
+    image: grafana/alloy:v1.21.3
+    networks: [backend, telemetry]
+    command: ["run", "--storage.path=/var/lib/alloy", "/etc/alloy/config.alloy"]
+    volumes:
+      - ./infra/observability/collector.alloy:/etc/alloy/config.alloy:ro
+      - collector-data:/var/lib/alloy
+
+  kafka-metrics:
+    <<: *runtime-security
+    image: grafana/alloy:v1.21.3
+    restart: on-failure
+    networks: [kafka, telemetry]
+    depends_on:
+      kafka-provision:
+        condition: service_completed_successfully
+    command: ["run", "--storage.path=/var/lib/alloy", "/etc/alloy/kafka.alloy"]
+    volumes:
+      - ./infra/observability/kafka.alloy:/etc/alloy/kafka.alloy:ro
+      - type: bind
+        source: ${KAFKA_SECRETS_DIR:?}.monitor
+        target: /run/kafka-monitor
+        read_only: true
+        bind:
+          create_host_path: false
+      - kafka-metrics-data:/var/lib/alloy
+
+  grafana:
+    <<: *runtime-security
+    image: grafana/otel-lgtm:0.40.0
+    networks: [edge, telemetry]
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_AUTH_DISABLE_LOGIN_FORM: "false"
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set a password for the local Grafana admin}
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /otel-lgtm/grafana/conf/provisioning/dashboards/clothes-advisor/services.json
+    volumes:
+      - grafana-data:/data
+      - ./infra/observability/dashboards.yml:/otel-lgtm/grafana/conf/provisioning/dashboards/clothes-advisor.yaml:ro
+      - ./infra/observability/dashboards:/otel-lgtm/grafana/conf/provisioning/dashboards/clothes-advisor:ro
+
   frontend:
     <<: *runtime-security
     networks:
@@ -26,6 +81,7 @@ services:
       context: .
       dockerfile: config-server/Dockerfile
     environment:
+      <<: *telemetry
       SPRING_CLOUD_CONFIG_SERVER_NATIVE_SEARCH_LOCATIONS: "file:/config/{application}/"
     volumes:
       - type: bind
@@ -49,6 +105,7 @@ services:
       context: .
       dockerfile: discovery-server/Dockerfile
     environment:
+      <<: *telemetry
       CONFIG_SERVER_URL: http://config-server:8888
     ports:
       - "127.0.0.1:8761:8761"
@@ -70,6 +127,7 @@ services:
       context: .
       dockerfile: api-gateway/Dockerfile
     environment:
+      <<: *telemetry
       CONFIG_SERVER_URL: http://config-server:8888
       EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
       FRONTEND_URL: http://frontend:8080
@@ -124,6 +182,7 @@ services:
       args:
         APP_UID: ${APP_UID:?Set APP_UID to the credential owner UID (id -u)}
     environment:
+      <<: *telemetry
       DB_URL: jdbc:postgresql://postgres:5432/${DB_NAME:-clothes_advisor}
       SPRING_PROFILES_INCLUDE: kafka
       SPRING_CONFIG_ADDITIONAL_LOCATION: file:/run/kafka-client/client.properties
@@ -188,6 +247,7 @@ services:
       args:
         APP_UID: ${APP_UID:?Set APP_UID to the credential owner UID (id -u)}
     environment:
+      <<: *telemetry
       DB_R2DBC_URL: r2dbc:postgresql://file-postgres:5432/file_db
       DB_URL: jdbc:postgresql://file-postgres:5432/file_db
       DB_USER: file_service
@@ -244,6 +304,7 @@ services:
       args:
         APP_UID: ${APP_UID:?Set APP_UID to the credential owner UID (id -u)}
     environment:
+      <<: *telemetry
       DB_URL: jdbc:postgresql://notification-postgres:5432/notification_db
       DB_R2DBC_URL: r2dbc:postgresql://notification-postgres:5432/notification_db
       DB_USER: notification_service
@@ -305,6 +366,7 @@ services:
       args:
         APP_UID: ${APP_UID:?Set APP_UID to the credential owner UID (id -u)}
     environment:
+      <<: *telemetry
       DB_R2DBC_URL: r2dbc:postgresql://account-postgres:5432/account_db
       APP_KAFKA_CLIENT_PROPERTIES: /run/kafka-client/client.properties
       APP_BOOTSTRAP_ADMIN_LOGIN: ${APP_BOOTSTRAP_ADMIN_LOGIN:-}
@@ -397,6 +459,7 @@ services:
       args:
         APP_UID: ${APP_UID:?Set APP_UID to the credential owner UID (id -u)}
     environment:
+      <<: *telemetry
       CONFIG_SERVER_URL: http://config-server:8888
       EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
       OPENAI_MODEL: ${OPENAI_MODEL:-}
@@ -446,6 +509,8 @@ services:
 
 networks:
   edge:
+  telemetry:
+    internal: true
   backend:
     internal: true
   wardrobe-data:
@@ -461,6 +526,9 @@ networks:
   egress:
 
 volumes:
+  grafana-data:
+  collector-data:
+  kafka-metrics-data:
   postgres-data:
   account-postgres-data:
   file-postgres-data:
