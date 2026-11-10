@@ -1,0 +1,36 @@
+spring:
+  config:
+    import: "configtree:/run/config-bus/"
+  kafka:
+    bootstrap-servers: kafka-1:9094,kafka-2:9094,kafka-3:9094
+    properties:
+      security.protocol: SSL
+      ssl.keystore.type: PEM
+      ssl.keystore.key: ${key.pem}
+      ssl.keystore.certificate.chain: ${certificate.pem}
+      ssl.truststore.type: PEM
+      ssl.truststore.certificates: ${ca.pem}
+      ssl.endpoint.identification.algorithm: https
+  cloud:
+    stream:
+      bindings:
+        springCloudBusInput:
+          group: config-bus.${spring.application.name}.${CONFIG_BUS_INSTANCE:${HOSTNAME:${random.uuid}}}
+      kafka:
+        binder:
+          brokers: ${spring.kafka.bootstrap-servers}
+          auto-create-topics: false
+        bindings:
+          springCloudBusInput:
+            consumer:
+              start-offset: earliest
+              configuration:
+                key.deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
+                value.deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
+          springCloudBusOutput:
+            producer:
+              sync: true
+              configuration:
+                acks: all
+                key.serializer: org.apache.kafka.common.serialization.ByteArraySerializer
+                value.serializer: org.apache.kafka.common.serialization.ByteArraySerializer

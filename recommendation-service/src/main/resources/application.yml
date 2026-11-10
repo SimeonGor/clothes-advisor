@@ -3,8 +3,6 @@ app:
     credentials-directory: ${CHATGPT_CREDENTIALS_DIR:}
     model: ${OPENAI_MODEL:}
     trust-store: ${CHATGPT_TRUST_STORE:}
-    prompt:
-      poll-interval: 30s
 
 logging:
   level:
@@ -15,6 +13,18 @@ spring:
     import: "classpath:observability.yml"
   application:
     name: recommendation-service
+  cloud:
+    stream:
+      function:
+        autodetect: false
+    bus:
+      enabled: false
+      id: ${spring.application.name}:${CONFIG_BUS_INSTANCE:${HOSTNAME:${random.uuid}}}
+      destination: config.refresh.events
+      refresh.enabled: false
+      env.enabled: false
+      shutdown.enabled: false
+      ack.enabled: false
 
 ---
 spring:

@@ -1,7 +1,7 @@
 server:
   port: ${APP_PORT:8080}
 
-# The polling locator logs remote URIs/errors; the poller emits sanitized outcomes instead.
+# The locator logs remote URIs/errors; the refresh listener emits sanitized outcomes.
 logging:
   level:
     org.springframework.cloud.config.client.ConfigServicePropertySourceLocator: "OFF"
@@ -15,6 +15,18 @@ spring:
     import: "classpath:observability.yml"
   application:
     name: wardrobe-service
+  cloud:
+    stream:
+      function:
+        autodetect: false
+    bus:
+      enabled: false
+      id: ${spring.application.name}:${CONFIG_BUS_INSTANCE:${HOSTNAME:${random.uuid}}}
+      destination: config.refresh.events
+      refresh.enabled: false
+      env.enabled: false
+      shutdown.enabled: false
+      ack.enabled: false
   webflux:
     multipart:
       max-disk-usage-per-part: 10000000B

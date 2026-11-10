@@ -4,6 +4,7 @@ umask 077
 bin=${KAFKA_HOME:-/opt/kafka}/bin
 config=${1:-/run/kafka-admin/client.properties}
 topology=$(dirname "$0")/topology.tsv
+bus_topic=config.refresh.events
 common=(--bootstrap-server kafka-1:9092,kafka-2:9092,kafka-3:9092 --command-config "$config")
 fail() { echo "$1" >&2; exit 1; }
 # Compose waits for all nodes. Bound CLI timeouts also make standalone failures finite.
@@ -28,7 +29,7 @@ while read -r topic; do
     [[ ,$settings, == *",$setting,"* ]] \
       || fail "Topic $topic has incompatible configuration; nothing was deleted"
   done
-done < <(awk '!/^#/ && NF {print $1}' "$topology" | sort -u)
+done < <(awk -v bus="$bus_topic" '!/^#/ && NF {print $1} END {print bus}' "$topology" | sort -u)
 monitor_resources=()
 while read -r topic producer consumer group; do
   [[ -z $topic || $topic == \#* ]] && continue
@@ -46,6 +47,20 @@ while read -r topic producer consumer group; do
     --operation Read --group "$group" --resource-pattern-type literal \
     >/dev/null 2>&1 || fail "Cannot provision group ACL for $group"
 done < "$topology"
+# Every replica consumes its own copy. Only Config Server can publish refreshes.
+"$bin/kafka-acls.sh" "${common[@]}" --add --allow-principal User:CN=config-server \
+  --operation Write --topic "$bus_topic" --resource-pattern-type literal \
+  >/dev/null 2>&1 || fail 'Cannot provision configuration publisher ACL'
+for service in config-server wardrobe-service recommendation-service; do
+  principal=$service
+  if [[ $service == config-server ]]; then principal=CN=config-server; fi
+  "$bin/kafka-acls.sh" "${common[@]}" --add --allow-principal "User:$principal" \
+    --operation Read --operation Describe --topic "$bus_topic" --resource-pattern-type literal \
+    >/dev/null 2>&1 || fail "Cannot provision configuration topic ACL for $service"
+  "$bin/kafka-acls.sh" "${common[@]}" --add --allow-principal "User:$principal" \
+    --operation Read --group "config-bus.$service." --resource-pattern-type prefixed \
+    >/dev/null 2>&1 || fail "Cannot provision configuration group ACL for $service"
+done
 if (( ${#monitor_resources[@]} )); then
   "$bin/kafka-acls.sh" "${common[@]}" --add --allow-principal 'User:CN=kafka-monitor' \
     --operation Describe --resource-pattern-type literal "${monitor_resources[@]}" \
