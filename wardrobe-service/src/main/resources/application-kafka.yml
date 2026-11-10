@@ -1,0 +1,26 @@
+spring:
+  kafka:
+    bootstrap-servers: ${bootstrap.servers}
+    properties:
+      security.protocol: ${security.protocol}
+      sasl.mechanism: ${sasl.mechanism}
+      sasl.jaas.config: ${sasl.jaas.config}
+      ssl.truststore.type: ${ssl.truststore.type}
+      ssl.truststore.certificates: ${ssl.truststore.certificates}
+    producer:
+      acks: all
+      properties:
+        enable.idempotence: true
+        max.block.ms: 10000
+        delivery.timeout.ms: 30000
+        request.timeout.ms: 10000
+    consumer:
+      enable-auto-commit: false
+      auto-offset-reset: earliest
+      value-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
+    listener:
+      ack-mode: record
+  task:
+    scheduling:
+      pool:
+        size: 3
