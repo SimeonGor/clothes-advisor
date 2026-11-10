@@ -14,8 +14,8 @@ import ru.itmo.clothesadvisor.fileservice.model.InvalidPhotoException
 import ru.itmo.clothesadvisor.fileservice.model.MAX_PHOTO_BYTES
 import ru.itmo.clothesadvisor.fileservice.service.FileAlreadyExistsException
 import ru.itmo.clothesadvisor.fileservice.service.FileService
-import ru.itmo.clothesadvisor.fileservice.storage.PhotoStorageUnavailableException
-import ru.itmo.clothesadvisor.fileservice.storage.StoredPhotoNotFoundException
+import ru.itmo.clothesadvisor.fileservice.service.PhotoStorageUnavailableException
+import ru.itmo.clothesadvisor.fileservice.service.StoredPhotoNotFoundException
 
 @RestController
 internal class FileController(private val files: FileService) : FileApi {

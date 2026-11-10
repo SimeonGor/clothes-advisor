@@ -18,6 +18,9 @@ import org.springframework.stereotype.Component
 import ru.itmo.clothesadvisor.fileservice.client.iam.IamTokenProvider
 import ru.itmo.clothesadvisor.fileservice.config.S3Properties
 import ru.itmo.clothesadvisor.fileservice.model.MAX_PHOTO_BYTES
+import ru.itmo.clothesadvisor.fileservice.service.PhotoStorage
+import ru.itmo.clothesadvisor.fileservice.service.PhotoStorageUnavailableException
+import ru.itmo.clothesadvisor.fileservice.service.StoredPhotoNotFoundException
 
 private const val MAX_DISCARDED_RESPONSE_BYTES = 64 * 1024L
 private const val MAX_REQUEST_ID_LENGTH = 128
@@ -28,14 +31,14 @@ internal class S3PhotoStorage(
     private val properties: S3Properties,
     private val tokenProvider: IamTokenProvider,
     private val timeout: Duration = Duration.ofSeconds(60),
-) {
+) : PhotoStorage {
     private val logger = LoggerFactory.getLogger(javaClass)
 
-    fun put(key: String, contentType: String, bytes: ByteArray) {
+    override fun put(key: String, contentType: String, bytes: ByteArray) {
         exchange("PUT", key, bytes.size.toLong(), contentType, bytes)
     }
 
-    fun get(key: String, sizeBytes: Long): ByteArray = exchange("GET", key, sizeBytes)
+    override fun get(key: String, sizeBytes: Long): ByteArray = exchange("GET", key, sizeBytes)
 
     private fun exchange(
         operation: String,
@@ -192,7 +195,3 @@ internal class S3PhotoStorage(
         var result = "transport"
     }
 }
-
-internal class PhotoStorageUnavailableException : RuntimeException()
-
-internal class StoredPhotoNotFoundException : RuntimeException()

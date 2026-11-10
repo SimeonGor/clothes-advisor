@@ -6,10 +6,9 @@ import javax.imageio.stream.MemoryCacheImageInputStream
 import org.springframework.stereotype.Service
 import ru.itmo.clothesadvisor.fileservice.model.InvalidPhotoException
 import ru.itmo.clothesadvisor.fileservice.model.MAX_PHOTO_BYTES
-import ru.itmo.clothesadvisor.fileservice.storage.S3PhotoStorage
 
 @Service
-internal class PhotoUploadService(private val storage: S3PhotoStorage) {
+internal class PhotoUploadService(private val storage: PhotoStorage) {
     fun upload(key: String, declaredContentType: String, bytes: ByteArray): String {
         if (bytes.size !in 1..MAX_PHOTO_BYTES) throw InvalidPhotoException()
         val contentType = detectContentType(bytes)

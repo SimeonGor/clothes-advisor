@@ -29,6 +29,8 @@ import ru.itmo.clothesadvisor.fileservice.client.iam.IamTokenUnavailableExceptio
 import ru.itmo.clothesadvisor.fileservice.config.S3Configuration
 import ru.itmo.clothesadvisor.fileservice.config.S3Properties
 import ru.itmo.clothesadvisor.fileservice.model.MAX_PHOTO_BYTES
+import ru.itmo.clothesadvisor.fileservice.service.PhotoStorageUnavailableException
+import ru.itmo.clothesadvisor.fileservice.service.StoredPhotoNotFoundException
 
 class S3PhotoStorageTests {
     private val executor = Executors.newCachedThreadPool()
