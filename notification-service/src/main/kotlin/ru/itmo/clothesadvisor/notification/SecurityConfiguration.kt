@@ -16,6 +16,7 @@ internal class SecurityConfiguration {
         .logout { it.disable() }.requestCache { it.disable() }
         .authorizeExchange {
             it.pathMatchers("/actuator/health", "/actuator/health/**").permitAll()
+                .pathMatchers(HttpMethod.GET, "/v3/api-docs").permitAll()
                 .pathMatchers(HttpMethod.GET, "/actuator/metrics/notification.duplicates").permitAll()
                 .pathMatchers("/api/me/notifications", "/api/me/notifications/**").authenticated()
                 .anyExchange().denyAll()

@@ -1,55 +1,47 @@
 @startuml components
 !pragma layout smetana
-skinparam backgroundColor #FFFFFF
+skinparam backgroundColor white
 skinparam defaultFontName SansSerif
-skinparam defaultFontSize 14
 skinparam shadowing false
 skinparam componentStyle rectangle
-skinparam packageStyle rectangle
-skinparam nodesep 45
-skinparam ranksep 55
-skinparam ArrowColor #52677F
-actor "USER / STYLIST / ADMIN" as user
-component "Frontend\nОтдельный контейнер" as ui #FFF5DF
-component "Gateway\nПубличный HTTP" as gw #EDF4FB
-rectangle "Внутренняя сеть Compose" {
-  component "account-service\nПрава / JWT / сессии" as account #E9F5EF
-  component "wardrobe-service\nГардероб / образы / задания" as wardrobe #E9F5EF
-  component "notification-service\nУведомления" as notify #E9F5EF
-  queue "Kafka · 3 брокера\n7 топиков · replication=3" as kafka #FFF5DF
-  component "recommendation-service\nОчередь / worker / AI-выбор" as rec #F2EDFB
-  component "file-service\nФайлы / metadata" as files #E9F5EF
-  database "account_db" as adb
-  database "wardrobe_db" as wdb
-  database "notification_db" as ndb
-  database "recommendation_db" as rdb
-  database "file_db" as fdb
-}
-component "Config Server / Eureka\nКонфигурация и discovery\nдля backend-сервисов" as infra #EDF4FB
-component "OAuth refresher\nrefresh token" as oauth #F2EDFB
-cloud "OpenAI\nЛичное ChatGPT-подключение" as ai #F2EDFB
-cloud "Yandex Object Storage\nПриватные файлы" as s3 #E9F5EF
-user --> ui
-ui --> gw
-gw --> account : HTTP
-gw --> wardrobe : HTTP · v1 / v2
-gw --> notify : HTTP
-wardrobe --> account : права
-account --> adb
-wardrobe --> wdb
-notify --> ndb
-account --> kafka : stylist-access.events
-wardrobe <--> kafka : события гардероба / заданий\nзапросы / выполнение AI
-kafka --> notify : события
-kafka <--> rec : команды / результаты\nподтверждения
-rec --> rdb
-wardrobe --> files : PUT / GET по fileId
-rec --> files : GET по fileId
-rec ..> wardrobe : проверка перед AI
-wardrobe ..> rec : legacy sync HTTP
-files --> fdb
-files --> s3 : HTTPS
-rec --> ai : HTTPS · вне транзакции
-oauth --> rec : только access token
-infra -[hidden]-> account
+skinparam nodesep 35
+skinparam ranksep 42
+skinparam ArrowColor #41576B
+
+actor "Браузер" as browser
+component "API Gateway\n127.0.0.1:8080" as gw #DEEAF6
+component "Frontend\nCaddy · React" as ui #DEEAF6
+component "Account\nаккаунты, права · account_db" as account #E5F3EB
+component "Wardrobe\nгардероб, задания · clothes_advisor" as wardrobe #E5F3EB
+component "Notification\nлента · notification_db" as notice #E5F3EB
+queue "Kafka KRaft\n3 брокера · 7 топиков" as kafka #FFF1D6
+component "Recommendation\nисполнение AI · recommendation_db" as rec #E5F3EB
+component "File\nметаданные · file_db" as file #E5F3EB
+component "Token refresher" as refresh #EEE8F7
+cloud "OpenAI" as ai
+cloud "Yandex Object Storage" as s3
+
+browser --> gw : HTTP
+gw --> ui : /app
+gw --> account : /api/auth, доступ
+gw --> wardrobe : гардероб, AI v2
+gw --> notice : уведомления
+wardrobe ..> account : права
+notice ..> account : активность
+account --> kafka : доступ
+wardrobe <--> kafka : команды, события
+kafka --> notice : события
+kafka <--> rec : команды, исходы
+wardrobe --> file : запись, чтение
+rec --> file : чтение
+rec ..> wardrobe : validate-input
+wardrobe ..> rec : синхронный подбор
+file --> s3 : HTTPS
+rec --> ai : HTTPS
+refresh ..> rec : access token через том
+
+note top of gw
+  Config Server отдаёт настройки.
+  Eureka разрешает имена сервисов.
+end note
 @enduml

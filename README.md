@@ -16,7 +16,7 @@ Wardrobe автоматически проверяет клиентские на
 
 В ЛР3 добавлены Spring Security и вход по логину и паролю. API использует JWT, а текущие роли и блокировки проверяются через account. Access token действует 15 минут; refresh-сессия — 7 дней с момента входа. Создавать аккаунты может только ADMIN. [Решения и ограничения авторизации](docs/lab3/theory.md).
 
-В ЛР4 `file-service` принимает внутренние PUT и GET по `/api/files/{fileId}`. Метаданные хранятся в `file_db`, фотографии — в Yandex Object Storage. Wardrobe может записывать и читать файлы, recommendation — читать. Публичный API фотографий обслуживает wardrobe. [Контракт файлового сервиса](docs/lab4/api.md#внутренние-файлы-и-проверка-входа)
+В ЛР4 пользователь отправляет подбор образа, замену вещей или создание капсулы в фон. Wardrobe возвращает `202` со ссылкой на задание. Recommendation получает команду через Kafka, выполняет подбор и отправляет результат в wardrobe. О завершении пользователь узнаёт в разделе «Уведомления». Туда же приходят запросы и ответы стилистов. Фотографии принимает отдельный file-service. [Изменения ЛР4](docs/lab4/changes.md) · [Приёмка и сценарий защиты](docs/lab4/acceptance.md)
 
 ## Быстрый запуск
 
@@ -34,8 +34,9 @@ cp .env.example .env
 - `YANDEX_SERVICE_ACCOUNT_KEY_FILE` — абсолютный путь к JSON-файлу авторизованного ключа сервисного аккаунта с правами чтения и загрузки объектов в этот бакет. Храните файл вне репозитория и контекста сборки Docker; он должен быть доступен для чтения пользователю `APP_UID`.
 - `DB_PASSWORD` — пароль PostgreSQL гардероба.
 - `ACCOUNT_DB_PASSWORD` — отдельный пароль PostgreSQL аккаунтов. Оба значения из примера подходят только для локального запуска.
-- `FILE_DB_PASSWORD` — отдельный пароль PostgreSQL файлового сервиса.
+- `FILE_DB_PASSWORD`, `RECOMMENDATION_DB_PASSWORD`, `NOTIFICATION_DB_PASSWORD` — пароли соответствующих БД PostgreSQL. Заполните все три в дополнение к паролям wardrobe и account.
 - `FILE_WARDROBE_PASSWORD_FILE` и `FILE_RECOMMENDATION_PASSWORD_FILE` — абсолютные пути к файлам с разными паролями служебных учётных записей. Wardrobe обращается к файловому API с паролем из `FILE_WARDROBE_PASSWORD_FILE`. Пользователю `APP_UID` нужен доступ на чтение этих файлов.
+- `AI_VALIDATION_PASSWORD_FILE` — абсолютный путь к отдельному паролю для проверки входных данных задания. Его читают recommendation и wardrobe.
 - `APP_UID` — результат `id -u`; `CHATGPT_CREDENTIALS_DIR` и `OPENAI_MODEL` — настройки [подключения ChatGPT](#ai-подбор).
 - `APP_JWT_PRIVATE_KEY_FILE` и `APP_JWT_PUBLIC_KEY_FILE` — абсолютные пути к ключам JWT, созданным ниже.
 - `APP_BOOTSTRAP_ADMIN_LOGIN` и `APP_BOOTSTRAP_ADMIN_PASSWORD` — первый администратор; пароль от 12 до 128 символов. Значения с `$` в `.env` заключайте в одинарные кавычки. Действующий пароль при повторном запуске не перезаписывается; после настройки эти две переменные можно убрать.
@@ -47,9 +48,9 @@ mkdir -p "$HOME/.config/clothes-advisor"
 python3 infra/kafka/prepare.py --secrets-dir "$HOME/.config/clothes-advisor/kafka"
 ```
 
-Родительский каталог должен существовать. Повторная команда проверяет имеющиеся файлы и не меняет пароли или cluster ID. Добавьте полученный абсолютный путь в `.env`. Kafka включена в общий Compose: три брокера, семь топиков, TLS/SCRAM и права по сервисам. Подключение бизнес-сервисов к очередям относится к следующим этапам ЛР4. [Запуск Kafka отдельно и диагностика](docs/lab4/kafka.md).
+Повторная команда проверяет существующие ключи и cluster ID. Добавьте абсолютный путь каталога Kafka в `.env`. Compose запускает три брокера и выполняет provisioning семи топиков с репликацией и ACL для account, wardrobe, recommendation и notification. [Запуск Kafka и диагностика](docs/lab4/kafka.md)
 
-Для внутреннего файлового API создайте два пароля. Запишите пути к файлам в `.env`.
+Создайте пароли внутренних HTTP-клиентов и запишите пути к файлам в `.env`.
 
 ```shell
 (
@@ -57,6 +58,7 @@ python3 infra/kafka/prepare.py --secrets-dir "$HOME/.config/clothes-advisor/kafk
   cd "$HOME/.config/clothes-advisor" || exit 1
   test -e file-wardrobe-password || openssl rand -hex 32 > file-wardrobe-password
   test -e file-recommendation-password || openssl rand -hex 32 > file-recommendation-password
+  test -e ai-validation-password || openssl rand -hex 32 > ai-validation-password
 )
 ```
 
@@ -74,13 +76,13 @@ chmod 600 "$HOME/.config/clothes-advisor/jwt-private.pem"
 chmod 644 "$HOME/.config/clothes-advisor/jwt-public.pem"
 ```
 
-Закрытый ключ монтируется только в account, открытый — также в wardrobe и Gateway. В образах ключей нет. Пользователь `APP_UID` должен иметь право читать закрытый ключ.
+Закрытый ключ монтируется только в account. Gateway, account, wardrobe и notification читают открытый ключ. Пользователь `APP_UID` должен иметь право читать закрытый ключ.
 
 Профиль `local` создаёт демонстрационные аккаунты `user`, `stylist`, `admin` без рабочих паролей. Bootstrap задаст пароль `admin`, если это выбранный первоначальный ADMIN; пароли остальных назначаются из интерфейса администратора. Регистрации нет, общего тестового пароля нет.
 
 Account запускается с отдельным PostgreSQL и томом `account-postgres-data`; его HTTP и БД доступны только внутри Compose. Профиль `local` создаёт демонстрационные аккаунты только в account до готовности сервиса; Gateway ждёт его healthcheck.
 
-При обновлении существующей установки сначала остановите запись и выполните [перенос аккаунтов и сверку манифестов](docs/lab2/account-data-transfer.md). Только после проверки запускайте новую wardrobe: Flyway V11 автоматически снимает пять внешних ключей на старую копию аккаунтов. Не запускайте новый образ wardrobe до переноса. Старые таблицы и история сохраняются; после новых записей возвращать старого писателя без обратной сверки нельзя.
+На существующей установке проверьте версию Flyway до обновления. Для перехода с общей БД аккаунтов нужен перенос до V11. При переходе с ЛР3 выполните перенос метаданных фотографий на V22 до первого запуска wardrobe с V23. На новой пустой установке Flyway создаёт таблицы при старте. [Перенос аккаунтов](docs/lab2/account-data-transfer.md) · [Перенос фотографий](docs/lab4/file-transfer.md)
 
 ```shell
 docker compose up --build -d
@@ -124,9 +126,7 @@ curl http://127.0.0.1:8080/api/wardrobe/items \
   -d '{"name":"Рубашка","categoryId":1,"color":"Белый","material":"Хлопок"}'
 ```
 
-Общий [Swagger UI](http://127.0.0.1:8080/swagger-ui/index.html) предлагает спецификации **Account** и **Wardrobe**. Выполните вход в Account, затем вставьте access token в **Authorize** выбранной спецификации. JSON доступен отдельно для [Account](http://127.0.0.1:8080/v3/api-docs/account) и [Wardrobe](http://127.0.0.1:8080/v3/api-docs/wardrobe).
-
-OpenAPI и Swagger UI выключены по умолчанию в Account, Wardrobe и Gateway. Для включения задайте `SPRING_PROFILES_ACTIVE=local` в `.env` и выполните `docker compose up -d`: Compose передаст профиль всем трём сервисам. При запуске через `bootRun` задайте эту переменную каждому из них. Запросы из UI идут через текущий адрес Gateway, включая выбранный порт.
+Включите профиль `SPRING_PROFILES_ACTIVE=local` в `.env` и выполните `docker compose up -d`. В общем Swagger UI выберите спецификацию, выполните вход в Account и вставьте access token в **Authorize** выбранной спецификации. Запросы идут через текущий адрес Gateway. [Swagger UI](http://127.0.0.1:8080/swagger-ui/index.html) · [Account](http://127.0.0.1:8080/v3/api-docs/account) · [Wardrobe](http://127.0.0.1:8080/v3/api-docs/wardrobe) · [Notification](http://127.0.0.1:8080/v3/api-docs/notification)
 
 `POST /api/auth/refresh` обновляет токен по cookie; `POST /api/auth/logout` отзывает сессию. Оба требуют `X-Auth-Request: 1`. После выхода или смены пароля уже выданный access token действует до истечения срока; блокировка пользователя запрещает следующие бизнес-запросы сразу.
 
@@ -136,7 +136,7 @@ OpenAPI и Swagger UI выключены по умолчанию в Account, War
 
 Промпт находится в `config-repository/recommendation-service/application.yml`: `app.openai.prompt.text` — текст, `version` — положительное целое число. При правке меняйте оба поля и сохраняйте файл целиком. Recommendation подхватит изменения автоматически при очередном опросе, по умолчанию через 30 секунд; перезапуск и пересборка не нужны. Уже начатый подбор использует прежний снимок. Невалидная правка сохраняет последний рабочий промпт; если его ещё нет, AI возвращает `503`. Параметр `app.openai.prompt.poll-interval` меняется только при запуске.
 
-Повтор успешного запроса с тем же `Idempotency-Key` вернёт прежний образ даже после смены промпта. Для нового подбора нужен новый ключ. Генерация изображений не подключена: AI по-прежнему выбирает вещи из переданных кандидатов.
+В той же версии API повтор принятого запроса с тем же телом и `Idempotency-Key` возвращает сохранённый ответ. Для старого синхронного API это `201` с ресурсом, для v2 — `202` с тем же jobId. Если успешный ответ уже сохранён в другой версии, сервис вернёт `409`. Текущий статус задания v2 и ссылку на результат можно посмотреть по адресу из `Location` либо в «Мои AI-задания». [Контракты и ошибки AI](docs/lab4/api.md)
 
 Вход выполняется отдельной локальной утилитой, которая не входит в этот репозиторий. Контейнер `chatgpt-token-refresher` использует созданные ею `registration.json` и `credentials.json`:
 
@@ -147,7 +147,7 @@ OpenAPI и Swagger UI выключены по умолчанию в Account, War
 
 Если нужен отдельный PKCS12 для OpenAI, положите его в приватный каталог с правами `600` и задайте `CHATGPT_TRUST_STORE=/run/chatgpt/<имя>.p12`; пароль — `changeit`. Refresher проверит, что хранилище содержит только доверенные сертификаты, и скопирует его в выходной том до готовности recommendation. Хранилища с приватными ключами отклоняются. Иначе оставьте переменную пустой. Это доверие применяется к OAuth-клиенту refresher и клиенту OpenAI recommendation.
 
-Без действующего подключения или при недоступном recommendation AI возвращает 503; остальные функции работают. Проверка данных и чтение фотографий выполняются до обращения к recommendation; при ошибке образ не сохраняется. Для запуска без AI можно указать пустой каталог с правами `700` и оставить `OPENAI_MODEL` пустым. Готовность refresher означает инициализацию каталога и TLS, а не успешный вход. OAuth-токены не храните в `.env` или Git.
+Для запуска без AI можно указать пустой каталог с правами `700` и оставить `OPENAI_MODEL` пустым. Готовность refresher подтверждает инициализацию каталога и TLS. В v2 принятие задания и вызов провайдера разделены во времени. Если внешний запрос мог выполниться, а результат потерян, задание получает `UNKNOWN`, личное подключение ставится на паузу. Оператор проверяет состояние слота перед возобновлением. [Восстановление после сбоя](docs/lab4/ai-execution-recovery.md)
 
 Перед совместным использованием пересоберите локальную утилиту входа с поддержкой `command.guard`: старый файловый lock не синхронизирует macOS с bind mount Docker/Colima. Оба процесса создают этот каталог атомарно и не удаляют чужую блокировку. Обычная остановка освобождает её после завершения записи. После принудительного завершения сначала остановите refresher (`docker compose stop chatgpt-token-refresher`) и все процессы локальной утилиты, убедитесь, что писателей больше нет, затем удалите только пустой `command.guard` командой `rmdir` в приватном каталоге. Не удаляйте его при работающих процессах; автоматического перехвата блокировки нет.
 
@@ -176,13 +176,11 @@ Dockerfile каждого сервиса копирует только wrapper, 
 Кеш заблокирован на время Gradle-шагов, поэтому они выполняются последовательно;
 в runtime-образы кеш не попадает. Его очистка замедляет следующую сборку, но не меняет результат.
 
-Код гардероба находится в `wardrobe-service`, аккаунтов — в `account-service`, AI — в `recommendation-service`, Config Server — в `config-server`, Eureka — в `discovery-server`, единая HTTP-точка входа — в `api-gateway`. Для запуска без Docker нужны PostgreSQL и переменные окружения из `.env`: Gradle сам этот файл не читает. Сначала выполните `./gradlew :config-server:bootRun`, затем `./gradlew :discovery-server:bootRun`, `APP_PORT=8081 ./gradlew :wardrobe-service:bootRun`, `APP_PORT=8083 ./gradlew :recommendation-service:bootRun` и `./gradlew :api-gateway:bootRun`. Сервисы регистрируются в Eureka; обнаружение после запуска может занять некоторое время. Команды запускаются из корня репозитория; конкретный модуль можно указать явно: `./gradlew :wardrobe-service:test`.
+Полный стенд ЛР4 запускайте через Compose. При отдельном запуске через `bootRun` Gradle не читает `.env`: передайте сервису настройки его БД, Config Server, Eureka и пути к собственным secrets. Имена сервисов, Kafka credentials, внутренние HTTP-клиенты и настройки worker для контейнерного запуска заданы в [Compose](compose.yaml). Для сборки или проверки конкретного модуля укажите его имя, например `./gradlew :notification-service:test`.
 
-Account также подключается к Config/Eureka и нужен wardrobe для запросов с пользователем: `APP_PORT=8084 ./gradlew :account-service:bootRun`. Ему нужна отдельная БД `account_db`: `DB_R2DBC_URL` — R2DBC-адрес, `DB_URL` — JDBC-адрес той же БД для Flyway, `DB_USER` и `DB_PASSWORD` — её учётные данные. При отдельном запуске account передайте в `DB_PASSWORD` значение `ACCOUNT_DB_PASSWORD`; Compose делает это автоматически. Не направляйте его на рабочую БД wardrobe.
+При локальной отладке JWT задайте `JWT_PUBLIC_KEY_LOCATION=file:/абсолютный/путь/jwt-public.pem` для account, wardrobe, notification и Gateway. Закрытый ключ `JWT_PRIVATE_KEY_LOCATION` нужен account. Для локального HTTP используется `AUTH_REFRESH_COOKIE_SECURE=false`.
 
-При запуске JVM на хосте вместо Compose mounts задайте `JWT_PUBLIC_KEY_LOCATION=file:/абсолютный/путь/jwt-public.pem` для account, wardrobe и Gateway; `JWT_PRIVATE_KEY_LOCATION=file:/абсолютный/путь/jwt-private.pem` — только для account. Для account также нужны настройки первоначального ADMIN и `AUTH_REFRESH_COOKIE_SECURE=false`, если используется локальный HTTP.
-
-Тесты бизнес-сервисов используют Mockito и PostgreSQL Testcontainers; подготовка и проверка данных выполняется через JDBC. Gateway имеет отдельные HTTP-тесты безопасности. HTTP-клиенты проверяются на локальных заглушках; секреты из `.env` и реальные вызовы S3/OpenAI не нужны. Frontend проверяется командой `npm test` в каталоге `frontend`.
+Сервисные тесты используют Mockito и PostgreSQL Testcontainers. Gateway проверяется HTTP-запросами, внешние клиенты — на локальных имитаторах. Frontend проверяется командой `npm test` в каталоге `frontend`.
 
 В account, wardrobe, recommendation и chatgpt-token-refresher подключён JaCoCo. После `test` автоматически создаются отчёты: HTML — `<module>/build/reports/jacoco/test/html/index.html`, XML — `<module>/build/reports/jacoco/test/jacocoTestReport.xml`. Команда `./gradlew jacocoTestReport` запускает тесты и строит отчёты этих четырёх модулей. Обязательного порога покрытия нет.
 
@@ -206,6 +204,9 @@ export TESTCONTAINERS_HOST_OVERRIDE=127.0.0.1
 
 ## Документация
 
+- [ЛР4 по пунктам задания](docs/lab4/acceptance.md) · [Что изменилось после ЛР3](docs/lab4/changes.md)
+- [Компоненты](docs/lab4/diagrams/components.svg) · [ER](docs/lab4/diagrams/data.svg) · [AI-подбор](docs/lab4/diagrams/ai-selection.svg) · [Запрос стилисту](docs/lab4/diagrams/stylist-request.svg)
+- [Контракты HTTP](docs/lab4/api.md) · [События и топики](docs/lab4/messaging.md) · [Диагностика и отказы](docs/lab4/operations.md)
 - [План и состояние ЛР3](docs/lab3/implementation.md) · [Авторизация: решения и теория](docs/lab3/theory.md)
 - [Архитектура и схемы ЛР2](docs/lab2/architecture.md)
 - [Контракты сервисов](docs/lab2/contracts.md) · [Итоговая проверка ЛР2](docs/lab2/acceptance.md)
