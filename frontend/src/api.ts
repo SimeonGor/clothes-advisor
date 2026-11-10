@@ -87,6 +87,18 @@ export type CalendarEntry = {
   status: "PLANNED" | "WORN"; version: number; createdAt: string; modifiedAt: string;
 };
 
+export type AiJob = {
+  jobId: string;
+  type: "OUTFIT_SELECTION" | "OUTFIT_REPLACEMENT" | "CAPSULE_SELECTION";
+  status: "QUEUED" | "RUNNING" | "SUCCEEDED" | "FAILED" | "UNKNOWN";
+  createdAt: string;
+  modifiedAt: string;
+  result: { type: "OUTFIT" | "CAPSULE"; id: number; url: string } | null;
+  error: { code: string; message: string } | null;
+};
+export type AcceptedAiJob = { jobId: string; status: "QUEUED" | "RUNNING" };
+export type AiJobPage = { jobs: AiJob[]; total: number };
+
 export function outfitsPath(context: WorkspaceContext): string {
   if (context.kind === "own") return "/api/outfits";
   if (context.kind === "client") return `/api/stylist/clients/${context.ownerId}/outfits`;
@@ -109,6 +121,14 @@ export async function request<T>(
     cache: "no-store",
   });
   return response.status === 204 ? null as T : response.json() as Promise<T>;
+}
+
+export async function aiJobPage(actorId: number, page: number, signal?: AbortSignal): Promise<AiJobPage> {
+  const response = await authenticatedFetch(`/api/v2/me/ai-jobs?page=${page}&size=50`, actorId, { signal });
+  const jobs = await response.json() as AiJob[];
+  const totalHeader = response.headers.get("X-Total-Count");
+  const parsedTotal = totalHeader === null ? NaN : Number(totalHeader);
+  return { jobs, total: Number.isSafeInteger(parsedTotal) && parsedTotal >= 0 ? parsedTotal : page * 50 + jobs.length };
 }
 
 export async function allPages<T>(

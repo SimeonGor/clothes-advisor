@@ -10,11 +10,22 @@ import { OutfitDetail } from "./outfits";
 const user: Actor = { id: 11, login: "user", role: "USER" };
 const item = (id: number, availability?: WardrobeItem["availability"]): WardrobeItem => ({ id, name: `Вещь ${id}`, categoryId: 1, color: "оливковый", material: "хлопок", version: 1, createdAt: "2026-01-01T00:00:00Z", modifiedAt: "2026-01-01T00:00:00Z", availability });
 const outfit = (id = 5): Outfit => ({ id, ownerId: user.id, authorId: user.id, source: "USER", name: "Городской образ", itemIds: [1], likes: 0, dislikes: 0, createdAt: "2026-01-01T00:00:00Z", weather: { temperatureC: 12, windSpeedMps: 2, precipitationTypeId: 7 } });
-const ok = (data: unknown, status = 200) => ({ ok: true, status, headers: new Headers(), json: async () => data } as Response);
+const ok = (data: unknown, status = 200) => ({ ok: true, status: status === 201 ? 202 : status,
+  headers: new Headers(status === 201 ? { Location: "/api/v2/me/ai-jobs/550e8400-e29b-41d4-a716-446655440000" } : {}),
+  json: async () => status === 201 ? { jobId: "550e8400-e29b-41d4-a716-446655440000", status: "QUEUED" } : data } as Response);
 const fail = (status: number) => ({ ok: false, status, headers: new Headers(), json: async () => ({}) } as Response);
 
-function mount(actor: Actor = user, context: { kind: "own" } | { kind: "client" | "admin"; ownerId: number } = { kind: "own" }) {
+function mount(actor: Actor = user, context: { kind: "own" } | { kind: "client" | "admin"; ownerId: number } = { kind: "own" }, jobResponse: Response | (() => Response) = ok({
+  jobId: "550e8400-e29b-41d4-a716-446655440000", type: "OUTFIT_REPLACEMENT", status: "SUCCEEDED",
+  result: { type: "OUTFIT", id: 9, url: "/api/outfits/9" }, error: null,
+})) {
   authenticatedActor(actor);
+  const originalFetch = globalThis.fetch;
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = String(input);
+    if (url.startsWith("/api/v2/me/ai-jobs/")) return typeof jobResponse === "function" ? jobResponse() : jobResponse;
+    return originalFetch(input, init);
+  }));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   function DetailHarness() {
     const [pending, setPending] = React.useState(false);
@@ -68,7 +79,7 @@ describe("Замена вещей через AI", () => {
       if (call.url.endsWith("/outfits/5")) return ok(outfit());
       if (call.url.endsWith("/outfits/9")) return ok(outfit(9));
       if (call.url.endsWith("/wardrobe/items/1")) return ok(item(1));
-      if (call.url === "/api/outfits/5/ai-replacements") {
+      if (call.url === "/api/v2/outfits/5/ai-replacements") {
         if (calls.filter((entry) => entry.url === call.url).length === 1) return new Promise<Response>((_, reject) => { rejectCreate = reject; });
         return ok(outfit(9), 201);
       }
@@ -87,19 +98,107 @@ describe("Замена вещей через AI", () => {
     fireEvent.submit(form);
     await waitFor(() => expect(calls.filter((call) => call.url.endsWith("/ai-replacements"))).toHaveLength(1));
     rejectCreate(new TypeError("Network failure"));
-    await screen.findByRole("button", { name: "Новая попытка" });
+    await screen.findByRole("alert");
     expect((name as HTMLInputElement).value).toBe("Городской образ");
+    expect((name as HTMLInputElement).disabled).toBe(true);
     fireEvent.submit(form);
 
     // then: только одна новая попытка с тем же содержимым/ключом открывает новую карточку.
     await waitFor(() => expect(calls.some((call) => call.url === "/api/outfits/9")).toBe(true));
-    const posts = calls.filter((call) => call.url === "/api/outfits/5/ai-replacements");
+    const posts = calls.filter((call) => call.url === "/api/v2/outfits/5/ai-replacements");
     expect(posts).toHaveLength(2);
     expect(JSON.parse(String(posts[0].init?.body))).toEqual({ name: "Городской образ", replaceItemIds: [1] });
+    expect(JSON.parse(String(posts[1].init?.body))).toEqual(JSON.parse(String(posts[0].init?.body)));
     expect(new Headers(posts[1].init?.headers).get("Idempotency-Key")).toBe(new Headers(posts[0].init?.headers).get("Idempotency-Key"));
     expect(new Headers(posts[1].init?.headers).get("Idempotency-Key")).toBeTruthy();
     expect(calls.some((call) => call.url === "/api/outfits/9")).toBe(true);
     expect(posts.every((call) => call.init?.method === "POST")).toBe(true);
+  });
+
+  it("requires confirmation before changing the body after an ambiguous response", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const posts: Array<{ body: string; key: string | null }> = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith("/outfits/5")) return ok(outfit());
+      if (url.endsWith("/wardrobe/items/1")) return ok(item(1));
+      if (url === "/api/v2/outfits/5/ai-replacements") {
+        posts.push({ body: String(init?.body), key: new Headers(init?.headers).get("Idempotency-Key") });
+        return posts.length === 1 ? Promise.reject(new TypeError("offline")) : ok(outfit(9), 201);
+      }
+      if (url === "/api/outfits/9") return ok(outfit(9));
+      return ok([]);
+    }));
+    mount();
+    fireEvent.click(await screen.findByLabelText(/Вещь 1/));
+    const name = screen.getByLabelText("НАЗВАНИЕ НОВОГО ОБРАЗА") as HTMLInputElement;
+    fireEvent.submit(name.closest("form")!);
+    await screen.findByRole("alert");
+    expect(name.disabled).toBe(true);
+    fireEvent.change(name, { target: { value: "Изменённое имя" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Новая попытка" }));
+    expect(name.disabled).toBe(false);
+    fireEvent.change(name, { target: { value: "Изменённое имя" } });
+    fireEvent.submit(name.closest("form")!);
+    await waitFor(() => expect(posts).toHaveLength(2));
+
+    expect(JSON.parse(posts[0].body).name).toBe("Городской образ");
+    expect(JSON.parse(posts[1].body).name).toBe("Изменённое имя");
+    expect(posts[1].key).not.toBe(posts[0].key);
+  });
+
+  it("stops polling after a permanent 404 and offers a confirmed recovery action", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    let statusGets = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/outfits/5")) return ok(outfit());
+      if (url.endsWith("/wardrobe/items/1")) return ok(item(1));
+      if (url === "/api/v2/outfits/5/ai-replacements") return ok(outfit(9), 201);
+      return ok([]);
+    }));
+    mount(user, { kind: "own" }, () => { statusGets += 1; return fail(404); });
+    fireEvent.click(await screen.findByLabelText(/Вещь 1/));
+    fireEvent.submit(screen.getByLabelText("НАЗВАНИЕ НОВОГО ОБРАЗА").closest("form")!);
+    expect(await screen.findByText(/Не удалось проверить задание \(404\)/)).toBeTruthy();
+    const retry = await screen.findByRole("button", { name: "Новая попытка" });
+    await new Promise((resolve) => setTimeout(resolve, 3100));
+    expect(statusGets).toBe(1);
+    fireEvent.click(retry);
+    expect((screen.getByLabelText("НАЗВАНИЕ НОВОГО ОБРАЗА") as HTMLInputElement).disabled).toBe(false);
+  });
+
+  it("shows a retry path for transient status errors without posting again", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    let statusGets = 0;
+    let posts = 0;
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith("/outfits/5")) return ok(outfit());
+      if (url.endsWith("/wardrobe/items/1")) return ok(item(1));
+      if (url === "/api/v2/outfits/5/ai-replacements") { posts += 1; return ok(outfit(9), 201); }
+      if (url === "/api/outfits/9") return ok(outfit(9));
+      return ok([]);
+    }));
+    mount(user, { kind: "own" }, () => {
+      statusGets += 1;
+      return statusGets === 1 ? fail(503) : ok({ jobId: "550e8400-e29b-41d4-a716-446655440000",
+        type: "OUTFIT_REPLACEMENT", status: "UNKNOWN", result: null,
+        error: { code: "RESULT_UNKNOWN", message: "Состояние операции неизвестно" } });
+    });
+    fireEvent.click(await screen.findByLabelText(/Вещь 1/));
+    fireEvent.submit(screen.getByLabelText("НАЗВАНИЕ НОВОГО ОБРАЗА").closest("form")!);
+
+    expect(await screen.findByText(/Не удалось проверить задание \(503\)/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Повторить проверку" }));
+    expect(await screen.findByText(/RESULT_UNKNOWN: Состояние операции неизвестно/)).toBeTruthy();
+    expect(screen.getByText(/Повторная попытка может снова потратить квоту/)).toBeTruthy();
+    expect(screen.queryByText(/Не удалось проверить задание \(503\)/)).toBeNull();
+    expect(statusGets).toBe(2);
+    expect(posts).toBe(1);
+    fireEvent.click(screen.getByRole("button", { name: "Новая попытка" }));
+    expect((screen.getByLabelText("НАЗВАНИЕ НОВОГО ОБРАЗА") as HTMLInputElement).disabled).toBe(false);
+    expect(posts).toBe(1);
   });
 
   it("сохраняет ручной выбор после ошибки загрузки и отказа сервера", async () => {
@@ -149,7 +248,7 @@ describe("Замена вещей через AI", () => {
       if (call.url.endsWith("/outfits/5")) return ok(outfit());
       if (call.url.endsWith("/wardrobe/items/1")) return ok(item(1));
       if (call.url.startsWith("/api/wardrobe/items?page=")) return ok([item(1), item(2)]);
-      if (call.url === "/api/outfits/5/ai-replacements") return ok(outfit(9), 201);
+      if (call.url === "/api/v2/outfits/5/ai-replacements") return ok(outfit(9), 201);
       if (call.url === "/api/outfits/9") return ok(outfit(9));
       return ok([]);
     }));
