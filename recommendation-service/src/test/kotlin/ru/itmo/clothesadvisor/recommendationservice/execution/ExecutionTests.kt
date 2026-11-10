@@ -33,7 +33,6 @@ import org.springframework.web.reactive.function.client.WebClient
 import org.testcontainers.postgresql.PostgreSQLContainer
 import ru.itmo.clothesadvisor.client.ai.ChatGptCredentialFixture
 import ru.itmo.clothesadvisor.client.ai.OpenAiSelectionClient
-import ru.itmo.clothesadvisor.client.ai.SelectionInstructions
 import ru.itmo.clothesadvisor.config.SelectionPromptSettings
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionResponse
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionWeather

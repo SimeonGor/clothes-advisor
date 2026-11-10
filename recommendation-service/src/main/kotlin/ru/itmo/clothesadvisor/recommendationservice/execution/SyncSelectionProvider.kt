@@ -4,7 +4,6 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.dao.DataAccessException
 import org.springframework.stereotype.Component
 import org.springframework.transaction.TransactionException
-import ru.itmo.clothesadvisor.client.ai.OpenAiSelectionClient
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionRequest
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionResponse
 import ru.itmo.clothesadvisor.recommendationservice.model.ai.AiSelectionException
@@ -16,7 +15,7 @@ import ru.itmo.clothesadvisor.recommendationservice.service.ItemSelectionProvide
 @ConditionalOnProperty("spring.r2dbc.url")
 internal class SyncSelectionProvider(
     private val store: ExecutionStore,
-    private val client: OpenAiSelectionClient,
+    private val client: SelectionExecutionProvider,
 ) : ItemSelectionProvider {
     override fun select(goal: SelectionGoal, selection: ItemSelectionRequest): ItemSelectionResponse {
         try {
