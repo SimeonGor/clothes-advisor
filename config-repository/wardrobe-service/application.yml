@@ -25,6 +25,8 @@ spring:
         disable-thread-pool: true
 
 app:
+  ai:
+    validation-password-file: ${AI_VALIDATION_PASSWORD_FILE:/run/secrets/ai-validation-password}
   jwt:
     public-key: ${JWT_PUBLIC_KEY_LOCATION:file:/run/secrets/app-jwt-public-key}
   account-client:

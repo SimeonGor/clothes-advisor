@@ -24,6 +24,8 @@ springdoc:
   paths-to-match: /api/**
   override-with-generic-response: false
 
+AI_VALIDATION_PASSWORD_FILE: src/test/resources/ai-validation-test-password
+
 app:
   file-client:
     password-file: src/test/resources/file-wardrobe-test-password

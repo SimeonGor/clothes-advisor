@@ -10,6 +10,6 @@ enum class AiSelectionFailure {
     TIMEOUT,
 }
 
-class AiSelectionException(val failure: AiSelectionFailure) : RuntimeException()
+class AiSelectionException(val failure: AiSelectionFailure, val outcomeUnknown: Boolean = false) : RuntimeException()
 
 enum class SelectionGoal { OUTFIT, CAPSULE }
