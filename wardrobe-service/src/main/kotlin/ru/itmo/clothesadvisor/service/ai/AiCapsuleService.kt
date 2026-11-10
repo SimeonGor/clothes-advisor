@@ -23,7 +23,7 @@ internal class AiCapsuleService(
             object : TypeReference<CapsuleResponse>() {},
         ) { completion ->
             selections.select(ownerId, completion, goal = AiSelectionGoal.CAPSULE, prepare = {
-                AiSelectionCriteria(request.weather, request.candidateItemIds, request.occasion, request.preferredStyle)
+                request.criteria()
             }) { _, response ->
                 val explanation = response.explanation
                 if (explanation.isNullOrBlank() || explanation.length > 2000) {

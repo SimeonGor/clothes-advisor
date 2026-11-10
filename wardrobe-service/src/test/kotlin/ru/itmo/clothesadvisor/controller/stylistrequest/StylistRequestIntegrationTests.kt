@@ -306,7 +306,7 @@ class StylistRequestIntegrationTests : AccountBackedIntegrationTest() {
         val stylist = user(UserRole.STYLIST)
         jdbc.insertAccessGrant(owner, stylist)
         val request = CreateStylistRequest(stylist, OutfitWeatherDto(BigDecimal.TEN, 1, BigDecimal.ZERO))
-        if (failResult) doThrow(DataIntegrityViolationException("forced")).`when`(commands).succeed(anyLong(), anyString())
+        if (failResult) doThrow(DataIntegrityViolationException("forced")).`when`(commands).succeed(anyLong(), anyString(), org.mockito.ArgumentMatchers.eq(201))
         else doThrow(DataIntegrityViolationException("forced")).`when`(repository).insertWeather(
             1L, StylistRequestWeather(BigDecimal.TEN, 1, BigDecimal.ZERO),
         )

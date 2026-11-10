@@ -240,7 +240,7 @@ class StylistRequestAnswerIntegrationTests : AccountBackedIntegrationTest() {
             "composition" -> doThrow(failure).`when`(composition).insertAll(anyList())
             "answer" -> doThrow(failure).`when`(answers).insert(anyLong(), anyLong())
             "state" -> doThrow(failure).`when`(requests).answer(f.id, f.owner, f.stylist, 1)
-            "result" -> doThrow(failure).`when`(commands).succeed(anyLong(), anyString())
+            "result" -> doThrow(failure).`when`(commands).succeed(anyLong(), anyString(), org.mockito.ArgumentMatchers.eq(201))
         }
         val body = payload(listOf(f.item))
 

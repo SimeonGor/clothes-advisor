@@ -5,8 +5,6 @@ import ru.itmo.clothesadvisor.dto.ai.CreateAiOutfitRequest
 import ru.itmo.clothesadvisor.dto.ai.CreateAiOutfitReplacementRequest
 import ru.itmo.clothesadvisor.dto.outfit.CreateOutfitRequest
 import ru.itmo.clothesadvisor.dto.outfit.OutfitResponse
-import ru.itmo.clothesadvisor.model.ai.AiSelectionException
-import ru.itmo.clothesadvisor.model.ai.AiSelectionFailure
 import ru.itmo.clothesadvisor.model.idempotency.IdempotencyOperation.CREATE_AI_OUTFIT
 import ru.itmo.clothesadvisor.model.idempotency.IdempotencyOperation.CREATE_AI_OUTFIT_REPLACEMENT
 import ru.itmo.clothesadvisor.service.idempotency.IdempotencyService
@@ -25,14 +23,7 @@ internal class AiOutfitService(
             ownerId, CREATE_AI_OUTFIT, key, listOf(ownerId, request),
             object : TypeReference<OutfitResponse>() {},
         ) { completion ->
-            selections.select(ownerId, completion, prepare = {
-                AiSelectionCriteria(
-                    request.weather,
-                    request.candidateItemIds,
-                    request.occasion,
-                    request.preferredStyle,
-                )
-            }) { criteria, response ->
+            selections.select(ownerId, completion, prepare = { request.criteria() }) { criteria, response ->
                 outfits.createAi(
                     ownerId,
                     CreateOutfitRequest(request.name, response.itemIds, criteria.weather),
@@ -56,20 +47,7 @@ internal class AiOutfitService(
             object : TypeReference<OutfitResponse>() {},
         ) { completion ->
             selections.select(ownerId, completion, prepare = {
-                val source = outfits.get(ownerId, sourceId)
-                validateIds(request.replaceItemIds)
-                val replaced = request.replaceItemIds.map { requireNotNull(it) }.toSet()
-                if (!source.itemIds.containsAll(replaced)) {
-                    throw AiSelectionException(AiSelectionFailure.INVALID_REQUEST)
-                }
-                AiSelectionCriteria(
-                    source.weather,
-                    request.candidateItemIds,
-                    source.occasion,
-                    source.preferredStyle,
-                    source.itemIds.filter { it !in replaced }.toSet(),
-                    replaced,
-                )
+                request.criteria(outfits.get(ownerId, sourceId))
             }) { criteria, response ->
                 outfits.createAi(
                     ownerId,
@@ -80,12 +58,6 @@ internal class AiOutfitService(
                     sourceId,
                 )
             }
-        }
-    }
-
-    private fun validateIds(ids: List<Long?>) {
-        if (ids.isEmpty() || ids.any { it == null || it <= 0 } || ids.distinct().size != ids.size) {
-            throw AiSelectionException(AiSelectionFailure.INVALID_REQUEST)
         }
     }
 }
