@@ -46,7 +46,7 @@ Wardrobe определяет владельца фотографии по св�
 
 ## Месяц и сравнение
 
-Этап 06 добавляет в Compose отдельный `recommendation-postgres` с БД `recommendation_db` и томом `recommendation-postgres-data`. Для запуска задайте `RECOMMENDATION_DB_PASSWORD` в окружении Compose. При первом запуске Flyway создаёт таблицу запросов, строку барьера и пять партиций от начала третьего предыдущего до конца следующего месяца UTC. Приём берёт разделяемую блокировку строки барьера до конца транзакции. Продвижение барьера и обслуживание старых партиций предусмотрены этапом 15. [Миграция recommendation-service](../../recommendation-service/src/main/resources/db/migration/V1__create_recommendation_request.sql)
+В Compose база `recommendation_db` работает в отдельном `recommendation-postgres` с томом `recommendation-postgres-data`. Для запуска задайте `RECOMMENDATION_DB_PASSWORD` в окружении Compose. При первом запуске Flyway создаёт таблицу запросов, строку барьера и пять партиций от начала третьего предыдущего до конца следующего месяца UTC. Приём удерживает разделяемую блокировку строки барьера до конца транзакции. Работающая recommendation-service проверяет партиции при старте и через десять минут после окончания предыдущей проверки. [Начальная схема](../../recommendation-service/src/main/resources/db/migration/V1__create_recommendation_request.sql) · [Обслуживание](../../recommendation-service/src/main/resources/db/migration/V5__maintain_recommendation_partitions.sql)
 
 request_month — первое число календарного месяца UTC принятия задания, не месяц получения Kafka. Отправитель сохраняет его вместе с request ID; повтор не пересчитывает дату. Новая внутренняя операция с тем же request ID в другом месяце допустима. Внешний ключ wardrobe по-прежнему бессрочен и не создаёт её автоматически.
 
@@ -59,5 +59,30 @@ request_month — первое число календарного месяца 
 Перед закрытием старейшей партиции проверяются: все задания конечные; UNKNOWN разобраны; получены подтверждения применения wardrobe; необходимые сообщения outbox опубликованы. Закрытие сериализуется с приёмом команд этой партиции: сначала устойчивый барьер closed_before_month, затем detach/drop. После сбоя между ними барьер остаётся запретом на новое исполнение; обслуживание завершается повторно без открытия периода.
 
 Поздний дубль закрытого месяца отклоняется с request_period_closed и фиксируется в диагностике; он не создаёт запись/партицию и не вызывает AI. Повтор результата в wardrobe по старому job остаётся безопасным благодаря бессрочной краткой записи. Если старый месяц заблокирован незавершённым случаем, его данные хранятся дольше и поднимается сигнал обслуживания, а не производится принудительное удаление.
+
+После удаления подробности запроса, prompt и результат в recommendation для пары месяц/ID недоступны. Пользователь читает краткий итог задания в wardrobe. Публичного чтения архива recommendation нет. Фотографии и outbox этой операцией не удаляются.
+
+### Проверка и повтор обслуживания
+
+В `recommendation_db` выполните запросы ниже. Все месяцы строго раньше `closed_before_month` закрыты для новых команд и повторов. Непустой `pending_drop_month` означает, что закрытие уже зафиксировано, а удаление предстоит завершить.
+
+```sql
+SELECT closed_before_month,
+       CASE WHEN pending_drop_xid IS NOT NULL
+            THEN (closed_before_month - interval '1 month')::date END AS pending_drop_month
+FROM request_retention;
+
+SELECT relid::regclass AS partition, pg_get_expr(c.relpartbound, c.oid) AS bounds
+FROM pg_partition_tree('recommendation_request') t JOIN pg_class c ON c.oid = t.relid
+WHERE t.isleaf ORDER BY c.relname;
+```
+
+Если старейший месяц остаётся открытым дольше срока, в журнале recommendation-service найдите `Recommendation partition … retained`. Причина `unfinished_request` означает ожидание обработчика, `awaiting_application` — подтверждения AiJobFinalized, `unreviewed_unknown` — разбора UNKNOWN через штатную процедуру восстановления слота, `unpublished_event` — публикации outbox. После устранения причины дождитесь очередной проверки или выполните в psql с включённым autocommit отдельный шаг:
+
+```sql
+SELECT * FROM maintain_recommendation_partitions();
+```
+
+`blocked` возвращает первую причину удержания. После `closed` следующий вызов завершает удаление и возвращает `removed`. Повторяйте отдельные вызовы до `ready` или `blocked`. Если процесс остановился после закрытия, следующая реплика продолжит с зафиксированного месяца. Параллельные вызовы сериализуются на строке политики. После длительного простоя проверка также создаёт партиции для текущего окна и следующего месяца UTC. Если старейший месяц заблокирован, сохраняются и промежуточные открытые месяцы.
 
 Недоставленные outbox-события не очищаются по возрасту. Сроки очистки опубликованных событий и Kafka retention определяются инфраструктурным этапом совместно с окном восстановления; брокер не заменяет durable-задания и outbox.
