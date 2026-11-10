@@ -3,16 +3,28 @@ app:
     credentials-directory: ${CHATGPT_CREDENTIALS_DIR:}
     model: ${OPENAI_MODEL:}
     trust-store: ${CHATGPT_TRUST_STORE:}
-    prompt:
-      poll-interval: 30s
 
 logging:
   level:
     org.springframework.cloud.config.client.ConfigServicePropertySourceLocator: "OFF"
 
 spring:
+  config:
+    import: "classpath:observability.yml"
   application:
     name: recommendation-service
+  cloud:
+    stream:
+      function:
+        autodetect: false
+    bus:
+      enabled: false
+      id: ${spring.application.name}:${CONFIG_BUS_INSTANCE:${HOSTNAME:${random.uuid}}}
+      destination: config.refresh.events
+      refresh.enabled: false
+      env.enabled: false
+      shutdown.enabled: false
+      ack.enabled: false
 
 ---
 spring:
@@ -20,8 +32,25 @@ spring:
     activate:
       on-profile: "!test"
     import: "configserver:${CONFIG_SERVER_URL:http://localhost:8888}"
+  r2dbc:
+    url: ${DB_R2DBC_URL:r2dbc:postgresql://localhost:5432/recommendation_db}
+    username: ${DB_USER:recommendation_service}
+    password: ${DB_PASSWORD}
+  flyway:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/recommendation_db}
+    user: ${DB_USER:recommendation_service}
+    password: ${DB_PASSWORD}
   cloud:
     config:
       fail-fast: true
       request-connect-timeout: 2000
       request-read-timeout: 5000
+
+management:
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,r2dbc

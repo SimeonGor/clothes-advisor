@@ -1,0 +1,32 @@
+app:
+  auth:
+    wardrobe-password-file: /run/secrets/file-wardrobe-password
+    recommendation-password-file: /run/secrets/file-recommendation-password
+  iam:
+    service-account-key-file: ${YANDEX_SERVICE_ACCOUNT_KEY_FILE:}
+
+spring:
+  config:
+    import: "classpath:observability.yml"
+  application:
+    name: file-service
+  r2dbc:
+    url: ${DB_R2DBC_URL:r2dbc:postgresql://localhost:5432/file_db}
+    username: ${DB_USER:file_service}
+    password: ${DB_PASSWORD}
+  flyway:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/file_db}
+    user: ${DB_USER:file_service}
+    password: ${DB_PASSWORD}
+
+---
+spring:
+  config:
+    activate:
+      on-profile: "!test"
+    import: "configserver:${CONFIG_SERVER_URL:http://localhost:8888}"
+  cloud:
+    config:
+      fail-fast: true
+      request-connect-timeout: 2000
+      request-read-timeout: 5000

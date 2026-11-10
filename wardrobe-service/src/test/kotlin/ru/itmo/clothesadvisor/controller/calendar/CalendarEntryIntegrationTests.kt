@@ -434,7 +434,7 @@ class CalendarEntryIntegrationTests : AccountBackedIntegrationTest() {
             "archive" -> doThrow(failure).`when`(entries).archive(id, owner, 1)
             "update" -> doThrow(failure).`when`(entries).update(id, owner, 1, LocalDate.parse(date), outfit, WORN)
             "delete" -> doThrow(failure).`when`(entries).delete(id, owner, 1)
-            "result" -> doThrow(failure).`when`(commands).succeed(anyLong(), anyString())
+            "result" -> doThrow(failure).`when`(commands).succeed(anyLong(), anyString(), org.mockito.ArgumentMatchers.eq(201))
         }
 
         // when

@@ -1,0 +1,16 @@
+spring:
+  kafka:
+    bootstrap-servers: kafka-1:9092,kafka-2:9092,kafka-3:9092
+    properties:
+      security.protocol: SASL_SSL
+      sasl.mechanism: SCRAM-SHA-512
+      sasl.jaas.config: ${sasl.jaas.config}
+      ssl.truststore.type: PEM
+      ssl.truststore.certificates: ${ssl.truststore.certificates}
+      ssl.endpoint.identification.algorithm: https
+    producer:
+      acks: all
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      properties:
+        enable.idempotence: true

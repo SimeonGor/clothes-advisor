@@ -1,5 +1,8 @@
 package ru.itmo.clothesadvisor.client.ai
 
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.AiSelectionException
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.AiSelectionFailure
+
 import java.io.InputStream
 import java.io.InputStreamReader
 import java.io.Reader
@@ -54,9 +57,9 @@ internal class OpenAiResponseStream(mapper: JsonMapper) {
             if (value.isEmpty()) {
                 if (data.isNotEmpty()) {
                     val event = json(data.toString())
-                    val type = event.path("type").takeIf { it.isString }?.asString() ?: invalid()
+                    val type = event.path("type").takeIf { it.isString }?.asString() ?: invalidStream()
                     if (eventName.isNotEmpty() && eventName != type) {
-                        invalid()
+                        invalidStream()
                     }
                     return event
                 }
@@ -70,7 +73,7 @@ internal class OpenAiResponseStream(mapper: JsonMapper) {
                     "data" -> {
                         if (data.isNotEmpty()) data.append('\n')
                         if (fieldValue.length > LIMIT - data.length) {
-                            invalid()
+                            invalidStream()
                         }
                         data.append(fieldValue)
                     }
@@ -85,14 +88,14 @@ internal class OpenAiResponseStream(mapper: JsonMapper) {
             val character = input.read()
             if (character == -1) {
                 // EOF cannot dispatch an unterminated event.
-                invalid()
+                invalidStream()
             }
             if (character == '\n'.code) {
                 return line.toString().removeSuffix("\r")
             }
             line.append(character.toChar())
             if (line.length > LIMIT) {
-                invalid()
+                invalidStream()
             }
         }
     }
@@ -106,22 +109,22 @@ internal class OpenAiResponseStream(mapper: JsonMapper) {
         val output = event.path("output_index")
         val content = event.path("content_index")
         if (!item.isString || item.asString().isBlank()) {
-            invalid()
+            invalidStream()
         }
         if (!output.isIntegralNumber || !output.canConvertToLong() || output.longValue() < 0) {
-            invalid()
+            invalidStream()
         }
         if (!content.isIntegralNumber || !content.canConvertToLong() || content.longValue() < 0) {
-            invalid()
+            invalidStream()
         }
 
         val part = TextPart(item.asString(), output.longValue(), content.longValue())
         if (expectedPart != null && expectedPart != part) {
-            invalid()
+            invalidStream()
         }
         val delta = event.path("delta")
         if (!delta.isString || delta.asString().length > LIMIT - deltas.length) {
-            invalid()
+            invalidStream()
         }
         deltas.append(delta.asString())
 
@@ -135,7 +138,7 @@ internal class OpenAiResponseStream(mapper: JsonMapper) {
             throw AiSelectionException(AiSelectionFailure.UNAVAILABLE)
         }
         if (status != "completed") {
-            invalid()
+            invalidStream()
         }
         return finalText(response) ?: deltas.toString().takeIf { it.isNotBlank() } ?: invalid()
     }
@@ -181,10 +184,13 @@ internal class OpenAiResponseStream(mapper: JsonMapper) {
 
     private fun json(value: String): JsonNode =
         try {
-            reader.readTree(value)?.takeIf { it.isObject } ?: invalid()
+            reader.readTree(value)?.takeIf { it.isObject } ?: invalidStream()
         } catch (_: JacksonException) {
-            invalid()
+            invalidStream()
         }
+
+    // A broken stream cannot confirm that the provider has stopped processing this request.
+    private fun invalidStream(): Nothing = throw AiSelectionException(AiSelectionFailure.INVALID_RESPONSE, outcomeUnknown = true)
 
     private fun invalid(): Nothing = throw AiSelectionException(AiSelectionFailure.INVALID_RESPONSE)
 

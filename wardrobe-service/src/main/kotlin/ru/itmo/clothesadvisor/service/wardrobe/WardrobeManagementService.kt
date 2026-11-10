@@ -48,13 +48,13 @@ internal class WardrobeManagementService(
         ) { completion ->
             val validated = validatePhotos(files, allowEmpty = true)
             categories.getById(request.categoryId)
-            photos.upload(validated)
+            val uploaded = photos.upload(validated)
 
             users.requireActive(ownerId)
             completion.commit {
                 transaction.execute {
                     val created = items.create(ownerId, request)
-                    photos.saveMetadata(ownerId, created.id, validated)
+                    photos.saveMetadata(ownerId, created.id, uploaded)
                     created
                 }
             }

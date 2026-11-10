@@ -31,6 +31,9 @@ import ru.itmo.clothesadvisor.dto.ai.ItemSelectionRequest
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionStylePreferences
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionWeather
 import ru.itmo.clothesadvisor.dto.ai.SelectionPhotos
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.AiSelectionException
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.AiSelectionFailure
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.SelectionGoal
 import tools.jackson.databind.json.JsonMapper
 
 class OpenAiSelectionClientTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhotoFixture() {
@@ -189,14 +192,19 @@ class OpenAiSelectionClientTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhotoF
             exchange.responseBody.use { it.write(bytes) }
         }
         val replacement = selection.copy(requiredItemIds = listOf(7, 9))
-        for ((ids, status) in listOf("[]" to 422, "[11]" to 502, "[7,9]" to 502, "[7,11]" to 502)) {
+        for ((ids, expected) in listOf(
+            "[]" to AiSelectionFailure.NO_SELECTION,
+            "[11]" to AiSelectionFailure.INVALID_RESPONSE,
+            "[7,9]" to AiSelectionFailure.INVALID_RESPONSE,
+            "[7,11]" to AiSelectionFailure.INVALID_RESPONSE,
+        )) {
             reply = """{"itemIds":$ids,"explanation":"Подходит."}"""
 
             // when
             val failure = catchThrowable { client().select(SelectionGoal.OUTFIT, replacement) }
 
             // then
-            assertFailure(status, failure)
+            assertFailure(expected, failure)
         }
         reply = """{"itemIds":[9,11,7],"explanation":"Подходит."}"""
 
@@ -225,32 +233,32 @@ class OpenAiSelectionClientTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhotoF
         // given
         val replies =
             listOf(
-                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[]}") to 422,
+                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[]}") to AiSelectionFailure.NO_SELECTION,
                 event(
                     "response.completed",
                     """{"status":"completed","output":[{"type":"message","role":"assistant","status":"completed","content":[{"type":"refusal","refusal":"private reason"}]}]}""",
-                ) to 422,
-                "data: not json private provider body\n\n" to 502,
-                "" to 502,
-                "data: null\n\n" to 502,
-                event("response.completed", """{"status":"completed","output":[]}""") to 502,
-                completed("{}") to 502,
-                completed("") to 502,
-                completed("null") to 502,
-                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[7.0]}") to 502,
-                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[null]}") to 502,
-                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[\"7\"]}") to 502,
-                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[999]}") to 502,
-                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[7,7]}") to 502,
-                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[9223372036854775808]}") to 502,
-                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[7],\"extra\":true}") to 502,
-                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[7],\"itemIds\":[9]}") to 502,
-                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[7]} {}") to 502,
-                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[7]}").trimEnd() + " {}\n\n" to 502,
+                ) to AiSelectionFailure.NO_SELECTION,
+                "data: not json private provider body\n\n" to AiSelectionFailure.INVALID_RESPONSE,
+                "" to AiSelectionFailure.INVALID_RESPONSE,
+                "data: null\n\n" to AiSelectionFailure.INVALID_RESPONSE,
+                event("response.completed", """{"status":"completed","output":[]}""") to AiSelectionFailure.INVALID_RESPONSE,
+                completed("{}") to AiSelectionFailure.INVALID_RESPONSE,
+                completed("") to AiSelectionFailure.INVALID_RESPONSE,
+                completed("null") to AiSelectionFailure.INVALID_RESPONSE,
+                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[7.0]}") to AiSelectionFailure.INVALID_RESPONSE,
+                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[null]}") to AiSelectionFailure.INVALID_RESPONSE,
+                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[\"7\"]}") to AiSelectionFailure.INVALID_RESPONSE,
+                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[999]}") to AiSelectionFailure.INVALID_RESPONSE,
+                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[7,7]}") to AiSelectionFailure.INVALID_RESPONSE,
+                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[9223372036854775808]}") to AiSelectionFailure.INVALID_RESPONSE,
+                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[7],\"extra\":true}") to AiSelectionFailure.INVALID_RESPONSE,
+                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[7],\"itemIds\":[9]}") to AiSelectionFailure.INVALID_RESPONSE,
+                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[7]} {}") to AiSelectionFailure.INVALID_RESPONSE,
+                completed("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[7]}").trimEnd() + " {}\n\n" to AiSelectionFailure.INVALID_RESPONSE,
             )
         var reply = ""
         respond { 200 to reply }
-        replies.forEach { (body, status) ->
+        replies.forEach { (body, expected) ->
 
             // given: the next provider reply
             reply = body
@@ -259,7 +267,7 @@ class OpenAiSelectionClientTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhotoF
             val failure = catchThrowable { client().select(goal, selection) }
 
             // then
-            assertFailure(status, failure)
+            assertFailure(expected, failure)
         }
         assertThat(calls).hasValue(replies.size)
     }
@@ -289,7 +297,7 @@ class OpenAiSelectionClientTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhotoF
             val failure = catchThrowable { client().select(goal, selection) }
 
             // then
-            assertFailure(502, failure)
+            assertFailure(AiSelectionFailure.INVALID_RESPONSE, failure)
         }
         for (explanation in listOf("  Тёплый слой.\nУдобно в дождь.  ", "я".repeat(2000))) {
             // given
@@ -318,7 +326,7 @@ class OpenAiSelectionClientTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhotoF
             val failure = catchThrowable { client().select(SelectionGoal.OUTFIT, selection) }
 
             // then
-            assertFailure(503, failure)
+            assertFailure(AiSelectionFailure.UNAVAILABLE, failure)
         }
         assertThat(calls).hasValue(5)
     }
@@ -340,7 +348,7 @@ class OpenAiSelectionClientTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhotoF
             }
 
             // then
-            assertFailure(504, timeoutFailure)
+            assertFailure(AiSelectionFailure.TIMEOUT, timeoutFailure)
             assertThat(calls).hasValue(1)
         } finally {
             release.countDown()
@@ -400,7 +408,7 @@ class OpenAiSelectionClientTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhotoF
             val failure = upload.get(5, TimeUnit.SECONDS)
 
             // then: cancellation must reach the real HTTP body publisher and its file reader
-            assertFailure(504, failure)
+            assertFailure(AiSelectionFailure.TIMEOUT, failure)
             assertThat(calls).hasValue(1)
             assertThat(readerClosed.await(3, TimeUnit.SECONDS)).isTrue()
             assertThat(writer.get().join(Duration.ofSeconds(3))).isTrue()
@@ -437,7 +445,7 @@ class OpenAiSelectionClientTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhotoF
             }
 
             // then
-            assertFailure(504, timeoutFailure)
+            assertFailure(AiSelectionFailure.TIMEOUT, timeoutFailure)
             assertThat(headers.count).isZero()
             assertThat(calls).hasValue(1)
         } finally {
@@ -457,13 +465,13 @@ class OpenAiSelectionClientTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhotoF
         }
 
         // then
-        assertFailure(503, missingCredentials)
+        assertFailure(AiSelectionFailure.UNAVAILABLE, missingCredentials)
 
         // when
         val missingModel = catchThrowable { client(model = "").select(SelectionGoal.OUTFIT, selection) }
 
         // then
-        assertFailure(503, missingModel)
+        assertFailure(AiSelectionFailure.UNAVAILABLE, missingModel)
         assertThat(calls).hasValue(0)
 
         // given: the provider is no longer reachable
@@ -473,7 +481,7 @@ class OpenAiSelectionClientTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhotoF
         val connectionFailure = catchThrowable { client().select(SelectionGoal.OUTFIT, selection) }
 
         // then
-        assertFailure(503, connectionFailure)
+        assertFailure(AiSelectionFailure.UNAVAILABLE, connectionFailure)
     }
 
     private fun completed(json: String) =
@@ -591,39 +599,39 @@ class OpenAiSelectionClientTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhotoF
         val prefix = delta("{\"explanation\":\"Подходит для погоды.\",\"itemIds\":[7]}")
         val replies =
             listOf(
-                prefix to 502,
-                prefix + event("response.failed", """{"status":"failed"}""") to 503,
-                prefix + "data: {\"type\":\"error\",\"message\":\"private\"}\n\n" to 503,
-                prefix + event("response.incomplete", """{"status":"incomplete"}""") to 502,
+                prefix to AiSelectionFailure.INVALID_RESPONSE,
+                prefix + event("response.failed", """{"status":"failed"}""") to AiSelectionFailure.UNAVAILABLE,
+                prefix + "data: {\"type\":\"error\",\"message\":\"private\"}\n\n" to AiSelectionFailure.UNAVAILABLE,
+                prefix + event("response.incomplete", """{"status":"incomplete"}""") to AiSelectionFailure.INVALID_RESPONSE,
                 prefix + "data: {\"type\":\"response.refusal.delta\",\"delta\":\"private\"}\n\n" to
-                    422,
+                    AiSelectionFailure.NO_SELECTION,
                 prefix +
                     event(
                         "response.completed",
                         """{"status":"completed","output":[],"error":{"code":"quota"}}""",
-                    ) to 503,
-                prefix + delta(" ", item = "another") + successful to 502,
-                prefix + delta(" ", output = 1) + successful to 502,
-                prefix + delta(" ", content = 1) + successful to 502,
+                    ) to AiSelectionFailure.UNAVAILABLE,
+                prefix + delta(" ", item = "another") + successful to AiSelectionFailure.INVALID_RESPONSE,
+                prefix + delta(" ", output = 1) + successful to AiSelectionFailure.INVALID_RESPONSE,
+                prefix + delta(" ", content = 1) + successful to AiSelectionFailure.INVALID_RESPONSE,
                 "data: {\"type\":\"response.output_text.delta\",\"delta\":\"text\"}\n\n" +
-                    successful to 502,
-                successful.trimEnd() to 502,
-                successful.removeSuffix("\n") to 502,
+                    successful to AiSelectionFailure.INVALID_RESPONSE,
+                successful.trimEnd() to AiSelectionFailure.INVALID_RESPONSE,
+                successful.removeSuffix("\n") to AiSelectionFailure.INVALID_RESPONSE,
                 successful.replace(
                     "\"type\":\"response.completed\"",
                     "\"type\":\"response.completed\",\"type\":\"response.completed\"",
-                ) to 502,
-                successful.replace("event: response.completed", "event: response.failed") to 502,
-                ":" + "x".repeat(1_048_577) + "\n\n" + successful to 502,
+                ) to AiSelectionFailure.INVALID_RESPONSE,
+                successful.replace("event: response.completed", "event: response.failed") to AiSelectionFailure.INVALID_RESPONSE,
+                ":" + "x".repeat(1_048_577) + "\n\n" + successful to AiSelectionFailure.INVALID_RESPONSE,
                 successful.replace("data: ", "data: " + " ".repeat(600_000)).removeSuffix("\n\n") +
                     "\ndata: " +
                     " ".repeat(600_000) +
-                    "\n\n" to 502,
-                delta("x".repeat(600_000)) + delta("x".repeat(600_000)) + successful to 502,
+                    "\n\n" to AiSelectionFailure.INVALID_RESPONSE,
+                delta("x".repeat(600_000)) + delta("x".repeat(600_000)) + successful to AiSelectionFailure.INVALID_RESPONSE,
             )
         var reply = ""
         respond { 200 to reply }
-        replies.forEach { (body, status) ->
+        replies.forEach { (body, expected) ->
 
             // given: the next provider reply
             reply = body
@@ -632,7 +640,7 @@ class OpenAiSelectionClientTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhotoF
             val failure = catchThrowable { client().select(SelectionGoal.OUTFIT, selection) }
 
             // then
-            assertFailure(status, failure)
+            assertFailure(expected, failure)
         }
     }
 
@@ -657,7 +665,7 @@ class OpenAiSelectionClientTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhotoF
             val failure = catchThrowable { client().select(SelectionGoal.OUTFIT, selection) }
 
             // then
-            assertFailure(502, failure)
+            assertFailure(AiSelectionFailure.INVALID_RESPONSE, failure)
         }
 
         // given: a valid event stream content type
@@ -705,9 +713,9 @@ class OpenAiSelectionClientTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhotoF
             },
         )
 
-    private fun assertFailure(status: Int, failure: Throwable?) {
+    private fun assertFailure(expected: AiSelectionFailure, failure: Throwable?) {
         assertThat(failure).isInstanceOfSatisfying(AiSelectionException::class.java) {
-            assertThat(it.status).isEqualTo(status)
+            assertThat(it.failure).isEqualTo(expected)
             assertThat(it.message).isNull()
             assertThat(it.cause).isNull()
         }

@@ -1,0 +1,114 @@
+@startuml data
+!pragma layout smetana
+skinparam backgroundColor white
+skinparam defaultFontName SansSerif
+skinparam shadowing false
+skinparam packageStyle rectangle
+skinparam nodesep 35
+skinparam ranksep 40
+hide circle
+
+package "Wardrobe" #E5F3EB {
+  entity "ai_job" as job {
+    * job_id : uuid <<PK>>
+    --
+    * owner_id : bigint
+    * request_month : date
+    * status : text
+    input : jsonb
+    result_id : bigint
+    provider_result_digest : bytea
+  }
+  entity "idempotency_command" as idem {
+    * id : bigint <<PK>>
+    --
+    * actor_id, operation, command_key <<UNIQUE>>
+    * fingerprint : char(64)
+    response_status : integer
+    response_json : text
+  }
+  entity "outbox_event" as wo {
+    * event_id : uuid <<PK>>
+    --
+    * type, aggregate_id : text
+    * payload : jsonb
+    published_at : timestamptz
+  }
+  entity "wardrobe_item_photo" as photo {
+    * id : bigint <<PK>>
+    --
+    * wardrobe_item_id : bigint <<FK>>
+    * file_id : uuid <<UNIQUE>>
+  }
+}
+package "Recommendation" #EEE8F7 {
+  entity "recommendation_request" as req {
+    * request_month, request_id <<PK>>
+    --
+    * input : jsonb
+    * state : text
+    result_event_id : uuid
+    applied_at : timestamptz
+    application_outcome : text
+    reviewed_at : timestamptz
+  }
+  entity "ai_execution_slot" as slot {
+    * connection_id : text <<PK>>
+    --
+    * state : text
+    execution_id : uuid
+    mode, phase : text
+    request_month, request_id
+  }
+  entity "request_retention" as retention {
+    * singleton : boolean <<PK>>
+    --
+    * closed_before_month : date
+    pending_drop_xid : xid8
+  }
+  entity "outbox_event" as ro {
+    * event_id : uuid <<PK>>
+    --
+    * payload : jsonb
+    published_at : timestamptz
+  }
+}
+package "File" #DEEAF6 {
+  entity "file_object" as file {
+    * file_id : uuid <<PK>>
+    --
+    * object_key : text <<UNIQUE>>
+    * content_type : text
+    * size_bytes : bigint
+  }
+}
+package "Notification" #FFF1D6 {
+  entity "notification" as n {
+    * id : bigint <<PK>>
+    --
+    * source_event_id, recipient_id <<UNIQUE>>
+    resource_type, resource_id : text
+    read_at : timestamptz
+  }
+}
+package "Account" #E5F3EB {
+  entity "outbox_event" as ao {
+    * event_id : uuid <<PK>>
+    --
+    * type, aggregate_id : text
+    * payload : jsonb
+    published_at : timestamptz
+  }
+}
+job ||..o| req : месяц и ID
+job ||..o{ wo : события задания
+req ||..o{ ro : события исполнения
+req |o..o| slot : ASYNC
+photo |o..|| file : file_id
+note bottom of n
+  source_event_id указывает на событие одного издателя
+  (Account или Wardrobe). Между БД нет внешнего ключа.
+end note
+idem -[hidden]down-> job
+retention -[hidden]down-> req
+@enduml

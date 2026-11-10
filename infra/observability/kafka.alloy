@@ -1,0 +1,21 @@
+// Metadata and committed offsets only. The monitor cannot read records or join groups.
+prometheus.exporter.kafka "cluster" {
+  kafka_uris      = ["kafka-1:9094", "kafka-2:9094", "kafka-3:9094"]
+  instance        = "clothes-advisor-kafka"
+  kafka_version   = "4.1.2"
+  offset_show_all = true
+  use_tls         = true
+  ca_file         = "/run/kafka-monitor/ca.pem"
+  cert_file       = "/run/kafka-monitor/certificate.pem"
+  key_file        = "/run/kafka-monitor/key.pem"
+}
+
+prometheus.scrape "kafka" {
+  targets         = prometheus.exporter.kafka.cluster.targets
+  scrape_interval = "30s"
+  forward_to      = [prometheus.remote_write.grafana.receiver]
+}
+
+prometheus.remote_write "grafana" {
+  endpoint { url = "http://grafana:9090/api/v1/write" }
+}

@@ -1,0 +1,36 @@
+@startuml stylist-request
+skinparam backgroundColor white
+skinparam defaultFontName SansSerif
+skinparam shadowing false
+skinparam sequenceMessageAlign center
+skinparam maxMessageSize 180
+hide footbox
+actor "Владелец" as owner
+participant "Wardrobe" as w
+queue "Kafka" as k
+participant "Notification" as n
+actor "Стилист" as s
+owner -> w : Создать запрос\nдля допущенного стилиста
+w -> w : Сохранить запрос и событие\nв одной транзакции
+w --> owner : Запрос создан
+w -> k : StylistRequestCreated\nиз outbox
+k -> n : Запись stylist-requests.events
+n -> n : Сохранить по (eventId, stylistId)
+n --> k : Подтвердить offset
+s -> n : Открыть ленту
+n --> s : Ссылка на запрос клиента
+s -> w : Ответить образом
+w -> w : Проверить текущий доступ,\nсохранить ответ и событие
+w --> s : Ответ сохранён
+w -> k : StylistRequestAnswered\nиз outbox
+k -> n : Запись stylist-requests.events
+n -> n : Сохранить по (eventId, ownerId)
+n --> k : Подтвердить offset
+opt Повторная доставка того же события
+  k -> n : Тот же eventId
+  n -> n : UNIQUE сохраняет одну строку
+  n --> k : Подтвердить offset
+end
+owner -> n : Открыть ленту, отметить прочитанным
+n --> owner : Уведомление о полученном ответе
+@enduml

@@ -1,8 +1,66 @@
+include:
+  - infra/kafka/compose.yaml
+
 x-runtime-security: &runtime-security
   security_opt:
     - no-new-privileges:true
 
+x-telemetry: &telemetry
+  MANAGEMENT_OPENTELEMETRY_TRACING_EXPORT_OTLP_ENDPOINT: http://collector:4318/v1/traces
+  MANAGEMENT_OPENTELEMETRY_LOGGING_EXPORT_OTLP_ENDPOINT: http://collector:4318/v1/logs
+  MANAGEMENT_OTLP_METRICS_EXPORT_ENABLED: "true"
+  MANAGEMENT_OTLP_METRICS_EXPORT_URL: http://collector:4318/v1/metrics
+  MANAGEMENT_OTLP_METRICS_EXPORT_STEP: 15s
+  MANAGEMENT_TRACING_SAMPLING_PROBABILITY: ${TRACE_SAMPLING_PROBABILITY:-1.0}
+  SPRING_REACTOR_CONTEXT_PROPAGATION: auto
+  LOGGING_CONFIG: classpath:telemetry-logback.xml
+
 services:
+  collector:
+    <<: *runtime-security
+    image: grafana/alloy:v1.21.3
+    networks: [backend, telemetry]
+    command: ["run", "--storage.path=/var/lib/alloy", "/etc/alloy/config.alloy"]
+    volumes:
+      - ./infra/observability/collector.alloy:/etc/alloy/config.alloy:ro
+      - collector-data:/var/lib/alloy
+
+  kafka-metrics:
+    <<: *runtime-security
+    image: grafana/alloy:v1.21.3
+    restart: on-failure
+    networks: [kafka, telemetry]
+    depends_on:
+      kafka-provision:
+        condition: service_completed_successfully
+    command: ["run", "--storage.path=/var/lib/alloy", "/etc/alloy/kafka.alloy"]
+    volumes:
+      - ./infra/observability/kafka.alloy:/etc/alloy/kafka.alloy:ro
+      - type: bind
+        source: ${KAFKA_SECRETS_DIR:?}.monitor
+        target: /run/kafka-monitor
+        read_only: true
+        bind:
+          create_host_path: false
+      - kafka-metrics-data:/var/lib/alloy
+
+  grafana:
+    <<: *runtime-security
+    image: grafana/otel-lgtm:0.40.0
+    networks: [edge, telemetry]
+    ports:
+      - "127.0.0.1:${GRAFANA_PORT:-3000}:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "false"
+      GF_AUTH_DISABLE_LOGIN_FORM: "false"
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?Set a password for the local Grafana admin}
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_DASHBOARDS_DEFAULT_HOME_DASHBOARD_PATH: /otel-lgtm/grafana/conf/provisioning/dashboards/clothes-advisor/services.json
+    volumes:
+      - grafana-data:/data
+      - ./infra/observability/dashboards.yml:/otel-lgtm/grafana/conf/provisioning/dashboards/clothes-advisor.yaml:ro
+      - ./infra/observability/dashboards:/otel-lgtm/grafana/conf/provisioning/dashboards/clothes-advisor:ro
+
   frontend:
     <<: *runtime-security
     networks:
@@ -19,12 +77,27 @@ services:
     <<: *runtime-security
     networks:
       - backend
+      - kafka
     build:
       context: .
       dockerfile: config-server/Dockerfile
+      args:
+        APP_UID: ${APP_UID:?Set APP_UID to the credential owner UID (id -u)}
     environment:
-      SPRING_CLOUD_CONFIG_SERVER_NATIVE_SEARCH_LOCATIONS: "file:/config/{application}/"
+      <<: *telemetry
+      SPRING_PROFILES_INCLUDE: kafka
+      APP_CONFIG_REPOSITORY: /config
+      SPRING_CLOUD_BUS_ENABLED: "true"
+    depends_on:
+      kafka-provision:
+        condition: service_completed_successfully
     volumes:
+      - type: bind
+        source: ${KAFKA_SECRETS_DIR:?Set KAFKA_SECRETS_DIR}.config-server
+        target: /run/config-bus
+        read_only: true
+        bind:
+          create_host_path: false
       - type: bind
         source: ./config-repository
         target: /config
@@ -46,6 +119,7 @@ services:
       context: .
       dockerfile: discovery-server/Dockerfile
     environment:
+      <<: *telemetry
       CONFIG_SERVER_URL: http://config-server:8888
     ports:
       - "127.0.0.1:8761:8761"
@@ -67,6 +141,7 @@ services:
       context: .
       dockerfile: api-gateway/Dockerfile
     environment:
+      <<: *telemetry
       CONFIG_SERVER_URL: http://config-server:8888
       EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
       FRONTEND_URL: http://frontend:8080
@@ -111,6 +186,7 @@ services:
   app:
     <<: *runtime-security
     networks:
+      - kafka
       - backend
       - wardrobe-data
       - egress
@@ -120,27 +196,159 @@ services:
       args:
         APP_UID: ${APP_UID:?Set APP_UID to the credential owner UID (id -u)}
     environment:
+      <<: *telemetry
       DB_URL: jdbc:postgresql://postgres:5432/${DB_NAME:-clothes_advisor}
+      SPRING_CLOUD_BUS_ENABLED: "true"
+      SPRING_PROFILES_INCLUDE: kafka
+      SPRING_CONFIG_ADDITIONAL_LOCATION: file:/run/kafka-client/client.properties
       EUREKA_INSTANCE_HOSTNAME: app
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "false"
       DB_USER: ${DB_USER:-clothes_advisor}
       DB_PASSWORD: ${DB_PASSWORD:?DB_PASSWORD must be set}
       CONFIG_SERVER_URL: http://config-server:8888
       EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
-      S3_ENDPOINT: ${S3_ENDPOINT:-https://storage.yandexcloud.net}
-      S3_BUCKET: ${S3_BUCKET:?S3_BUCKET must be set}
-      YANDEX_SERVICE_ACCOUNT_KEY_FILE: /run/secrets/yandex-service-account-key
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
     secrets:
-      - yandex-service-account-key
       - app-jwt-public-key
+      - file-wardrobe-password
+      - ai-validation-password
+    volumes:
+      - type: bind
+        source: ${KAFKA_SECRETS_DIR:?Set KAFKA_SECRETS_DIR}/wardrobe-service
+        target: /run/kafka-client
+        read_only: true
+        bind:
+          create_host_path: false
     depends_on:
+      kafka-provision:
+        condition: service_completed_successfully
       config-server:
         condition: service_healthy
       discovery-server:
         condition: service_healthy
       postgres:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/actuator/health/readiness"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  file-postgres:
+    networks:
+      - file-data
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: file_db
+      POSTGRES_USER: file_service
+      POSTGRES_PASSWORD: ${FILE_DB_PASSWORD:?FILE_DB_PASSWORD must be set}
+    volumes:
+      - file-postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  file-service:
+    <<: *runtime-security
+    networks:
+      - backend
+      - egress
+      - file-data
+    build:
+      context: .
+      dockerfile: file-service/Dockerfile
+      args:
+        APP_UID: ${APP_UID:?Set APP_UID to the credential owner UID (id -u)}
+    environment:
+      <<: *telemetry
+      DB_R2DBC_URL: r2dbc:postgresql://file-postgres:5432/file_db
+      DB_URL: jdbc:postgresql://file-postgres:5432/file_db
+      DB_USER: file_service
+      DB_PASSWORD: ${FILE_DB_PASSWORD:?FILE_DB_PASSWORD must be set}
+      CONFIG_SERVER_URL: http://config-server:8888
+      EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
+      EUREKA_INSTANCE_HOSTNAME: file-service
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "false"
+      S3_ENDPOINT: ${S3_ENDPOINT:-https://storage.yandexcloud.net}
+      S3_BUCKET: ${S3_BUCKET:?S3_BUCKET must be set}
+      YANDEX_SERVICE_ACCOUNT_KEY_FILE: /run/secrets/yandex-service-account-key
+    secrets:
+      - yandex-service-account-key
+      - file-wardrobe-password
+      - file-recommendation-password
+    depends_on:
+      file-postgres:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/actuator/health/readiness"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  notification-postgres:
+    networks:
+      - notification-data
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: notification_db
+      POSTGRES_USER: notification_service
+      POSTGRES_PASSWORD: ${NOTIFICATION_DB_PASSWORD:?NOTIFICATION_DB_PASSWORD must be set}
+    volumes:
+      - notification-postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  notification-service:
+    <<: *runtime-security
+    networks:
+      - backend
+      - kafka
+      - notification-data
+    build:
+      context: .
+      dockerfile: notification-service/Dockerfile
+      args:
+        APP_UID: ${APP_UID:?Set APP_UID to the credential owner UID (id -u)}
+    environment:
+      <<: *telemetry
+      DB_URL: jdbc:postgresql://notification-postgres:5432/notification_db
+      DB_R2DBC_URL: r2dbc:postgresql://notification-postgres:5432/notification_db
+      DB_USER: notification_service
+      DB_PASSWORD: ${NOTIFICATION_DB_PASSWORD:?NOTIFICATION_DB_PASSWORD must be set}
+      SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
+      SPRING_PROFILES_INCLUDE: kafka
+      SPRING_CONFIG_ADDITIONAL_LOCATION: file:/run/kafka-client/client.properties
+      CONFIG_SERVER_URL: http://config-server:8888
+      EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
+      EUREKA_INSTANCE_HOSTNAME: notification-service
+      EUREKA_INSTANCE_PREFER_IP_ADDRESS: "false"
+    secrets:
+      - app-jwt-public-key
+    volumes:
+      - type: bind
+        source: ${KAFKA_SECRETS_DIR:?Set KAFKA_SECRETS_DIR to the prepared absolute directory}/notification-service
+        target: /run/kafka-client
+        read_only: true
+        bind:
+          create_host_path: false
+    depends_on:
+      notification-postgres:
+        condition: service_healthy
+      discovery-server:
+        condition: service_healthy
+      config-server:
+        condition: service_healthy
+      kafka-provision:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/actuator/health/readiness"]
       interval: 5s
@@ -168,13 +376,17 @@ services:
     networks:
       - backend
       - account-data
+      - kafka
     build:
       context: .
       dockerfile: account-service/Dockerfile
       args:
         APP_UID: ${APP_UID:?Set APP_UID to the credential owner UID (id -u)}
     environment:
+      <<: *telemetry
       DB_R2DBC_URL: r2dbc:postgresql://account-postgres:5432/account_db
+      SPRING_PROFILES_INCLUDE: kafka
+      SPRING_CONFIG_ADDITIONAL_LOCATION: file:/run/kafka-client/client.properties
       APP_BOOTSTRAP_ADMIN_LOGIN: ${APP_BOOTSTRAP_ADMIN_LOGIN:-}
       APP_BOOTSTRAP_ADMIN_PASSWORD: ${APP_BOOTSTRAP_ADMIN_PASSWORD:-}
       AUTH_REFRESH_COOKIE_SECURE: ${AUTH_REFRESH_COOKIE_SECURE:-true}
@@ -186,6 +398,13 @@ services:
       CONFIG_SERVER_URL: http://config-server:8888
       EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
+    volumes:
+      - type: bind
+        source: ${KAFKA_SECRETS_DIR:?Set KAFKA_SECRETS_DIR to the prepared absolute directory}/account-service
+        target: /run/kafka-client
+        read_only: true
+        bind:
+          create_host_path: false
     secrets:
       - app-jwt-private-key
       - app-jwt-public-key
@@ -196,6 +415,8 @@ services:
         condition: service_healthy
       account-postgres:
         condition: service_healthy
+      kafka-provision:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/actuator/health/readiness"]
       interval: 5s
@@ -227,25 +448,61 @@ services:
       timeout: 5s
       retries: 10
 
+  recommendation-postgres:
+    networks:
+      - recommendation-data
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_DB: recommendation_db
+      POSTGRES_USER: recommendation_service
+      POSTGRES_PASSWORD: ${RECOMMENDATION_DB_PASSWORD:?RECOMMENDATION_DB_PASSWORD must be set}
+    volumes:
+      - recommendation-postgres-data:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   recommendation-service:
     <<: *runtime-security
     networks:
+      - kafka
       - backend
       - egress
+      - recommendation-data
     build:
       context: .
       dockerfile: recommendation-service/Dockerfile
       args:
         APP_UID: ${APP_UID:?Set APP_UID to the credential owner UID (id -u)}
     environment:
+      <<: *telemetry
       CONFIG_SERVER_URL: http://config-server:8888
       EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
       OPENAI_MODEL: ${OPENAI_MODEL:-}
+      DB_R2DBC_URL: r2dbc:postgresql://recommendation-postgres:5432/recommendation_db
+      SPRING_CLOUD_BUS_ENABLED: "true"
+      DB_URL: jdbc:postgresql://recommendation-postgres:5432/recommendation_db
+      DB_USER: recommendation_service
+      DB_PASSWORD: ${RECOMMENDATION_DB_PASSWORD:?RECOMMENDATION_DB_PASSWORD must be set}
+      SPRING_PROFILES_INCLUDE: kafka
+      SPRING_CONFIG_ADDITIONAL_LOCATION: file:/run/kafka-client/client.properties
+      APP_AI_WORKER_ENABLED: "true"
       EUREKA_INSTANCE_HOSTNAME: recommendation-service
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "false"
       CHATGPT_CREDENTIALS_DIR: /run/chatgpt
       CHATGPT_TRUST_STORE: ${CHATGPT_TRUST_STORE:-}
+    secrets:
+      - file-recommendation-password
+      - ai-validation-password
     volumes:
+      - type: bind
+        source: ${KAFKA_SECRETS_DIR:?Set KAFKA_SECRETS_DIR}/recommendation-service
+        target: /run/kafka-client
+        read_only: true
+        bind:
+          create_host_path: false
       - type: volume
         source: chatgpt-access
         target: /run/chatgpt
@@ -253,8 +510,12 @@ services:
         volume:
           nocopy: true
     depends_on:
+      recommendation-postgres:
+        condition: service_healthy
       chatgpt-token-refresher:
         condition: service_healthy
+      kafka-provision:
+        condition: service_completed_successfully
       config-server:
         condition: service_healthy
       discovery-server:
@@ -267,20 +528,40 @@ services:
 
 networks:
   edge:
+  telemetry:
+    internal: true
   backend:
     internal: true
   wardrobe-data:
     internal: true
   account-data:
     internal: true
+  recommendation-data:
+    internal: true
+  file-data:
+    internal: true
+  notification-data:
+    internal: true
   egress:
 
 volumes:
+  grafana-data:
+  collector-data:
+  kafka-metrics-data:
   postgres-data:
   account-postgres-data:
+  file-postgres-data:
+  recommendation-postgres-data:
+  notification-postgres-data:
   chatgpt-access:
 
 secrets:
+  ai-validation-password:
+    file: ${AI_VALIDATION_PASSWORD_FILE:?Set AI_VALIDATION_PASSWORD_FILE to a private file path}
+  file-wardrobe-password:
+    file: ${FILE_WARDROBE_PASSWORD_FILE:?Set FILE_WARDROBE_PASSWORD_FILE to a private file path}
+  file-recommendation-password:
+    file: ${FILE_RECOMMENDATION_PASSWORD_FILE:?Set FILE_RECOMMENDATION_PASSWORD_FILE to a private file path}
   app-jwt-private-key:
     file: ${APP_JWT_PRIVATE_KEY_FILE:?Set APP_JWT_PRIVATE_KEY_FILE to an absolute PEM file path outside the repository}
   app-jwt-public-key:

@@ -1,0 +1,62 @@
+@startuml ai-selection
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName SansSerif
+skinparam defaultFontSize 13
+skinparam shadowing false
+skinparam sequenceMessageAlign center
+skinparam maxMessageSize 220
+autonumber
+actor "USER" as user
+participant "Gateway" as gw
+participant "Wardrobe" as w
+database "БД Wardrobe" as wd
+queue "Kafka" as k
+participant "Recommendation" as r
+database "recommendation_db" as rd
+participant "File-service" as f
+participant "OpenAI" as ai
+participant "Notification" as n
+user -> gw : POST /api/v2/... + Idempotency-Key
+gw -> w : Проверенный JWT / запрос
+w -> w : Права, вход, ключ\nДалее — новое задание
+group Локальная транзакция wardrobe
+  w -> wd : Вместимость + job + outbox + ответ 202
+end
+w --> gw : 202 + Location задания
+gw --> user : 202
+w -> k : ai-selection.requests\nRecommendationRequested
+k -> r : requestMonth / requestId / input
+r -> rd : INSERT нового input\nДубли здесь не исполняются повторно
+r --> k : ack после commit
+r -> rd : Захватить job и общий слот (PREPARING)
+r -> f : GET /api/files/{fileId}\nID из сохранённого задания
+f --> r : Неизменяемые байты
+r -> w : POST validate-input
+w -> w : Account: права; БД: кандидаты / фото / deadline
+w --> r : 204 разрешено
+r -> rd : Сохранить снимок промпта/модели\nи фазу CALL_STARTED по execution_id
+r -> ai : Единственный запрос, без транзакции БД
+alt Подтверждённый исход
+  ai --> r : Выбранные ID / отказ
+  r -> rd : Исход + outbox + освобождение своего слота
+else Исход неизвестен
+  r -> rd : UNKNOWN + PAUSED slot + outbox
+end
+r -> k : ai-selection.execution-events\nRecommendationFinished
+k -> w : Исход с прежним месяцем и ID
+w -> w : Для успеха: актуальные права
+group Локальная транзакция wardrobe
+  w -> wd : Проверить вход под блокировкой
+  w -> wd : Ресурс при успехе + конечный job + outbox
+end
+w --> k : ack после commit
+w -> k : ai-jobs.events\nAiJobFinalized
+k -> r : Подтверждение применения
+r -> rd : applied_at + application_outcome
+k -> n : Конечное состояние задания
+n -> n : Одно уведомление\nна событие и адресата
+user -> gw : GET /api/v2/me/ai-jobs/{id}
+gw -> w : Проверить владельца
+w --> gw : 200: состояние / результат / ошибка
+gw --> user : 200
+@enduml

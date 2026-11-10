@@ -8,3 +8,4 @@ build/
 /docs/plans/
 /frontend/node_modules/
 /frontend/dist/
+/infra/kafka/**/__pycache__/

@@ -2,16 +2,29 @@ server:
   port: 8888
 
 spring:
+  config:
+    import: "classpath:observability.yml"
   application:
     name: config-server
   profiles:
     active: native
   cloud:
+    stream:
+      function:
+        autodetect: false
+    bus:
+      enabled: false
+      id: ${spring.application.name}:${CONFIG_BUS_INSTANCE:${HOSTNAME:${random.uuid}}}
+      destination: config.refresh.events
+      refresh.enabled: false
+      env.enabled: false
+      shutdown.enabled: false
+      ack.enabled: false
     config:
       server:
         accept-empty: false
         native:
-          search-locations: "file:../config-repository/{application}/"
+          search-locations: "file:${app.config-repository:../config-repository}/{application}/"
         health:
           repositories:
             wardrobe-service:

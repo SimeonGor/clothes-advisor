@@ -1,0 +1,16 @@
+spring:
+  kafka:
+    listener:
+      auto-startup: false
+  cloud:
+    config:
+      enabled: false
+  config:
+    import: "file:../config-repository/notification-service/application.yml"
+
+eureka:
+  client:
+    enabled: false
+
+sasl.jaas.config: ""
+ssl.truststore.certificates: ""

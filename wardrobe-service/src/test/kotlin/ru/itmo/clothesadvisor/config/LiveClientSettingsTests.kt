@@ -29,7 +29,7 @@ class LiveClientSettingsTests {
     private val registry = CircuitBreakerRegistry.of(CircuitBreakerConfig.custom()
         .ignoreExceptions(IllegalArgumentException::class.java).build())
     private val settings = LiveClientSettings(
-        AccountClientProperties(), RecommendationClientProperties(), client, factory, registry,
+        AccountClientProperties(), RecommendationClientProperties(), FileClientProperties(), client, factory, registry,
     )
 
     @Test
@@ -89,6 +89,8 @@ class LiveClientSettingsTests {
         "app.recommendation-client.write-timeout,0s", "app.recommendation-client.write-timeout,-1s",
         "app.recommendation-client.write-timeout,2147483648ms",
         "app.recommendation-client.write-timeout,not-a-duration", "app.recommendation-client.write-timeout,''",
+        "app.file-client.connect-timeout,0s", "app.file-client.read-timeout,-1s",
+        "app.file-client.write-timeout,2147483648ms", "app.file-client.read-timeout,not-a-duration",
         "resilience4j.circuitbreaker.configs.remote-service.sliding-window-type,UNKNOWN",
         "resilience4j.circuitbreaker.configs.remote-service.sliding-window-size,0",
         "resilience4j.circuitbreaker.configs.remote-service.minimum-number-of-calls,0",
@@ -114,6 +116,7 @@ class LiveClientSettingsTests {
         assertThat(failure).isNotNull()
         assertThat(client.target).isSameAs(original)
         assertThat(settings.recommendationProperties()).isEqualTo(RecommendationClientProperties())
+        assertThat(settings.fileProperties()).isEqualTo(FileClientProperties())
         assertThat(registry.circuitBreaker(ACCOUNT_BREAKER)).isSameAs(breaker)
         assertThat(breaker.state).isEqualTo(CircuitBreaker.State.OPEN)
         verifyNoInteractions(factory)
@@ -197,6 +200,9 @@ class LiveClientSettingsTests {
             "app.recommendation-client.connect-timeout" to "5s",
             "app.recommendation-client.read-timeout" to "90s",
             "app.recommendation-client.write-timeout" to "30s",
+            "app.file-client.connect-timeout" to "5s",
+            "app.file-client.write-timeout" to "30s",
+            "app.file-client.read-timeout" to "90s",
             "resilience4j.circuitbreaker.configs.remote-service.sliding-window-type" to "COUNT_BASED",
             "resilience4j.circuitbreaker.configs.remote-service.sliding-window-size" to "100",
             "resilience4j.circuitbreaker.configs.remote-service.minimum-number-of-calls" to "100",

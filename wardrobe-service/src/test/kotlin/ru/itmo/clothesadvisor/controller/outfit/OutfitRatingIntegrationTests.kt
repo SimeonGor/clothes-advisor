@@ -36,6 +36,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
 import org.springframework.transaction.support.TransactionSynchronizationManager
 import ru.itmo.clothesadvisor.config.AccountBackedIntegrationTest
+import ru.itmo.clothesadvisor.config.assertDomainEvents
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
 import ru.itmo.clothesadvisor.config.insertAccessGrant
 import ru.itmo.clothesadvisor.config.insertItem
@@ -61,7 +62,7 @@ import ru.itmo.clothesadvisor.repository.rating.OutfitRatingRepository
 import ru.itmo.clothesadvisor.service.outfit.OutfitService
 import ru.itmo.clothesadvisor.service.rating.OutfitRatingService
 import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemService
-import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
+import ru.itmo.clothesadvisor.client.file.FileClient
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(TestTimeConfiguration::class)
@@ -74,13 +75,13 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
     @MockitoSpyBean private lateinit var outfitRepository: OutfitRepository
     @MockitoSpyBean private lateinit var ratingRepository: OutfitRatingRepository
     @MockitoSpyBean private lateinit var ratingHistoryRepository: OutfitRatingHistoryRepository
-    @MockitoBean private lateinit var storage: S3PhotoStorage
+    @MockitoBean private lateinit var fileClient: FileClient
     private val client = HttpClient.newHttpClient()
 
     @AfterEach
     fun closeClientAndCheckStorage() {
         client.close()
-        verifyNoInteractions(storage)
+        verifyNoInteractions(fileClient)
     }
 
     @Test
@@ -201,6 +202,10 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
         assertThat(current(fixtureState))
             .containsExactly(snapshot(fixtureState.stylist.id, "DISLIKE", 3))
         assertThat(archived(fixtureState)).containsExactly(first, second)
+        jdbc.assertDomainEvents(
+            fixtureState.id, """{"outfitId":${fixtureState.id},"ownerId":${fixtureState.owner.id}}""",
+            "OutfitRatingChanged", "OutfitRatingChanged",
+        )
         assertThat(
                 jdbc.queryForObject(
                     "SELECT created_at FROM outfit_rating WHERE outfit_id = ?",
@@ -272,6 +277,10 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
 
         // then
         assertEmpty(repeatedWithdrawal, 404)
+        jdbc.assertDomainEvents(
+            fixtureState.id, """{"outfitId":${fixtureState.id},"ownerId":${fixtureState.owner.id}}""",
+            "OutfitRatingChanged", "OutfitRatingChanged", "OutfitRatingChanged", "OutfitRatingWithdrawn",
+        )
         assertThat(current(fixtureState))
             .containsExactly(snapshot(fixtureState.other.id, "LIKE", 1))
         assertThat(archived(fixtureState))

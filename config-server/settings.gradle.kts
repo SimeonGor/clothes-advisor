@@ -12,3 +12,6 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "config-server"
+
+include(":observability")
+project(":observability").projectDir = file("../observability")

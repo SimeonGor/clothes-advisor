@@ -22,6 +22,7 @@ import ru.itmo.clothesadvisor.model.ai.AiSelectionException
 import ru.itmo.clothesadvisor.model.ai.AiSelectionFailure
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItem
+import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItemPhoto
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItemAvailability
 import ru.itmo.clothesadvisor.repository.preferences.StylePreferencesRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemPhotoRepository
@@ -114,6 +115,23 @@ internal class AiSelectionService(
         }
     }
 
+    fun snapshot(ownerId: Long, criteria: AiSelectionCriteria): SelectionInput {
+        val prepared = prepareCandidates(ownerId, criteria)
+        return SelectionInput(
+            prepared.weather, criteria.occasion, criteria.preferredStyle, prepared.stylePreferences,
+            criteria.requiredItemIds.orEmpty().toList(),
+            prepared.candidates.map { (item, photo) ->
+                if (photo.contentType !in setOf("image/jpeg", "image/png")) {
+                    throw AiSelectionException(AiSelectionFailure.INVALID_REQUEST)
+                }
+                SelectionCandidate(
+                    requireNotNull(item.id), item.name, item.category.code, item.category.name, item.color,
+                    item.material, requireNotNull(photo.id), photo.fileId, photo.contentType, photo.sizeBytes,
+                )
+            },
+        )
+    }
+
     private fun prepareCandidates(
         ownerId: Long,
         criteria: AiSelectionCriteria,
@@ -160,7 +178,7 @@ internal class AiSelectionService(
             if (photo == null && requiredItemIds?.contains(id) == true) {
                 throw AiSelectionException(AiSelectionFailure.INVALID_REQUEST)
             }
-            photo?.let { PreparedCandidate(item, requireNotNull(it.id)) }
+            photo?.let { PreparedCandidate(item, it) }
         }
         if (candidates.size !in 1..MAX_AI_CANDIDATES ||
             (requiredItemIds != null && candidates.none { it.item.id !in requiredItemIds })
@@ -270,7 +288,9 @@ internal class AiSelectionService(
         }
     }
 
-    private data class PreparedCandidate(val item: WardrobeItem, val photoId: Long)
+    private data class PreparedCandidate(val item: WardrobeItem, val photo: WardrobeItemPhoto) {
+        val photoId get() = requireNotNull(photo.id)
+    }
 
     private data class PreparedCandidates(
         val weather: ItemSelectionWeather,

@@ -13,16 +13,17 @@ import ru.itmo.clothesadvisor.client.account.ReloadableAccountClient
 import ru.itmo.clothesadvisor.client.recommendation.RecommendationClientConfiguration
 
 @Configuration
-@Import(AccountClientConfiguration::class, BlockingAccountClient::class, LiveClientPollingConfiguration::class,
+@Import(AccountClientConfiguration::class, BlockingAccountClient::class, LiveClientRefreshConfiguration::class,
     RecommendationClientConfiguration::class)
-@EnableConfigurationProperties(RecommendationClientProperties::class)
+@EnableConfigurationProperties(RecommendationClientProperties::class, FileClientProperties::class)
 class ExternalClientsConfiguration {
     @Bean
     internal fun liveClientSettings(
         account: AccountClientProperties,
         recommendation: RecommendationClientProperties,
+        file: FileClientProperties,
         accountClient: ReloadableAccountClient,
         factory: AccountClientFactory,
         breakers: CircuitBreakerRegistry,
-    ) = LiveClientSettings(account, recommendation, accountClient, factory, breakers)
+    ) = LiveClientSettings(account, recommendation, file, accountClient, factory, breakers)
 }
