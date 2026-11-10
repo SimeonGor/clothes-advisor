@@ -8,30 +8,17 @@ skinparam componentStyle rectangle
 skinparam nodesep 40
 skinparam ranksep 50
 skinparam ArrowColor #52677F
-rectangle "Один Gradle-модуль сервиса" {
-  component "controller / dto\nHTTP-вход и ответ" as http #FFF5DF
-  component "listener / dto\nKafka-вход и ack" as listener #FFF5DF
-  component "service\nСценарии / права / инварианты\nГраницы локальной транзакции" as service #DDF0E5
-  component "model\nСущности / состояния" as model #DDF0E5
-  rectangle "Границы данных\nи внешних операций\nИнтерфейсы сценариев" as ports #DDF0E5
-  component "repository\nSQL / Spring Data\nЛокальная БД и outbox" as repo #EDF4FB
-  component "client / storage\nHTTP / файлы / OpenAI" as client #EDF4FB
-  component "messaging\nOutbox relay / Kafka producer" as relay #EDF4FB
-  component "config\nСборка зависимостей" as config #F2EDFB
+rectangle "notification-service" {
+  component "NotificationController\nЛента и отметка о прочтении" as http #FFF5DF
+  component "KafkaEvents\nДоставка одной записи" as listener #FFF5DF
+  component "ActiveAccount\nПроверка пользователя" as account #EDF4FB
+  component "DomainEvents\nРазбор события и выбор адресата" as events #DDF0E5
+  interface "Notifications" as storage
+  component "PostgresNotifications\nSQL через R2DBC" as repo #EDF4FB
 }
-http --> service : вызывает
-listener --> service : вызывает
-service --> model
-service --> ports : использует
-repo ..|> ports
-client ..|> ports
-relay --> repo : читает outbox
-config ..> service
-config ..> repo
-config ..> client
-note bottom of service
-  JDBC — вне event loop.
-  R2DBC — реактивная транзакция.
-  Сеть и OpenAI — вне транзакций БД.
-end note
+http --> account : проверяет статус
+http --> storage : читает или отмечает
+listener --> events : определяет уведомление
+listener --> storage : сохраняет или отклоняет
+repo ..|> storage
 @enduml

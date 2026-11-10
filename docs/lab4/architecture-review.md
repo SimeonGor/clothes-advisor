@@ -19,4 +19,6 @@
 
 ### Что важно при эксплуатации
 
+Перед записью запроса recommendation проверяет, что PostgreSQL может сохранить его содержимое в `jsonb`. Например, JSON допускает нулевой символ в строке и число `1e200000`, а `jsonb` их отвергает. Notification проверяет, что время события представимо конечной меткой PostgreSQL через R2DBC. В обоих случаях обработчик фиксирует причину отказа и переходит к следующей записи партиции. При недоступности БД ошибка выходит из обработчика, и запись поступает на повторную обработку. [Проверка доставки команд](../../recommendation-service/src/test/kotlin/ru/itmo/clothesadvisor/recommendationservice/messaging/RecommendationDeliveryTests.kt) · [Проверки уведомлений](../../notification-service/src/test/kotlin/ru/itmo/clothesadvisor/notification/NotificationIntegrationTests.kt)
+
 ACK брокера подтверждает запись в Kafka. Применение результата в wardrobe подтверждает отдельное событие `AiJobFinalized`. При разборе зависшего задания нужно проверить обе точки. Для рекомендаций, которые провайдер мог принять до обрыва связи, автоматический повтор опасен расходованием личной квоты. [Диагностика и проверки сбоев](operations.md) · [Восстановление доступа к AI](ai-execution-recovery.md)
