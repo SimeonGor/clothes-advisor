@@ -1,22 +1,27 @@
 spring:
   kafka:
-    bootstrap-servers: ${bootstrap.servers}
+    bootstrap-servers: kafka-1:9092,kafka-2:9092,kafka-3:9092
     properties:
-      security.protocol: ${security.protocol}
-      sasl.mechanism: ${sasl.mechanism}
+      security.protocol: SASL_SSL
+      sasl.mechanism: SCRAM-SHA-512
       sasl.jaas.config: ${sasl.jaas.config}
-      ssl.truststore.type: ${ssl.truststore.type}
+      ssl.truststore.type: PEM
       ssl.truststore.certificates: ${ssl.truststore.certificates}
+      ssl.endpoint.identification.algorithm: https
     producer:
       acks: all
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
       properties:
         enable.idempotence: true
         max.block.ms: 10000
         delivery.timeout.ms: 30000
         request.timeout.ms: 10000
     consumer:
+      group-id: wardrobe-service.ai-selection
       enable-auto-commit: false
       auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
       value-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
     listener:
       ack-mode: record

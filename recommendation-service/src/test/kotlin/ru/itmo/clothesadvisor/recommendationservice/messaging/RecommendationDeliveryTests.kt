@@ -18,6 +18,7 @@ import org.awaitility.Awaitility.await
 import org.junit.jupiter.api.AfterAll
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
+import org.springframework.beans.factory.annotation.Value
 import org.springframework.boot.test.context.SpringBootTest
 import org.springframework.kafka.config.KafkaListenerEndpointRegistry
 import org.springframework.kafka.core.KafkaTemplate
@@ -32,6 +33,7 @@ import org.testcontainers.postgresql.PostgreSQLContainer
 @ActiveProfiles("test", "request-store-test", "kafka")
 @DirtiesContext
 class RecommendationDeliveryTests {
+    @Value("\${app.kafka.groups.ai-selection}") private lateinit var selectionGroup: String
     @Autowired private lateinit var kafka: KafkaTemplate<String, String>
     @Autowired private lateinit var listeners: KafkaListenerEndpointRegistry
     @Autowired private lateinit var requests: RecommendationRequestListener
@@ -150,7 +152,7 @@ class RecommendationDeliveryTests {
         return kafka.send(record).get(15, TimeUnit.SECONDS).recordMetadata.offset()
     }
 
-    private fun committed() = admin.listConsumerGroupOffsets("recommendation-service.ai-selection")
+    private fun committed() = admin.listConsumerGroupOffsets(selectionGroup)
         .partitionsToOffsetAndMetadata().get(5, TimeUnit.SECONDS)[TopicPartition(TOPIC, 0)]?.offset() ?: -1
 
     private fun awaitCommit(offset: Long) {
@@ -183,12 +185,10 @@ class RecommendationDeliveryTests {
         @JvmStatic
         @DynamicPropertySource
         fun properties(registry: DynamicPropertyRegistry) {
-            registry.add("bootstrap.servers", broker::getBootstrapServers)
-            registry.add("security.protocol") { "PLAINTEXT" }
-            registry.add("sasl.mechanism") { "SCRAM-SHA-512" }
-            registry.add("sasl.jaas.config") { "" }
-            registry.add("ssl.truststore.type") { "PEM" }
-            registry.add("ssl.truststore.certificates") { "" }
+            registry.add("spring.kafka.bootstrap-servers", broker::getBootstrapServers)
+            registry.add("spring.kafka.properties.security.protocol") { "PLAINTEXT" }
+            registry.add("spring.kafka.properties.sasl.jaas.config") { "" }
+            registry.add("spring.kafka.properties.ssl.truststore.certificates") { "" }
             registry.add("spring.r2dbc.url") { "r2dbc:postgresql://${postgres.host}:${postgres.firstMappedPort}/${postgres.databaseName}" }
             registry.add("spring.r2dbc.username", postgres::getUsername)
             registry.add("spring.r2dbc.password", postgres::getPassword)

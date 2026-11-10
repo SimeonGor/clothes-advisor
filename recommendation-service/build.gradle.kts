@@ -54,7 +54,8 @@ tasks.jacocoTestReport {
 
 tasks.withType<Test> {
     useJUnitPlatform()
-    inputs.file(
+    inputs.files(
         layout.projectDirectory.file("../config-repository/recommendation-service/application.yml"),
+        layout.projectDirectory.file("../config-repository/recommendation-service/application-kafka.yml"),
     )
 }

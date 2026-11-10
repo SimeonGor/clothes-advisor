@@ -27,7 +27,7 @@ internal class RecommendationRequestListener(
         .enable(DeserializationFeature.USE_BIG_DECIMAL_FOR_FLOATS)
         .build()
 
-    @KafkaListener(topics = ["ai-selection.requests"], groupId = "recommendation-service.ai-selection")
+    @KafkaListener(topics = ["ai-selection.requests"], groupId = "\${app.kafka.groups.ai-selection}")
     fun receive(record: ConsumerRecord<String, ByteArray>) {
         val command = try {
             decode(record.key(), record.value())

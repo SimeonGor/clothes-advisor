@@ -48,7 +48,23 @@ Kafka-порты на хост не публикуются. Сеть `kafka` в�
 
 Bootstrap admin применяется только для инициализации. Account, wardrobe, recommendation и notification имеют разные identities и права на точные топики и consumer groups. Сервис не может читать чужую группу или публиковать в чужой топик. Отсутствие ACL означает запрет. Root-доступ к Docker-хосту находится вне этой границы доверия.
 
-Compose подключает wardrobe и recommendation к сети `kafka` и монтирует каждому настройки его служебной учётной записи в `/run/kafka-client/client.properties`. Профиль `kafka` включает отправку и обработку сообщений. Настройки брокеров находятся в `infra/kafka`.
+## Настройки клиентов
+
+При запуске через Compose четыре сервиса загружают настройки Kafka из своего каталога в `config-repository`. Account публикует события, notification их читает, wardrobe и recommendation совмещают обе роли. Там задаются адреса брокеров, параметры producer и consumer, имена групп. При смене имени группы проверьте её ACL в [топологии](../../infra/kafka/topology.tsv).
+
+Каждый сервис получает свой файл `/run/kafka-client/client.properties` только для чтения. Из него приложение берёт параметры входа SCRAM (`sasl.jaas.config`) и доверенный CA (`ssl.truststore.certificates`). Этот же файл подходит для Kafka CLI. Конфигурация самих брокеров и настройки мониторинга находятся в `infra/kafka` и `infra/observability`.
+
+Чтобы изменить число записей за один вызов `poll()` у notification, поменяйте `spring.kafka.consumer.max-poll-records` в [конфигурации сервиса](../../config-repository/notification-service/application.yml). Затем перезапустите только consumer и проверьте значение в журнале нового запуска:
+
+```shell
+docker compose restart notification-service
+started=$(docker inspect --format '{{.State.StartedAt}}' "$(docker compose ps -q notification-service)")
+docker compose logs --since "$started" notification-service | grep -F 'max.poll.records ='
+```
+
+Config Server читает примонтированный каталог. Перезапуск клиента применяет новое значение с тем же образом.
+
+На отдельном Compose-стенде после изменения лимита с `5` на `3` Kafka consumer вывел новое значение и снова получил партиции группы `notification-service.events`. ID контейнера и образа совпали до и после перезапуска. В каждом запуске событие из outbox сервиса account дошло до базы уведомлений ровно один раз. После второго события подтверждённый offset совпал с концом партиции (lag 0).
 
 ## Доставка и хранение
 

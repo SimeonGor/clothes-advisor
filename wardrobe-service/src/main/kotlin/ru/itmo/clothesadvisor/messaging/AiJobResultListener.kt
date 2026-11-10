@@ -14,7 +14,7 @@ internal class AiJobResultListener(
     private val results: AiJobResults, private val rejections: DeliveryRejections,
     private val trace: DurableTrace = DurableTrace.disabled,
 ) {
-    @KafkaListener(topics = ["ai-selection.execution-events"], groupId = "wardrobe-service.ai-selection")
+    @KafkaListener(topics = ["ai-selection.execution-events"])
     fun receive(record: ConsumerRecord<String, ByteArray>) {
         val event = try {
             AiExecutionEventDecoder.decode(record)

@@ -65,4 +65,5 @@ tasks.withType<Test> {
     // HTTP integration contexts own connection pools and clients until Spring evicts them.
     systemProperty("spring.test.context.cache.maxSize", "6")
     inputs.file(layout.projectDirectory.file("../config-repository/wardrobe-service/application.yml"))
+    inputs.file(layout.projectDirectory.file("../config-repository/wardrobe-service/application-kafka.yml"))
 }

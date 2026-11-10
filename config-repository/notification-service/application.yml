@@ -1,6 +1,29 @@
 server:
   port: ${APP_PORT:8080}
 
+spring:
+  kafka:
+    bootstrap-servers: kafka-1:9092,kafka-2:9092,kafka-3:9092
+    properties:
+      security.protocol: SASL_SSL
+      sasl.mechanism: SCRAM-SHA-512
+      sasl.jaas.config: ${sasl.jaas.config}
+      ssl.truststore.type: PEM
+      ssl.truststore.certificates: ${ssl.truststore.certificates}
+      ssl.endpoint.identification.algorithm: https
+    consumer:
+      group-id: notification-service.events
+      key-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
+      value-deserializer: org.apache.kafka.common.serialization.ByteArrayDeserializer
+      enable-auto-commit: false
+      auto-offset-reset: earliest
+      # Bound blocking database work per poll within max.poll.interval.ms.
+      max-poll-records: 5
+      properties:
+        allow.auto.create.topics: false
+    listener:
+      ack-mode: record
+
 springdoc:
   api-docs:
     enabled: false

@@ -310,6 +310,8 @@ services:
       DB_USER: notification_service
       DB_PASSWORD: ${NOTIFICATION_DB_PASSWORD:?NOTIFICATION_DB_PASSWORD must be set}
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
+      SPRING_PROFILES_INCLUDE: kafka
+      SPRING_CONFIG_ADDITIONAL_LOCATION: file:/run/kafka-client/client.properties
       CONFIG_SERVER_URL: http://config-server:8888
       EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
       EUREKA_INSTANCE_HOSTNAME: notification-service
@@ -368,7 +370,8 @@ services:
     environment:
       <<: *telemetry
       DB_R2DBC_URL: r2dbc:postgresql://account-postgres:5432/account_db
-      APP_KAFKA_CLIENT_PROPERTIES: /run/kafka-client/client.properties
+      SPRING_PROFILES_INCLUDE: kafka
+      SPRING_CONFIG_ADDITIONAL_LOCATION: file:/run/kafka-client/client.properties
       APP_BOOTSTRAP_ADMIN_LOGIN: ${APP_BOOTSTRAP_ADMIN_LOGIN:-}
       APP_BOOTSTRAP_ADMIN_PASSWORD: ${APP_BOOTSTRAP_ADMIN_PASSWORD:-}
       AUTH_REFRESH_COOKIE_SECURE: ${AUTH_REFRESH_COOKIE_SECURE:-true}
