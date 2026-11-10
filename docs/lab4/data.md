@@ -46,6 +46,8 @@ Wardrobe определяет владельца фотографии по св�
 
 ## Месяц и сравнение
 
+Этап 06 добавляет в Compose отдельный `recommendation-postgres` с БД `recommendation_db` и томом `recommendation-postgres-data`. Для запуска задайте `RECOMMENDATION_DB_PASSWORD` в окружении Compose. При первом запуске Flyway создаёт таблицу запросов, строку барьера и пять партиций от начала третьего предыдущего до конца следующего месяца UTC. Приём берёт разделяемую блокировку строки барьера до конца транзакции. Продвижение барьера и обслуживание старых партиций предусмотрены этапом 15. [Миграция recommendation-service](../../recommendation-service/src/main/resources/db/migration/V1__create_recommendation_request.sql)
+
 request_month — первое число календарного месяца UTC принятия задания, не месяц получения Kafka. Отправитель сохраняет его вместе с request ID; повтор не пересчитывает дату. Новая внутренняя операция с тем же request ID в другом месяце допустима. Внешний ключ wardrobe по-прежнему бессрочен и не создаёт её автоматически.
 
 Уникальность включает ключ секционирования, как требует [PostgreSQL](https://www.postgresql.org/docs/18/ddl-partitioning.html#DDL-PARTITIONING-DECLARATIVE-LIMITATIONS). Поля пользователя сравниваются в Kotlin по [контракту input](messaging.md); JSONB здесь формат хранения, не средство неявной бизнес-нормализации. Старый fingerprint wardrobe остаётся SHA-256 по существующим правилам.

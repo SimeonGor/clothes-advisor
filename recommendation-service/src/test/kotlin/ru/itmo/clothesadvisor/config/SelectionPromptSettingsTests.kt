@@ -242,7 +242,11 @@ class SelectionPromptSettingsTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhot
     }
 
     @TestConfiguration(proxyBeanMethods = false)
-    @EnableAutoConfiguration
+    @EnableAutoConfiguration(excludeName = [
+        "org.springframework.boot.r2dbc.autoconfigure.R2dbcAutoConfiguration",
+        "org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration",
+        "org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration",
+    ])
     @Import(OpenAiConfiguration::class)
     class PromptApplication {
         @Bean fun clock(): Clock = Clock.systemUTC()
@@ -278,6 +282,7 @@ class SelectionPromptSettingsTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhot
             SpringApplicationBuilder(PromptApplication::class.java).web(WebApplicationType.NONE).run(
                 "--spring.profiles.active=$profile",
                 "--spring.config.import=configserver:$uri",
+                "--management.endpoint.health.group.readiness.include=readinessState",
                 "--CONFIG_SERVER_URL=$uri",
                 "--spring.cloud.config.uri=http://127.0.0.1:1",
                 "--spring.cloud.config.enabled=true",
