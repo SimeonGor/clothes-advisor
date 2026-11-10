@@ -36,6 +36,7 @@ import org.springframework.test.context.bean.override.mockito.MockitoBean
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
 import org.springframework.transaction.support.TransactionSynchronizationManager
 import ru.itmo.clothesadvisor.config.AccountBackedIntegrationTest
+import ru.itmo.clothesadvisor.config.assertDomainEvents
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
 import ru.itmo.clothesadvisor.config.insertAccessGrant
 import ru.itmo.clothesadvisor.config.insertItem
@@ -201,6 +202,10 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
         assertThat(current(fixtureState))
             .containsExactly(snapshot(fixtureState.stylist.id, "DISLIKE", 3))
         assertThat(archived(fixtureState)).containsExactly(first, second)
+        jdbc.assertDomainEvents(
+            fixtureState.id, """{"outfitId":${fixtureState.id},"ownerId":${fixtureState.owner.id}}""",
+            "OutfitRatingChanged", "OutfitRatingChanged",
+        )
         assertThat(
                 jdbc.queryForObject(
                     "SELECT created_at FROM outfit_rating WHERE outfit_id = ?",
@@ -272,6 +277,10 @@ class OutfitRatingIntegrationTests : AccountBackedIntegrationTest() {
 
         // then
         assertEmpty(repeatedWithdrawal, 404)
+        jdbc.assertDomainEvents(
+            fixtureState.id, """{"outfitId":${fixtureState.id},"ownerId":${fixtureState.owner.id}}""",
+            "OutfitRatingChanged", "OutfitRatingChanged", "OutfitRatingChanged", "OutfitRatingWithdrawn",
+        )
         assertThat(current(fixtureState))
             .containsExactly(snapshot(fixtureState.other.id, "LIKE", 1))
         assertThat(archived(fixtureState))

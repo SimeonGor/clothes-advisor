@@ -237,6 +237,7 @@ services:
     networks:
       - backend
       - account-data
+      - kafka
     build:
       context: .
       dockerfile: account-service/Dockerfile
@@ -244,6 +245,7 @@ services:
         APP_UID: ${APP_UID:?Set APP_UID to the credential owner UID (id -u)}
     environment:
       DB_R2DBC_URL: r2dbc:postgresql://account-postgres:5432/account_db
+      APP_KAFKA_CLIENT_PROPERTIES: /run/kafka-client/client.properties
       APP_BOOTSTRAP_ADMIN_LOGIN: ${APP_BOOTSTRAP_ADMIN_LOGIN:-}
       APP_BOOTSTRAP_ADMIN_PASSWORD: ${APP_BOOTSTRAP_ADMIN_PASSWORD:-}
       AUTH_REFRESH_COOKIE_SECURE: ${AUTH_REFRESH_COOKIE_SECURE:-true}
@@ -255,6 +257,13 @@ services:
       CONFIG_SERVER_URL: http://config-server:8888
       EUREKA_SERVER_URL: http://discovery-server:8761/eureka/
       SPRING_PROFILES_ACTIVE: ${SPRING_PROFILES_ACTIVE:-}
+    volumes:
+      - type: bind
+        source: ${KAFKA_SECRETS_DIR:?Set KAFKA_SECRETS_DIR to the prepared absolute directory}/account-service
+        target: /run/kafka-client
+        read_only: true
+        bind:
+          create_host_path: false
     secrets:
       - app-jwt-private-key
       - app-jwt-public-key
@@ -265,6 +274,8 @@ services:
         condition: service_healthy
       account-postgres:
         condition: service_healthy
+      kafka-provision:
+        condition: service_completed_successfully
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8080/actuator/health/readiness"]
       interval: 5s

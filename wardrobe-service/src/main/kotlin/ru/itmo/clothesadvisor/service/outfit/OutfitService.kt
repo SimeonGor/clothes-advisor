@@ -25,6 +25,7 @@ import ru.itmo.clothesadvisor.model.outfit.OutfitItemId
 import ru.itmo.clothesadvisor.model.outfit.OutfitSource
 import ru.itmo.clothesadvisor.model.outfit.OutfitWeather
 import ru.itmo.clothesadvisor.repository.outfit.OutfitItemRepository
+import ru.itmo.clothesadvisor.repository.messaging.WardrobeEventOutbox
 import ru.itmo.clothesadvisor.repository.outfit.OutfitRepository
 import ru.itmo.clothesadvisor.repository.outfit.OutfitWeatherRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
@@ -47,6 +48,7 @@ internal class OutfitService(
     private val ratings: OutfitRatingService,
     private val validator: Validator,
     private val idempotency: IdempotencyService,
+    private val outbox: WardrobeEventOutbox,
     transactionManager: PlatformTransactionManager,
 ) {
     private val writeTransaction = TransactionTemplate(transactionManager)
@@ -93,7 +95,11 @@ internal class OutfitService(
             object : TypeReference<OutfitResponse>() {},
         ) { completion ->
             completion.commit {
-                writeTransaction.execute { create(ownerId, stylistId, OutfitSource.STYLIST, request) }
+                writeTransaction.execute {
+                    val outfit = create(ownerId, stylistId, OutfitSource.STYLIST, request)
+                    outbox.outfit("StylistOutfitCreated", outfit.id, ownerId)
+                    outfit
+                }
             }
         }
         return StylistOutfitResponse(created, null)
