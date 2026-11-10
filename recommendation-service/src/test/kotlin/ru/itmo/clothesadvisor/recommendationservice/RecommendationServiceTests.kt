@@ -29,6 +29,7 @@ import ru.itmo.clothesadvisor.dto.ai.ItemSelectionRequest
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionWeather
 import tools.jackson.databind.json.JsonMapper
 
+@org.springframework.context.annotation.Import(TransportTestConfiguration::class)
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
 class RecommendationServiceTests {

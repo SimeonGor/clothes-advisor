@@ -31,6 +31,8 @@ import tools.jackson.core.JacksonException
 import tools.jackson.databind.DeserializationFeature
 import tools.jackson.databind.json.JsonMapper
 
+internal data class SelectionInstructions(val model: String, val promptVersion: Long, val promptText: String)
+
 class OpenAiSelectionClient internal constructor(
     private val http: HttpClient?,
     private val mapper: JsonMapper,
@@ -41,7 +43,7 @@ class OpenAiSelectionClient internal constructor(
     private val outfitPromptSettings: SelectionPromptSettings,
     private val capsulePromptSettings: SelectionPromptSettings,
 ) : AutoCloseable, ItemSelectionProvider {
-    override fun select(goal: SelectionGoal, selection: ItemSelectionRequest): ItemSelectionResponse {
+    internal fun instructions(goal: SelectionGoal): SelectionInstructions {
         val promptSettings = when (goal) {
             SelectionGoal.OUTFIT -> outfitPromptSettings
             SelectionGoal.CAPSULE -> capsulePromptSettings
@@ -50,9 +52,22 @@ class OpenAiSelectionClient internal constructor(
         if (http == null || model.isBlank()) {
             throw AiSelectionException(AiSelectionFailure.UNAVAILABLE)
         }
+        return SelectionInstructions(model, prompt.version, prompt.text)
+    }
+
+    override fun select(goal: SelectionGoal, selection: ItemSelectionRequest): ItemSelectionResponse =
+        select(goal, selection, instructions(goal)) {}
+
+    internal fun select(
+        goal: SelectionGoal,
+        selection: ItemSelectionRequest,
+        instructions: SelectionInstructions,
+        beforeSend: () -> Unit,
+    ): ItemSelectionResponse {
+        val transport = http ?: throw AiSelectionException(AiSelectionFailure.UNAVAILABLE)
         val accessToken = credentials.accessToken()
         val allowed = selection.candidates.map { it.itemId }.toSet()
-        val body = requestBody(selection, allowed, prompt.text, goal)
+        val body = requestBody(selection, allowed, instructions, goal)
 
         val request =
             try {
@@ -78,17 +93,18 @@ class OpenAiSelectionClient internal constructor(
                 throw AiSelectionException(AiSelectionFailure.UNAVAILABLE)
             }
 
+        beforeSend()
         val openBody = AtomicReference<InputStream?>()
         val executor = Executors.newVirtualThreadPerTaskExecutor()
 
         val pending =
             executor.submit(
                 Callable {
-                    val response = http.send(request, HttpResponse.BodyHandlers.ofInputStream())
+                    val response = transport.send(request, HttpResponse.BodyHandlers.ofInputStream())
                     response.body().use { stream ->
                         openBody.set(stream)
                         if (Thread.currentThread().isInterrupted) {
-                            throw AiSelectionException(AiSelectionFailure.TIMEOUT)
+                            throw AiSelectionException(AiSelectionFailure.TIMEOUT, outcomeUnknown = true)
                         }
                         if (response.statusCode() !in 200..299) {
                             throw AiSelectionException(AiSelectionFailure.UNAVAILABLE)
@@ -101,7 +117,7 @@ class OpenAiSelectionClient internal constructor(
                                     .trim()
                                     .equals("text/event-stream", true)
                         ) {
-                            throw AiSelectionException(AiSelectionFailure.INVALID_RESPONSE)
+                            throw AiSelectionException(AiSelectionFailure.INVALID_RESPONSE, outcomeUnknown = true)
                         }
                         parse(OpenAiResponseStream(mapper).read(stream), allowed, selection.requiredItemIds)
                     }
@@ -111,18 +127,18 @@ class OpenAiSelectionClient internal constructor(
         return try {
             pending.get(timeout.toMillis(), TimeUnit.MILLISECONDS)
         } catch (_: TimeoutException) {
-            throw AiSelectionException(AiSelectionFailure.TIMEOUT)
+            throw AiSelectionException(AiSelectionFailure.TIMEOUT, outcomeUnknown = true)
         } catch (error: ExecutionException) {
             when (val cause = error.cause) {
                 is AiSelectionException -> throw cause
-                is HttpTimeoutException -> throw AiSelectionException(AiSelectionFailure.TIMEOUT)
+                is HttpTimeoutException -> throw AiSelectionException(AiSelectionFailure.TIMEOUT, outcomeUnknown = true)
                 is CharacterCodingException ->
-                    throw AiSelectionException(AiSelectionFailure.INVALID_RESPONSE)
-                else -> throw AiSelectionException(AiSelectionFailure.UNAVAILABLE)
+                    throw AiSelectionException(AiSelectionFailure.INVALID_RESPONSE, outcomeUnknown = true)
+                else -> throw AiSelectionException(AiSelectionFailure.UNAVAILABLE, outcomeUnknown = true)
             }
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
-            throw AiSelectionException(AiSelectionFailure.UNAVAILABLE)
+            throw AiSelectionException(AiSelectionFailure.UNAVAILABLE, outcomeUnknown = true)
         } finally {
             pending.cancel(true)
             // Closing a network stream must not hold up the caller after its deadline.
@@ -137,12 +153,12 @@ class OpenAiSelectionClient internal constructor(
         http?.close()
     }
 
-    private fun requestBody(selection: ItemSelectionRequest, allowed: Set<Long>, prompt: String, goal: SelectionGoal): Map<String, Any> =
+    private fun requestBody(selection: ItemSelectionRequest, allowed: Set<Long>, instructions: SelectionInstructions, goal: SelectionGoal): Map<String, Any> =
         mapOf(
-            "model" to model,
+            "model" to instructions.model,
             "store" to false,
             "stream" to true,
-            "instructions" to prompt,
+            "instructions" to instructions.promptText,
             "input" to listOf(mapOf("role" to "user", "content" to inputContent(selection))),
             "text" to mapOf("format" to outputFormat(allowed, goal)),
         )

@@ -137,6 +137,7 @@ services:
     secrets:
       - app-jwt-public-key
       - file-wardrobe-password
+      - ai-validation-password
     volumes:
       - type: bind
         source: ${KAFKA_SECRETS_DIR:?Set KAFKA_SECRETS_DIR}/wardrobe-service
@@ -333,10 +334,14 @@ services:
       DB_PASSWORD: ${RECOMMENDATION_DB_PASSWORD:?RECOMMENDATION_DB_PASSWORD must be set}
       SPRING_PROFILES_INCLUDE: kafka
       SPRING_CONFIG_ADDITIONAL_LOCATION: file:/run/kafka-client/client.properties
+      APP_AI_WORKER_ENABLED: "true"
       EUREKA_INSTANCE_HOSTNAME: recommendation-service
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "false"
       CHATGPT_CREDENTIALS_DIR: /run/chatgpt
       CHATGPT_TRUST_STORE: ${CHATGPT_TRUST_STORE:-}
+    secrets:
+      - file-recommendation-password
+      - ai-validation-password
     volumes:
       - type: bind
         source: ${KAFKA_SECRETS_DIR:?Set KAFKA_SECRETS_DIR}/recommendation-service
@@ -389,6 +394,8 @@ volumes:
   chatgpt-access:
 
 secrets:
+  ai-validation-password:
+    file: ${AI_VALIDATION_PASSWORD_FILE:?Set AI_VALIDATION_PASSWORD_FILE to a private file path}
   file-wardrobe-password:
     file: ${FILE_WARDROBE_PASSWORD_FILE:?Set FILE_WARDROBE_PASSWORD_FILE to a private file path}
   file-recommendation-password:

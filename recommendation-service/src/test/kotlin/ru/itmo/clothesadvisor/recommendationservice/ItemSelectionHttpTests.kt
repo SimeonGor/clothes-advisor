@@ -48,7 +48,7 @@ import tools.jackson.databind.node.ObjectNode
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
-@Import(ItemSelectionHttpTests.FixedClock::class)
+@Import(ItemSelectionHttpTests.FixedClock::class, TransportTestConfiguration::class)
 class ItemSelectionHttpTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhotoFixture() {
     @TestConfiguration
     class FixedClock {

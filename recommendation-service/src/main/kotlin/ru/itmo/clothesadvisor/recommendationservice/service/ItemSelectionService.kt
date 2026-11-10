@@ -9,7 +9,9 @@ import ru.itmo.clothesadvisor.dto.ai.ItemSelectionRequest
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionResponse
 
 @Service
-class ItemSelectionService(private val provider: ItemSelectionProvider) {
+class ItemSelectionService(
+    @org.springframework.beans.factory.annotation.Qualifier("syncSelectionProvider") private val provider: ItemSelectionProvider,
+) {
     fun selectOutfit(request: ItemSelectionRequest): ItemSelectionResponse = select(request, SelectionGoal.OUTFIT)
 
     fun selectCapsule(request: ItemSelectionRequest): ItemSelectionResponse {

@@ -58,6 +58,7 @@ import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItem
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItemPhoto
 import ru.itmo.clothesadvisor.model.weather.PrecipitationType
 import ru.itmo.clothesadvisor.recommendationservice.RecommendationServiceApplication
+import ru.itmo.clothesadvisor.recommendationservice.service.ItemSelectionProvider
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemPhotoRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.repository.weather.PrecipitationTypeRepository
@@ -77,6 +78,9 @@ import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemPhotoService
 class RecommendationPayloadTests {
     @TestConfiguration
     class TransportSecurity {
+        @Bean("syncSelectionProvider")
+        fun selectionProvider(client: OpenAiSelectionClient) = ItemSelectionProvider(client::select)
+
         @Bean
         fun transportSecurity(http: org.springframework.security.config.web.server.ServerHttpSecurity) =
             http.csrf { it.disable() }.authorizeExchange { it.anyExchange().permitAll() }.build()
