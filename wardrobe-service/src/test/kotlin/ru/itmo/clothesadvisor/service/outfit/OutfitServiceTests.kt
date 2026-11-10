@@ -61,6 +61,7 @@ class OutfitServiceTests {
             ratings,
             validation.validator,
             idempotencyService(transactions),
+            mock(),
             transactions,
         )
     private val storedAt = Instant.parse("2026-01-01T00:00:00Z")

@@ -38,6 +38,7 @@ import ru.itmo.clothesadvisor.client.file.anyFileId
 import ru.itmo.clothesadvisor.client.file.confirmedUpload
 import ru.itmo.clothesadvisor.client.recommendation.RecommendationClient
 import ru.itmo.clothesadvisor.config.AccountBackedIntegrationTest
+import ru.itmo.clothesadvisor.config.assertDomainEvents
 import ru.itmo.clothesadvisor.config.insertAccessGrant
 import ru.itmo.clothesadvisor.config.insertItem
 import ru.itmo.clothesadvisor.config.insertUser
@@ -130,6 +131,12 @@ class IdempotencyIntegrationTests : AccountBackedIntegrationTest() {
         assertThat(count("idempotency_command")).isEqualTo(1)
         assertThat(uploads.get()).isEqualTo(if (flow in listOf("multipart", "photos")) 1 else 0)
         assertThat(selections.get()).isEqualTo(if (flow == "ai") 1 else 0)
+        if (flow == "stylist") {
+            val id = mapper.readTree(first.body()).get("id").asLong()
+            jdbc.assertDomainEvents(id, """{"outfitId":$id,"ownerId":$owner}""", "StylistOutfitCreated")
+        } else {
+            assertThat(jdbc.queryForList("SELECT type FROM outbox_event WHERE type = 'StylistOutfitCreated'")).isEmpty()
+        }
 
         // when
         if (flow == "stylist") jdbc.update("DELETE FROM access_grant")

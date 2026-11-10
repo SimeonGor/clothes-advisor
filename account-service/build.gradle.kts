@@ -19,6 +19,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-micrometer-tracing-opentelemetry")
     implementation("io.micrometer:micrometer-tracing-bridge-otel")
     implementation("org.springframework.boot:spring-boot-starter-data-r2dbc")
+    implementation("org.apache.kafka:kafka-clients")
     implementation("org.springframework.boot:spring-boot-starter-flyway")
     implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.security:spring-security-crypto")

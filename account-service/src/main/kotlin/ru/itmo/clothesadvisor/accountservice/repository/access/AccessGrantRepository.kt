@@ -26,14 +26,29 @@ internal interface AccessGrantRepository : R2dbcRepository<AccessGrant, AccessGr
     @Modifying
     @Query(
         """
-        INSERT INTO access_grant (owner_id, stylist_id) VALUES (:ownerId, :stylistId)
-        ON CONFLICT (owner_id, stylist_id) DO NOTHING
+        WITH changed AS (
+            INSERT INTO access_grant (owner_id, stylist_id) VALUES (:ownerId, :stylistId)
+            ON CONFLICT (owner_id, stylist_id) DO NOTHING RETURNING owner_id, stylist_id
+        )
+        INSERT INTO outbox_event (type, aggregate_id, payload)
+        SELECT 'AccessGranted', concat(owner_id, '/', stylist_id),
+            jsonb_build_object('ownerId', owner_id, 'stylistId', stylist_id) FROM changed
         """,
     )
     fun grant(ownerId: Long, stylistId: Long): Mono<Int>
 
     @Modifying
-    @Query("DELETE FROM access_grant WHERE owner_id = :ownerId AND stylist_id = :stylistId")
+    @Query(
+        """
+        WITH changed AS (
+            DELETE FROM access_grant WHERE owner_id = :ownerId AND stylist_id = :stylistId
+            RETURNING owner_id, stylist_id
+        )
+        INSERT INTO outbox_event (type, aggregate_id, payload)
+        SELECT 'AccessRevoked', concat(owner_id, '/', stylist_id),
+            jsonb_build_object('ownerId', owner_id, 'stylistId', stylist_id) FROM changed
+        """,
+    )
     fun revoke(ownerId: Long, stylistId: Long): Mono<Int>
 
     @Query(
