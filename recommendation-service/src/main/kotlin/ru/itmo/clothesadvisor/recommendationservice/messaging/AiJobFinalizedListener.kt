@@ -1,5 +1,6 @@
 package ru.itmo.clothesadvisor.recommendationservice.messaging
 
+import io.micrometer.tracing.Span
 import java.time.Instant
 import java.time.LocalDate
 import java.time.format.DateTimeParseException
@@ -8,6 +9,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.springframework.context.annotation.Profile
 import org.springframework.kafka.annotation.KafkaListener
 import org.springframework.stereotype.Component
+import ru.itmo.clothesadvisor.observability.DurableTrace
 import ru.itmo.clothesadvisor.recommendationservice.request.RecommendationFinalization
 import ru.itmo.clothesadvisor.recommendationservice.request.RecommendationRequestStore
 import tools.jackson.core.JacksonException
@@ -20,6 +22,7 @@ import tools.jackson.databind.json.JsonMapper
 @Profile("kafka")
 internal class AiJobFinalizedListener(
     private val store: RecommendationRequestStore, private val rejections: DeliveryRejections,
+    private val trace: DurableTrace = DurableTrace.disabled,
 ) {
     private val mapper = JsonMapper.builder().enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
         .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build()
@@ -32,7 +35,10 @@ internal class AiJobFinalizedListener(
             rejections.record(record, "invalid_finalization").block()
             return
         }
-        if (store.applyFinalization(ack).block() != true) rejections.record(record, "finalization_conflict").block()
+        val parent = DurableTrace.header(record.headers().lastHeader(DurableTrace.HEADER)?.value())
+        trace.child(parent, "ai-jobs.events acknowledge", Span.Kind.CONSUMER) {
+            if (store.applyFinalization(ack).block() != true) rejections.record(record, "finalization_conflict").block()
+        }
     }
 
     private fun decode(record: ConsumerRecord<String, ByteArray>): RecommendationFinalization {

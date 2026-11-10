@@ -10,14 +10,13 @@ group = "ru.itmo"
 version = "0.0.1-SNAPSHOT"
 
 dependencies {
+    implementation(project(":observability"))
     implementation(platform("org.springframework.boot:spring-boot-dependencies:4.1.1"))
     implementation(platform("org.springframework.cloud:spring-cloud-dependencies:2025.1.3"))
     implementation("org.springframework.cloud:spring-cloud-starter-config")
     implementation("org.springframework.cloud:spring-cloud-starter-netflix-eureka-client")
     implementation("org.springframework.boot:spring-boot-starter-webflux")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
-    implementation("org.springframework.boot:spring-boot-micrometer-tracing-opentelemetry")
-    implementation("io.micrometer:micrometer-tracing-bridge-otel")
     implementation("org.springframework.boot:spring-boot-starter-data-r2dbc")
     implementation("org.apache.kafka:kafka-clients")
     implementation("org.springframework.boot:spring-boot-starter-flyway")

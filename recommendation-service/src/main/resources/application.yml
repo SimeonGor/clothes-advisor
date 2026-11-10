@@ -11,6 +11,8 @@ logging:
     org.springframework.cloud.config.client.ConfigServicePropertySourceLocator: "OFF"
 
 spring:
+  config:
+    import: "classpath:observability.yml"
   application:
     name: recommendation-service
 

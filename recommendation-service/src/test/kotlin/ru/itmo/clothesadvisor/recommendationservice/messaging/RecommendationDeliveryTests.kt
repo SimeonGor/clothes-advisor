@@ -9,7 +9,10 @@ import java.util.concurrent.TimeUnit
 import org.apache.kafka.clients.admin.Admin
 import org.apache.kafka.clients.admin.NewTopic
 import org.apache.kafka.clients.consumer.ConsumerRecord
+import org.apache.kafka.clients.consumer.KafkaConsumer
+import org.apache.kafka.clients.producer.ProducerRecord
 import org.apache.kafka.common.TopicPartition
+import org.apache.kafka.common.serialization.StringDeserializer
 import org.assertj.core.api.Assertions.assertThat
 import org.awaitility.Awaitility.await
 import org.junit.jupiter.api.AfterAll
@@ -53,17 +56,21 @@ class RecommendationDeliveryTests {
         sql("""CREATE FUNCTION fail_accept() RETURNS trigger LANGUAGE plpgsql AS $$
                 BEGIN PERFORM nextval('blocked_delivery'); RAISE EXCEPTION 'simulated unavailable store'; END $$""")
         sql("CREATE TRIGGER fail_accept BEFORE INSERT ON recommendation_request FOR EACH ROW EXECUTE FUNCTION fail_accept()")
-        val first = send(key, wire)
+        val traceId = "0123456789abcdef0123456789abcdef"
+        val traceparent = "00-$traceId-1020304050607080-01"
+        val first = send(key, wire, traceparent)
         await().atMost(Duration.ofSeconds(45)).until { value("SELECT is_called FROM blocked_delivery") == "t" }
         assertThat(committed()).isLessThanOrEqualTo(first)
         assertThat(value("SELECT count(*) FROM recommendation_request")).isEqualTo("0")
         sql("DROP TRIGGER fail_accept ON recommendation_request")
         awaitCommit(first)
+        val admissionParent = value("SELECT traceparent FROM recommendation_request")
+        assertThat(admissionParent).matches("00-$traceId-[0-9a-f]{16}-01").isNotEqualTo(traceparent)
         assertThat(value("SELECT state FROM recommendation_request")).isEqualTo("RECEIVED")
         assertThat(value("SELECT input->'weather'->>'temperatureC' FROM recommendation_request")).isEqualTo("12.1234567890123456789")
 
         listeners.stop()
-        val duplicate = send(key, wire)
+        val duplicate = send(key, wire, "malformed")
         // A stopped process may already have committed its work without having committed its offset.
         requests.receive(ConsumerRecord(TOPIC, 0, duplicate, key, wire.toByteArray()))
         assertThat(committed()).isEqualTo(duplicate)
@@ -102,10 +109,29 @@ class RecommendationDeliveryTests {
         awaitPublished(resultEvent)
         assertThat(value("SELECT created_at = '$completed' FROM outbox_event")).isEqualTo("t")
         assertThat(value("SELECT state FROM recommendation_request")).isEqualTo("SUCCEEDED")
+        assertThat(value("SELECT traceparent FROM recommendation_request")).isEqualTo(admissionParent)
+        KafkaConsumer(mapOf("bootstrap.servers" to broker.bootstrapServers, "enable.auto.commit" to false),
+            StringDeserializer(), StringDeserializer()).use { consumer ->
+            val partition = TopicPartition("ai-selection.execution-events", 0)
+            consumer.assign(listOf(partition))
+            consumer.seekToBeginning(listOf(partition))
+            val records = buildList {
+                val deadline = System.nanoTime() + Duration.ofSeconds(15).toNanos()
+                while (size < 3 && System.nanoTime() < deadline) addAll(consumer.poll(Duration.ofMillis(300)).toList())
+            }
+            assertThat(records.map { it.value() }.distinct()).hasSize(1)
+            val parents = records.map { it.headers().lastHeader("traceparent").value().toString(Charsets.US_ASCII) }
+            assertThat(parents).hasSize(3).doesNotHaveDuplicates().allSatisfy {
+                assertThat(it).matches("00-$traceId-[0-9a-f]{16}-01").isNotEqualTo(admissionParent)
+            }
+        }
     }
 
-    private fun send(key: String, message: String) =
-        kafka.send(TOPIC, 0, key, message).get(15, TimeUnit.SECONDS).recordMetadata.offset()
+    private fun send(key: String, message: String, traceparent: String? = null): Long {
+        val record = ProducerRecord(TOPIC, 0, key, message)
+        traceparent?.let { record.headers().add("traceparent", it.toByteArray(Charsets.US_ASCII)) }
+        return kafka.send(record).get(15, TimeUnit.SECONDS).recordMetadata.offset()
+    }
 
     private fun committed() = admin.listConsumerGroupOffsets("recommendation-service.ai-selection")
         .partitionsToOffsetAndMetadata().get(5, TimeUnit.SECONDS)[TopicPartition(TOPIC, 0)]?.offset() ?: -1

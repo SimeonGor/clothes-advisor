@@ -38,6 +38,7 @@ cp .env.example .env
 - `FILE_WARDROBE_PASSWORD_FILE` и `FILE_RECOMMENDATION_PASSWORD_FILE` — абсолютные пути к файлам с разными паролями служебных учётных записей. Wardrobe обращается к файловому API с паролем из `FILE_WARDROBE_PASSWORD_FILE`. Пользователю `APP_UID` нужен доступ на чтение этих файлов.
 - `AI_VALIDATION_PASSWORD_FILE` — абсолютный путь к отдельному паролю для проверки входных данных задания. Его читают recommendation и wardrobe.
 - `APP_UID` — результат `id -u`; `CHATGPT_CREDENTIALS_DIR` и `OPENAI_MODEL` — настройки [подключения ChatGPT](#ai-подбор).
+- `GRAFANA_ADMIN_PASSWORD` — начальный пароль пользователя `admin` в Grafana. При существующем томе Grafana использует сохранённые учётные данные.
 - `APP_JWT_PRIVATE_KEY_FILE` и `APP_JWT_PUBLIC_KEY_FILE` — абсолютные пути к ключам JWT, созданным ниже.
 - `APP_BOOTSTRAP_ADMIN_LOGIN` и `APP_BOOTSTRAP_ADMIN_PASSWORD` — первый администратор; пароль от 12 до 128 символов. Значения с `$` в `.env` заключайте в одинарные кавычки. Действующий пароль при повторном запуске не перезаписывается; после настройки эти две переменные можно убрать.
 - `AUTH_REFRESH_COOKIE_SECURE=false` — только для локального HTTP на `127.0.0.1`; при HTTPS установите `true`.
@@ -48,7 +49,7 @@ mkdir -p "$HOME/.config/clothes-advisor"
 python3 infra/kafka/prepare.py --secrets-dir "$HOME/.config/clothes-advisor/kafka"
 ```
 
-Повторная команда проверяет существующие ключи и cluster ID. Добавьте абсолютный путь каталога Kafka в `.env`. Compose запускает три брокера и выполняет provisioning семи топиков с репликацией и ACL для account, wardrobe, recommendation и notification. [Запуск Kafka и диагностика](docs/lab4/kafka.md)
+На существующем стенде повторите эту команду с прежним путём: она сохранит cluster ID, ключи брокеров и пользователей и создаст рядом каталог `kafka.monitor` для метрик. Укажите абсолютный путь к исходному каталогу **без завершающего слеша** в `KAFKA_SECRETS_DIR`. [Запуск Kafka и диагностика](docs/lab4/kafka.md)
 
 Создайте пароли внутренних HTTP-клиентов и запишите пути к файлам в `.env`.
 
@@ -88,7 +89,7 @@ Account запускается с отдельным PostgreSQL и томом `a
 docker compose up --build -d
 ```
 
-После старта Gateway проверьте `curl http://127.0.0.1:8080/actuator/health`: ожидаемый ответ — `{"status":"UP"}`. Регистрация в Eureka распространяется асинхронно; первые API-запросы могут вернуть 503 до обновления реестра. На хост публикуются только Gateway (`APP_PORT`, по умолчанию 8080) и Eureka (8761), оба на `127.0.0.1`. Базы данных и остальные приложения не публикуют порты. Для SQL-консоли используйте `docker compose exec postgres psql -U clothes_advisor -d clothes_advisor` (при стандартных DB_USER/DB_NAME). Ссылки ниже рассчитаны на порт 8080.
+После старта Gateway проверьте `curl http://127.0.0.1:8080/actuator/health`: ожидаемый ответ — `{"status":"UP"}`. Регистрация в Eureka распространяется асинхронно; первые API-запросы могут вернуть 503 до обновления реестра. На `127.0.0.1` опубликованы Gateway (`APP_PORT`, по умолчанию 8080), Eureka (8761) и Grafana (`GRAFANA_PORT`, по умолчанию 3000). Базы данных и остальные приложения не публикуют порты. Для SQL-консоли используйте `docker compose exec postgres psql -U clothes_advisor -d clothes_advisor` (при стандартных DB_USER/DB_NAME). Ссылки ниже рассчитаны на порт 8080.
 
 Внутренняя сеть `backend` связывает доверенные контейнеры приложений, у каждой БД своя изолированная сеть. Gateway и Eureka используют `edge`. Wardrobe обращается к file-service по внутренней сети. Через `egress` file-service работает с IAM и S3, а recommendation обращается к OpenAI. В Eureka публикуются DNS-имена Compose. Публичные API проверяют JWT и игнорируют `X-User-Id`.
 
@@ -99,6 +100,24 @@ docker compose up --build -d
 File-service загружает и читает фотографии через HTTP API Yandex Object Storage с IAM-токеном. Укажите путь к JSON-файлу авторизованного ключа сервисного аккаунта в `YANDEX_SERVICE_ACCOUNT_KEY_FILE`. Compose монтирует этот ключ только в контейнер file-service, для чтения по пути `/run/secrets/yandex-service-account-key`. [Аутентификация Object Storage](https://yandex.cloud/ru/docs/storage/api-ref/authentication) · [Создание ключа](https://yandex.cloud/ru/docs/iam/operations/authorized-key/create)
 
 File-service получает IAM-токен по подписанному JWT при первом обращении к Object Storage и перечитывает ключ при обновлении токена. Если IAM временно недоступен, сервис использует действующий токен и повторяет попытку через 30 секунд. Без действующего токена загрузка и скачивание возвращают 503. Список фотографий wardrobe читает из своей БД.
+
+## Мониторинг
+
+После подготовки Kafka и `docker compose up -d --build` войдите в Grafana под пользователем `admin`. Начните с обзора. Меню «Дашборды Clothes Advisor» сохраняет выбранный интервал при переходе к деталям.
+
+| Дашборд | Что проверить |
+| --- | --- |
+| [Состояние сервисов](http://127.0.0.1:3000/d/ca-services) | Готовность девяти приложений, запросы/с, доля 5xx и p95 задержки. Если p95 вырос, найдите затронутый сервис. |
+| [JVM](http://127.0.0.1:3000/d/ca-runtime) | CPU процесса, занятая и выделенная heap-память, non-heap, длительность и доля времени в паузах GC, состояния потоков. |
+| [Подключения к PostgreSQL](http://127.0.0.1:3000/d/ca-database) | Сколько соединений занято, сколько ещё можно выдать и есть ли очередь. HikariCP используется в wardrobe, R2DBC — в account, file, notification и recommendation. Это клиентские пулы; посторонние сессии PostgreSQL в них не входят. |
+| [Kafka](http://127.0.0.1:3000/d/ca-kafka) | Lag по группе и топику, самая отстающая партиция, участники групп, брокеры и неполная репликация. Если lag растёт, а участников нет, проверьте consumer. До первого commit отсутствие данных не означает нулевой lag. |
+| [Логи и трассы](http://127.0.0.1:3000/d/ca-diagnostics) | Сколько записей каждого уровня поступило в Loki за период и как менялась их частота. Для фонового подбора введите `jobId` в поле «Текст в логах» и откройте `trace_id` у найденной записи. |
+
+Обзор построен по [сигналам Google SRE](https://sre.google/sre-book/monitoring-distributed-systems/) и [рекомендациям Grafana по RED и USE](https://grafana.com/docs/grafana/latest/visualizations/dashboards/build-dashboards/best-practices/): сначала виден симптом, затем — нагрузка на конкретный ресурс. p95 рассчитывается по [гистограмме](https://prometheus.io/docs/practices/histograms/), а не по средним значениям сервисов. Без трафика p95 и доля ошибок не определены.
+
+Трассы в локальном стенде по умолчанию записываются полностью. Доля новых трасс настраивается переменной `TRACE_SAMPLING_PROBABILITY` от 0 до 1.
+
+Восемь Spring-приложений отправляют телеметрию по OTLP во внутренний `collector`. Grafana LGTM хранит логи в Loki, трассы в Tempo и метрики в Prometheus. Данные сохраняются в томе `grafana-data`. Журналы PostgreSQL, Kafka, Caddy и утилиты обновления токена доступны через `docker compose logs`. Это конфигурация локального учебного стенда. [Документация Grafana LGTM](https://grafana.com/docs/opentelemetry/docker-lgtm/)
 
 ## Веб-интерфейс
 

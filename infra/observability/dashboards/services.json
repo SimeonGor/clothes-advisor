@@ -1,0 +1,134 @@
+{
+  "uid": "ca-services",
+  "title": "Clothes Advisor · Состояние сервисов",
+  "tags": ["clothes-advisor"],
+  "schemaVersion": 39,
+  "editable": false,
+  "time": {"from": "now-30m","to": "now"},
+  "timezone": "browser",
+  "refresh": "15s",
+  "templating": {
+    "list": []
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "Готовность сервисов",
+      "datasource": {"type": "prometheus","uid": "prometheus"},
+      "gridPos": {"x": 0,"y": 0,"w": 24,"h": 5},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "prometheus","uid": "prometheus"},
+          "expr": "max by (service) (probe_success{service!=\"\"})",
+          "legendFormat": "{{service}}",
+          "instant": true
+        }
+      ],
+      "description": "Результат HTTP-проверки из сети приложения каждые 15 секунд.",
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "textMode": "value_and_name",
+        "reduceOptions": {"calcs": ["lastNotNull"]}
+      },
+      "fieldConfig": {
+        "defaults": {
+          "thresholds": {"mode": "absolute","steps": [{"color": "red","value": null},{"color": "green","value": 1}]},
+          "mappings": [
+            {"type": "value","options": {"0": {"text": "Недоступен","color": "red"},"1": {"text": "Готов","color": "green"}}}
+          ]
+        },
+        "overrides": []
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "HTTP-запросы в секунду",
+      "description": "Нагрузка по сервису, без проб Actuator. Один пользовательский вызов может пройти через несколько сервисов.",
+      "gridPos": {"x": 0,"y": 5,"w": 12,"h": 8},
+      "datasource": {"type": "prometheus","uid": "prometheus"},
+      "targets": [
+        {"refId": "A","expr": "sum by (job) (rate(http_server_requests_milliseconds_count{uri!~\"/actuator/.*|ACTUATOR.*\"}[$__rate_interval]))","legendFormat": "{{job}}"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "reqps"},
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list","placement": "bottom"},
+        "tooltip": {"mode": "multi","sort": "desc"}
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Доля HTTP 5xx",
+      "description": "Ошибки сервера / все ответы. При наличии трафика и отсутствии 5xx показывается 0%; при отсутствии трафика доля не определена.",
+      "gridPos": {"x": 12,"y": 5,"w": 12,"h": 8},
+      "datasource": {"type": "prometheus","uid": "prometheus"},
+      "targets": [
+        {"refId": "A","expr": "(sum by (job) (rate(http_server_requests_milliseconds_count{uri!~\"/actuator/.*|ACTUATOR.*\",status=~\"5..\"}[$__rate_interval])) or (0 * sum by (job) (rate(http_server_requests_milliseconds_count{uri!~\"/actuator/.*|ACTUATOR.*\"}[$__rate_interval])))) / sum by (job) (rate(http_server_requests_milliseconds_count{uri!~\"/actuator/.*|ACTUATOR.*\"}[$__rate_interval]))","legendFormat": "{{job}}"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "percentunit"},
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list","placement": "bottom"},
+        "tooltip": {"mode": "multi","sort": "desc"}
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Задержка HTTP · p95",
+      "description": "95% ответов без 5xx быстрее этого значения. Оценка из гистограммы по сервису; без запросов перцентиль не определён.",
+      "gridPos": {"x": 0,"y": 13,"w": 12,"h": 8},
+      "datasource": {"type": "prometheus","uid": "prometheus"},
+      "targets": [
+        {"refId": "A","expr": "histogram_quantile(0.95, sum by (job, le) (rate(http_server_requests_milliseconds_bucket{uri!~\"/actuator/.*|ACTUATOR.*\",status!~\"5..\"}[$__rate_interval])))","legendFormat": "{{job}}"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "ms"},
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list","placement": "bottom"},
+        "tooltip": {"mode": "multi","sort": "desc"}
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Занятая память JVM heap",
+      "datasource": {"type": "prometheus","uid": "prometheus"},
+      "gridPos": {"x": 12,"y": 13,"w": 12,"h": 8},
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {"type": "prometheus","uid": "prometheus"},
+          "expr": "sum by (job) (jvm_memory_used_bytes{area=\"heap\"})",
+          "legendFormat": "{{job}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "bytes"},
+        "overrides": []
+      }
+    }
+  ],
+  "links": [
+    {
+      "type": "dashboards",
+      "title": "Дашборды Clothes Advisor",
+      "tags": ["clothes-advisor"],
+      "asDropdown": true,
+      "includeVars": false,
+      "keepTime": true
+    }
+  ],
+  "description": "Обзор от симптомов к причинам: готовность, трафик, доля ошибок, задержка и память. Для диагностики перейдите к JVM, пулам БД, Kafka или логам."
+}

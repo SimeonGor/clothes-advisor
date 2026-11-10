@@ -1,0 +1,161 @@
+{
+  "uid": "ca-database",
+  "title": "Clothes Advisor · Подключения к PostgreSQL",
+  "description": "Клиентские пулы: HikariCP в wardrobe, R2DBC в account, file, notification и recommendation. Сначала проверьте занятость и ожидание, затем разберите число соединений.",
+  "tags": ["clothes-advisor"],
+  "schemaVersion": 39,
+  "editable": false,
+  "timezone": "browser",
+  "time": {"from": "now-30m","to": "now"},
+  "refresh": "15s",
+  "links": [
+    {
+      "type": "dashboards",
+      "title": "Дашборды Clothes Advisor",
+      "tags": ["clothes-advisor"],
+      "asDropdown": true,
+      "includeVars": false,
+      "keepTime": true
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "service",
+        "label": "Сервис с БД",
+        "type": "query",
+        "datasource": {"type": "prometheus","uid": "prometheus"},
+        "query": {"query": "label_values({__name__=~\"hikaricp_connections_max|r2dbc_pool_max_allocated_connections\"}, job)","refId": "variable"},
+        "definition": "label_values({__name__=~\"hikaricp_connections_max|r2dbc_pool_max_allocated_connections\"}, job)",
+        "refresh": 1,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".+",
+        "current": {"text": "All","value": "$__all"}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Занято от лимита пула",
+      "description": "Используемые соединения / настроенный максимум. Сопоставьте с очередью: занятый пул без ожидания не обязательно является узким местом.",
+      "gridPos": {"x": 0,"y": 0,"w": 12,"h": 8},
+      "datasource": {"type": "prometheus","uid": "prometheus"},
+      "targets": [
+        {"refId": "A","expr": "hikaricp_connections_active{job=~\"${service:regex}\"} / hikaricp_connections_max{job=~\"${service:regex}\"}","legendFormat": "{{job}} · {{pool}}"},
+        {"refId": "B","expr": "r2dbc_pool_acquired_connections{job=~\"${service:regex}\"} / r2dbc_pool_max_allocated_connections{job=~\"${service:regex}\"}","legendFormat": "{{job}} · {{name}}"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "percentunit","min": 0,"max": 1},
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list","placement": "bottom"},
+        "tooltip": {"mode": "multi","sort": "desc"}
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Ожидают подключения",
+      "description": "Hikari: потоки, ожидающие соединения; R2DBC: ожидающие запросы на получение соединения. Это снимок очереди, короткие ожидания между замерами могут быть не видны.",
+      "gridPos": {"x": 12,"y": 0,"w": 12,"h": 8},
+      "datasource": {"type": "prometheus","uid": "prometheus"},
+      "targets": [
+        {"refId": "A","expr": "hikaricp_connections_pending{job=~\"${service:regex}\"}","legendFormat": "{{job}} · {{pool}}"},
+        {"refId": "B","expr": "r2dbc_pool_pending_connections{job=~\"${service:regex}\"}","legendFormat": "{{job}} · {{name}}"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "short"},
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list","placement": "bottom"},
+        "tooltip": {"mode": "multi","sort": "desc"}
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "R2DBC · соединения по сервисам",
+      "description": "Acquired — выданные соединения; idle — уже открытые свободные; max allocated — предел пула. Для сравнения одного сервиса воспользуйтесь фильтром.",
+      "gridPos": {"x": 0,"y": 8,"w": 24,"h": 10},
+      "datasource": {"type": "prometheus","uid": "prometheus"},
+      "targets": [
+        {"refId": "A","expr": "r2dbc_pool_acquired_connections{job=~\"${service:regex}\"}","legendFormat": "{{job}} · заняты"},
+        {"refId": "B","expr": "r2dbc_pool_idle_connections{job=~\"${service:regex}\"}","legendFormat": "{{job}} · свободны"},
+        {"refId": "C","expr": "r2dbc_pool_max_allocated_connections{job=~\"${service:regex}\"}","legendFormat": "{{job}} · лимит"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "short"},
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "table","placement": "right","calcs": ["lastNotNull"]},
+        "tooltip": {"mode": "multi","sort": "desc"}
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "JDBC · соединения HikariCP",
+      "description": "Занятые, свободные и разрешённые соединения для каждого пула wardrobe.",
+      "gridPos": {"x": 0,"y": 18,"w": 8,"h": 8},
+      "datasource": {"type": "prometheus","uid": "prometheus"},
+      "targets": [
+        {"refId": "A","expr": "hikaricp_connections_active{job=~\"${service:regex}\"}","legendFormat": "{{job}} · заняты"},
+        {"refId": "B","expr": "hikaricp_connections_idle{job=~\"${service:regex}\"}","legendFormat": "{{job}} · свободны"},
+        {"refId": "C","expr": "hikaricp_connections_max{job=~\"${service:regex}\"}","legendFormat": "{{job}} · лимит"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "short"},
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list","placement": "bottom"},
+        "tooltip": {"mode": "multi","sort": "desc"}
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "JDBC · время получения соединения",
+      "description": "Среднее время от запроса до выдачи соединения, включая ожидание. Даже если мгновенная очередь пуста, здесь остаётся след коротких ожиданий.",
+      "gridPos": {"x": 8,"y": 18,"w": 8,"h": 8},
+      "datasource": {"type": "prometheus","uid": "prometheus"},
+      "targets": [
+        {"refId": "A","expr": "sum by (job, pool) (rate(hikaricp_connections_acquire_milliseconds_sum{job=~\"${service:regex}\"}[$__rate_interval])) / sum by (job, pool) (rate(hikaricp_connections_acquire_milliseconds_count{job=~\"${service:regex}\"}[$__rate_interval]))","legendFormat": "{{job}} · {{pool}}"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "ms"},
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list","placement": "bottom"},
+        "tooltip": {"mode": "multi","sort": "desc"}
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "JDBC · таймауты получения соединения",
+      "description": "Случаи, когда HikariCP не смог выдать соединение до таймаута, в пересчёте на минуту. R2DBC не публикует эквивалентный счётчик в этом стенде.",
+      "gridPos": {"x": 16,"y": 18,"w": 8,"h": 8},
+      "datasource": {"type": "prometheus","uid": "prometheus"},
+      "targets": [
+        {"refId": "A","expr": "60 * rate(hikaricp_connections_timeout_total{job=~\"${service:regex}\"}[$__rate_interval])","legendFormat": "{{job}} · {{pool}} (в минуту)"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "short"},
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list","placement": "bottom"},
+        "tooltip": {"mode": "multi","sort": "desc"}
+      }
+    }
+  ]
+}

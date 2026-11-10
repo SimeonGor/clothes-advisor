@@ -1,4 +1,4 @@
-"""ADDED scenarios for KAFKA-02-v1; no previous Kafka scripts existed."""
+"""Kafka CLI regression scenarios with disposable credentials and a broker CLI double."""
 import json
 import os
 from pathlib import Path
@@ -36,6 +36,10 @@ class PreparationCliTest(unittest.TestCase):
 
     def prepare(self, path):
         return run(sys.executable, str(KAFKA / "prepare.py"), "--secrets-dir", str(path))
+
+    def snapshot(self, directory):
+        return {p.relative_to(directory): (p.read_bytes() if p.is_file() else None, p.stat().st_mtime_ns)
+                for p in (directory, *directory.rglob("*"))}
 
     def test_first_preparation_private_scoped_credentials_and_distinct_identities(self):
         # Given a new absolute directory outside the repository.
@@ -84,6 +88,131 @@ class PreparationCliTest(unittest.TestCase):
         after = {str(p): (p.read_bytes(), p.stat().st_mtime_ns)
                  for p in self.credentials.rglob("*") if p.is_file()}
         self.assertEqual(before, after)
+
+    def test_legacy_upgrade_and_repeat_keep_broker_and_monitor_credentials_immutable(self):
+        # Given the hashed v1 directory alone, as on a pre-monitor installation.
+        directory = self.copy_credentials("upgrade")
+        before = self.snapshot(directory)
+        monitor = self.base / "upgrade.monitor"
+
+        # When two upgrades race to issue a client identity.
+        command = [sys.executable, str(KAFKA / "prepare.py"), "--secrets-dir", str(directory)]
+        processes = [subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE) for _ in range(2)]
+        for process in processes:
+            _, stderr = process.communicate()
+            self.assertEqual(process.returncode, 0, stderr)
+
+        # Then both accept a single private, client-only mount signed by the original CA.
+        self.assertEqual(self.snapshot(directory), before)
+        self.assertEqual(stat.S_IMODE(monitor.stat().st_mode), 0o700)
+        self.assertEqual({p.name for p in monitor.iterdir()}, {"ca.pem", "certificate.pem", "key.pem"})
+        for path in monitor.iterdir():
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o444)
+        self.assertEqual((monitor / "ca.pem").read_bytes(), (directory / "private/ca.pem").read_bytes())
+        cert = str(monitor / "certificate.pem")
+        for purpose, allowed in (("sslclient", True), ("sslserver", False)):
+            result = run("openssl", "verify", "-trusted", str(directory / "private/ca.pem"), "-purpose", purpose, cert)
+            self.assertEqual(result.returncode == 0, allowed, result.stderr)
+        subject = run("openssl", "x509", "-in", cert, "-noout", "-subject", "-nameopt", "RFC2253")
+        self.assertEqual(subject.stdout.strip(), "subject=CN=kafka-monitor")
+        published = self.snapshot(monitor)
+        repeated = self.prepare(directory)
+        self.assertEqual(repeated.returncode, 0, repeated.stderr)
+        self.assertEqual(self.snapshot(monitor), published)
+        self.assertEqual(self.snapshot(directory), before)
+
+    def test_monitor_mismatch_partial_and_unsafe_files_refused(self):
+        source = self.base / "credentials.monitor"
+        for kind in ("missing", "extra", "key", "subject", "ca", "file-link", "directory-link", "permissions"):
+            with self.subTest(kind=kind):
+                # Given an existing sibling with incomplete, conflicting or unsafe material.
+                directory = self.copy_credentials("monitor-" + kind)
+                monitor = directory.with_name(directory.name + ".monitor")
+                if kind == "directory-link":
+                    monitor.symlink_to(source)
+                else:
+                    shutil.copytree(source, monitor)
+                if kind == "missing":
+                    (monitor / "key.pem").unlink()
+                elif kind == "extra":
+                    (monitor / "unexpected").touch()
+                elif kind == "key":
+                    (monitor / "key.pem").unlink()
+                    shutil.copy2(directory / "kafka-1/key.pem", monitor / "key.pem")
+                elif kind == "subject":
+                    for name in ("key.pem", "certificate.pem"):
+                        (monitor / name).unlink()
+                        shutil.copy2(directory / "kafka-1" / name, monitor / name)
+                elif kind == "ca":
+                    (monitor / "ca.pem").unlink()
+                    shutil.copy2(directory / "kafka-1/certificate.pem", monitor / "ca.pem")
+                elif kind == "file-link":
+                    (monitor / "key.pem").unlink()
+                    (monitor / "key.pem").symlink_to(source / "key.pem")
+                elif kind == "permissions":
+                    monitor.chmod(0o755)
+                before = self.snapshot(monitor)
+
+                # When preparation repeats, then nothing is replaced or rotated.
+                result = self.prepare(directory)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(self.snapshot(monitor), before)
+
+    def test_monitor_wrong_issuer_or_purpose_refused(self):
+        for kind in ("wrong-issuer", "wrong-purpose"):
+            with self.subTest(kind=kind):
+                # Given the correct CN and matching key, but a foreign issuer or server-only EKU.
+                directory = self.copy_credentials(kind)
+                monitor = directory.with_name(kind + ".monitor")
+                shutil.copytree(self.base / "credentials.monitor", monitor)
+                cert, key = monitor / "certificate.pem", monitor / "key.pem"
+                cert.unlink()
+                if kind == "wrong-issuer":
+                    generated = run("openssl", "req", "-new", "-x509", "-subj", "/CN=kafka-monitor",
+                                    "-key", key, "-out", cert, "-addext", "basicConstraints=CA:FALSE",
+                                    "-addext", "extendedKeyUsage=clientAuth")
+                else:
+                    csr = self.base / "wrong-purpose.csr"
+                    generated = run("openssl", "req", "-new", "-subj", "/CN=kafka-monitor", "-key", key, "-out", csr)
+                    self.assertEqual(generated.returncode, 0, generated.stderr)
+                    ext = self.base / "wrong-purpose.extensions"
+                    ext.write_text("basicConstraints=CA:FALSE\nextendedKeyUsage=serverAuth\n")
+                    generated = run("openssl", "x509", "-req", "-in", csr, "-extfile", ext, "-out", cert,
+                                    "-CA", directory / "private/ca.pem", "-CAkey", directory / "private/ca.key",
+                                    "-set_serial", "42")
+                self.assertEqual(generated.returncode, 0, generated.stderr)
+                cert.chmod(0o444)
+                before = self.snapshot(monitor)
+
+                # When even the host OpenSSL CAfile trusts the supplied certificate.
+                result = run(sys.executable, str(KAFKA / "prepare.py"), "--secrets-dir", directory,
+                             env=dict(os.environ, SSL_CERT_FILE=str(cert)))
+
+                # Then only the original Kafka CA and client purpose are accepted.
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(self.snapshot(monitor), before)
+
+    def test_monitor_signing_failure_leaves_legacy_installation_retryable(self):
+        # Given a legacy installation and a signing command that fails.
+        directory = self.copy_credentials("signing-failure")
+        before = self.snapshot(directory)
+        fake_bin = self.base / "failing-openssl"
+        fake_bin.mkdir()
+        wrapper = fake_bin / "openssl"
+        wrapper.write_text('#!/bin/sh\nif [ "$1" = req ]; then exit 1; fi\nexec "$REAL_OPENSSL" "$@"\n')
+        wrapper.chmod(0o700)
+        env = dict(os.environ, PATH=str(fake_bin) + os.pathsep + os.environ["PATH"],
+                   REAL_OPENSSL=shutil.which("openssl"))
+
+        # When monitor issuance fails.
+        result = run(sys.executable, str(KAFKA / "prepare.py"), "--secrets-dir", directory, env=env)
+
+        # Then no partial bundle is published, and retry succeeds with the same core.
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(os.path.lexists(directory.with_name(directory.name + ".monitor")))
+        retried = self.prepare(directory)
+        self.assertEqual(retried.returncode, 0, retried.stderr)
+        self.assertEqual(self.snapshot(directory), before)
 
     def test_partial_state_refused_without_deletion(self):
         # Given an interrupted preparation.
@@ -223,6 +352,14 @@ class KafkaShellCliTest(unittest.TestCase):
         groups = {acl[acl.index("--group") + 1] for acl in state["acls"] if "--group" in acl}
         self.assertEqual(groups, {"notification-service.events", "recommendation-service.ai-jobs",
                                  "recommendation-service.ai-selection", "wardrobe-service.ai-selection"})
+        monitor = [acl for acl in state["acls"] if "User:CN=kafka-monitor" in acl]
+        self.assertEqual(len(monitor), 1)
+        options = set(zip(monitor[0][::2], monitor[0][1::2]))
+        self.assertEqual(options, {("--allow-principal", "User:CN=kafka-monitor"),
+                                   ("--operation", "Describe"), ("--resource-pattern-type", "literal")}
+                         | {("--topic", topic) for topic in state["topics"]}
+                         | {("--group", group) for group in groups})
+        self.assertEqual(len(monitor[0]) % 2, 0)
         calls = [json.loads(line) for line in self.calls.read_text().splitlines()]
         for call in calls:
             self.assertFalse({"--delete", "--remove", "--alter", "--producer", "*"} & set(call))

@@ -12,3 +12,6 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "api-gateway"
+
+include(":observability")
+project(":observability").projectDir = file("../observability")

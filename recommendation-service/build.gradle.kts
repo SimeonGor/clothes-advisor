@@ -10,6 +10,7 @@ group = "ru.itmo"
 version = "0.0.1-SNAPSHOT"
 
 dependencies {
+    implementation(project(":observability"))
     implementation(platform("org.springframework.boot:spring-boot-dependencies:4.1.1"))
     implementation(platform("org.springframework.cloud:spring-cloud-dependencies:2025.1.3"))
     implementation("org.springframework.cloud:spring-cloud-starter-config")
@@ -20,8 +21,6 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-kafka")
     implementation("org.springframework.boot:spring-boot-starter-data-r2dbc")
     implementation("org.springframework.boot:spring-boot-starter-flyway")
-    implementation("org.springframework.boot:spring-boot-micrometer-tracing-opentelemetry")
-    implementation("io.micrometer:micrometer-tracing-bridge-otel")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     runtimeOnly("org.postgresql:r2dbc-postgresql")
     runtimeOnly("org.postgresql:postgresql")

@@ -37,6 +37,7 @@ import ru.itmo.clothesadvisor.client.ai.SelectionInstructions
 import ru.itmo.clothesadvisor.config.SelectionPromptSettings
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionResponse
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionWeather
+import ru.itmo.clothesadvisor.observability.DurableTrace
 import ru.itmo.clothesadvisor.recommendationservice.model.ai.SelectionGoal
 import ru.itmo.clothesadvisor.recommendationservice.request.*
 
@@ -45,6 +46,8 @@ import ru.itmo.clothesadvisor.recommendationservice.request.*
 internal class ExecutionTests {
     @Autowired private lateinit var store: ExecutionStore
     @Autowired private lateinit var ingress: RecommendationRequestStore
+    @Autowired private lateinit var trace: DurableTrace
+    @Autowired private lateinit var webClients: WebClient.Builder
     @TempDir lateinit var directory: Path
 
     private val file = UUID.randomUUID()
@@ -58,6 +61,9 @@ internal class ExecutionTests {
     private var validation: () -> Int = { 204 }
     private var provider: () -> Unit = {}
     @Volatile private var sent = ""
+    @Volatile private var fileTrace: String? = null
+    @Volatile private var validationTrace: String? = null
+    @Volatile private var providerTrace: String? = null
 
     @BeforeEach
     fun setUp() {
@@ -68,11 +74,13 @@ internal class ExecutionTests {
         server = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0).apply {
             this.executor = this@ExecutionTests.executor
             createContext("/api/files/$file") { exchange ->
+                fileTrace = exchange.requestHeaders.getFirst("traceparent")
                 exchange.responseHeaders.add("Content-Type", "image/png")
                 exchange.sendResponseHeaders(200, 3)
                 exchange.responseBody.use { it.write(byteArrayOf(1, 2, 3)) }
             }
             createContext("/internal/ai-jobs/") { exchange ->
+                validationTrace = exchange.requestHeaders.getFirst("traceparent")
                 check(exchange.requestURI.path.endsWith("/validate-input"))
                 val body = credentials.mapper.readTree(exchange.requestBody.readAllBytes())
                 check(body.has("requestMonth"))
@@ -82,6 +90,7 @@ internal class ExecutionTests {
             }
             createContext("/responses") { exchange ->
                 exchange.use {
+                    providerTrace = exchange.requestHeaders.getFirst("traceparent")
                     calls.incrementAndGet()
                     sent = exchange.requestBody.bufferedReader().readText()
                     provider()
@@ -109,11 +118,11 @@ internal class ExecutionTests {
             start()
         }
         val uri = "http://127.0.0.1:${server.address.port}"
-        val http = WebClient.create(uri)
+        val http = webClients.clone().baseUrl(uri).build()
         val prompt = SelectionPromptSettings("outfit", "8", "Trusted prompt")
         client = OpenAiSelectionClient(HttpClient.newHttpClient(), credentials.mapper, credentials.reader(),
             "test-model", URI("$uri/responses"), Duration.ofSeconds(1), prompt, prompt)
-        worker = ExecutionWorker(store, ExecutionInputs(http, http), client)
+        worker = ExecutionWorker(store, ExecutionInputs(http, http), client, trace)
     }
 
     @AfterEach
@@ -154,7 +163,9 @@ internal class ExecutionTests {
 
     @Test
     fun `worker commits pinned settings before network and replays no completed execution`() {
-        val earlier = enqueue(Instant.now().minusSeconds(1))
+        val traceId = "0123456789abcdef0123456789abcdef"
+        val parent = "00-$traceId-1020304050607080-01"
+        val earlier = enqueue(Instant.now().minusSeconds(1), traceparent = parent)
         val later = enqueue()
         val phase = java.util.concurrent.atomic.AtomicReference<String>()
         provider = {
@@ -166,6 +177,11 @@ internal class ExecutionTests {
         assertThat(phase.get()).isEqualTo("CALL_STARTED")
         assertThat(state(earlier)).isEqualTo("SUCCEEDED")
         assertThat(state(later)).isEqualTo("RECEIVED")
+        val workerParent = scalar("SELECT execution_traceparent FROM recommendation_request WHERE request_id='${earlier.requestId}'")
+        assertThat(workerParent).matches("00-$traceId-[0-9a-f]{16}-01").isNotEqualTo(parent)
+        assertThat(fileTrace).matches("00-$traceId-[0-9a-f]{16}-01").isNotEqualTo(workerParent)
+        assertThat(validationTrace).matches("00-$traceId-[0-9a-f]{16}-01").isNotEqualTo(workerParent).isNotEqualTo(fileTrace)
+        assertThat(providerTrace).isNull()
         assertThat(sent).contains("Trusted prompt", "test-model", "data:image/png;base64,AQID").doesNotContain(file.toString())
         assertThat(scalar("""
             SELECT count(*) FROM recommendation_request r JOIN outbox_event o ON o.event_id = r.result_event_id
@@ -177,6 +193,7 @@ internal class ExecutionTests {
         // Restore the immutable command deadline changed by the test injection, then redeliver.
         sql("UPDATE recommendation_request SET start_deadline = '${earlier.startDeadline}' WHERE request_id = '${earlier.requestId}'")
         assertThat(ingress.accept(earlier).block()).isEqualTo(RequestAcceptance.DUPLICATE)
+        assertThat(scalar("SELECT traceparent FROM recommendation_request WHERE request_id='${earlier.requestId}'")).isEqualTo(parent)
         sql("DELETE FROM recommendation_request WHERE request_id = '${later.requestId}'")
         worker.tick()
         assertThat(calls).hasValue(1)
@@ -236,7 +253,7 @@ internal class ExecutionTests {
         } finally { sql("ALTER TABLE outbox_event DROP CONSTRAINT injected_failure") }
     }
 
-    private fun enqueue(at: Instant = Instant.now(), lifetime: Long = 900): RecommendationRequested {
+    private fun enqueue(at: Instant = Instant.now(), lifetime: Long = 900, traceparent: String? = null): RecommendationRequested {
         val accepted = at.truncatedTo(ChronoUnit.MICROS)
         val month = LocalDate.ofInstant(accepted, ZoneOffset.UTC).withDayOfMonth(1)
         val request = RecommendationRequested(month, UUID.randomUUID(), 17, 1, SelectionGoal.OUTFIT, accepted,
@@ -244,7 +261,7 @@ internal class ExecutionTests {
                 ItemSelectionWeather(BigDecimal.ONE, BigDecimal.ZERO, "NONE", "None"),
                 listOf(RecommendationCandidate(1, "Item", "TOP", "Shirt", "Red", "Cotton", 12, file, "image/png", 3)),
             ))
-        assertThat(ingress.accept(request).block()).isEqualTo(RequestAcceptance.ACCEPTED)
+        assertThat(ingress.accept(request, traceparent).block()).isEqualTo(RequestAcceptance.ACCEPTED)
         return request
     }
 

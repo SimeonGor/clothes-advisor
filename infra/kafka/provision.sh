@@ -29,8 +29,10 @@ while read -r topic; do
       || fail "Topic $topic has incompatible configuration; nothing was deleted"
   done
 done < <(awk '!/^#/ && NF {print $1}' "$topology" | sort -u)
+monitor_resources=()
 while read -r topic producer consumer group; do
   [[ -z $topic || $topic == \#* ]] && continue
+  monitor_resources+=(--topic "$topic" --group "$group")
   # Kafka's ACL set deduplicates identical --add requests; no broad --producer grants.
   "$bin/kafka-acls.sh" "${common[@]}" --add --allow-principal "User:$producer" \
     --operation Write --operation Describe --topic "$topic" --resource-pattern-type literal \
@@ -44,4 +46,9 @@ while read -r topic producer consumer group; do
     --operation Read --group "$group" --resource-pattern-type literal \
     >/dev/null 2>&1 || fail "Cannot provision group ACL for $group"
 done < "$topology"
+if (( ${#monitor_resources[@]} )); then
+  "$bin/kafka-acls.sh" "${common[@]}" --add --allow-principal 'User:CN=kafka-monitor' \
+    --operation Describe --resource-pattern-type literal "${monitor_resources[@]}" \
+    >/dev/null 2>&1 || fail 'Cannot provision monitoring ACLs'
+fi
 echo 'Kafka topology and ACLs provisioned'

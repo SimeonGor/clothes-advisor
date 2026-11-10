@@ -22,6 +22,7 @@ internal data class ExecutionJob(
     val input: RecommendationInput,
     val execution: UUID,
     val deadline: java.time.Instant,
+    val traceparent: String?,
 )
 
 /** Blocking entry points run on the controller's boundedElastic thread or the dedicated worker. */
@@ -56,7 +57,7 @@ internal class ExecutionStore(private val db: DatabaseClient, manager: ReactiveT
         return tx.execute {
             freeSlot().flatMap {
                 db.sql("""
-                    SELECT request_month, request_id, goal, input::text AS input_json, start_deadline
+                    SELECT request_month, request_id, goal, input::text AS input_json, start_deadline, traceparent
                     FROM recommendation_request WHERE state = 'RECEIVED' AND start_deadline > clock_timestamp()
                     ORDER BY accepted_at, request_month, request_id LIMIT 1 FOR UPDATE
                 """).map { row, _ ->
@@ -65,6 +66,7 @@ internal class ExecutionStore(private val db: DatabaseClient, manager: ReactiveT
                         SelectionGoal.valueOf(row.get("goal", String::class.java)!!),
                         json.readValue(row.get("input_json", String::class.java)!!, RecommendationInput::class.java),
                         execution, row.get("start_deadline", OffsetDateTime::class.java)!!.toInstant(),
+                        row.get("traceparent", String::class.java),
                     )
                 }.one()
             }.flatMap { job ->
@@ -97,6 +99,17 @@ internal class ExecutionStore(private val db: DatabaseClient, manager: ReactiveT
         UPDATE ai_execution_slot SET phase = 'CALL_STARTED', modified_at = clock_timestamp()
         WHERE state = 'RUNNING' AND mode = 'SYNC' AND phase = 'PREPARING' AND execution_id = :execution
     """).bind("execution", execution).fetch().rowsUpdated().block() == 1L
+
+    // Recovery and replay can publish after this process exits. Use the same slot fence
+    // and lock order as the business transitions so a recovered worker cannot replace their parent.
+    fun rememberExecutionTrace(job: ExecutionJob, traceparent: String): Boolean = db.sql("""
+        WITH claimed AS (
+            SELECT request_month, request_id FROM ai_execution_slot
+            WHERE execution_id = :execution AND state = 'RUNNING' AND phase = 'PREPARING' FOR UPDATE
+        )
+        UPDATE recommendation_request r SET execution_traceparent = :traceparent
+        FROM claimed WHERE r.request_month = claimed.request_month AND r.request_id = claimed.request_id
+    """).bind("execution", job.execution).bind("traceparent", traceparent).fetch().rowsUpdated().block() == 1L
 
     fun stillPreparing(job: ExecutionJob): Boolean = db.sql("""
         SELECT EXISTS (SELECT 1 FROM ai_execution_slot s JOIN recommendation_request r USING(request_month, request_id)
