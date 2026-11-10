@@ -114,6 +114,7 @@ services:
   app:
     <<: *runtime-security
     networks:
+      - kafka
       - backend
       - wardrobe-data
       - egress
@@ -124,6 +125,8 @@ services:
         APP_UID: ${APP_UID:?Set APP_UID to the credential owner UID (id -u)}
     environment:
       DB_URL: jdbc:postgresql://postgres:5432/${DB_NAME:-clothes_advisor}
+      SPRING_PROFILES_INCLUDE: kafka
+      SPRING_CONFIG_ADDITIONAL_LOCATION: file:/run/kafka-client/client.properties
       EUREKA_INSTANCE_HOSTNAME: app
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "false"
       DB_USER: ${DB_USER:-clothes_advisor}
@@ -134,7 +137,16 @@ services:
     secrets:
       - app-jwt-public-key
       - file-wardrobe-password
+    volumes:
+      - type: bind
+        source: ${KAFKA_SECRETS_DIR:?Set KAFKA_SECRETS_DIR}/wardrobe-service
+        target: /run/kafka-client
+        read_only: true
+        bind:
+          create_host_path: false
     depends_on:
+      kafka-provision:
+        condition: service_completed_successfully
       config-server:
         condition: service_healthy
       discovery-server:
@@ -302,6 +314,7 @@ services:
   recommendation-service:
     <<: *runtime-security
     networks:
+      - kafka
       - backend
       - egress
       - recommendation-data
@@ -318,11 +331,19 @@ services:
       DB_URL: jdbc:postgresql://recommendation-postgres:5432/recommendation_db
       DB_USER: recommendation_service
       DB_PASSWORD: ${RECOMMENDATION_DB_PASSWORD:?RECOMMENDATION_DB_PASSWORD must be set}
+      SPRING_PROFILES_INCLUDE: kafka
+      SPRING_CONFIG_ADDITIONAL_LOCATION: file:/run/kafka-client/client.properties
       EUREKA_INSTANCE_HOSTNAME: recommendation-service
       EUREKA_INSTANCE_PREFER_IP_ADDRESS: "false"
       CHATGPT_CREDENTIALS_DIR: /run/chatgpt
       CHATGPT_TRUST_STORE: ${CHATGPT_TRUST_STORE:-}
     volumes:
+      - type: bind
+        source: ${KAFKA_SECRETS_DIR:?Set KAFKA_SECRETS_DIR}/recommendation-service
+        target: /run/kafka-client
+        read_only: true
+        bind:
+          create_host_path: false
       - type: volume
         source: chatgpt-access
         target: /run/chatgpt
@@ -334,6 +355,8 @@ services:
         condition: service_healthy
       chatgpt-token-refresher:
         condition: service_healthy
+      kafka-provision:
+        condition: service_completed_successfully
       config-server:
         condition: service_healthy
       discovery-server:

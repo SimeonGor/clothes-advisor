@@ -24,6 +24,7 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-http-converter")
     implementation("org.springdoc:springdoc-openapi-starter-webflux-ui:3.1.1")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
+    implementation("org.springframework.boot:spring-boot-starter-kafka")
     implementation("org.springframework.boot:spring-boot-micrometer-tracing-opentelemetry")
     implementation("io.micrometer:micrometer-tracing-bridge-otel")
     implementation("org.springframework.boot:spring-boot-starter-data-jdbc")
@@ -36,6 +37,7 @@ dependencies {
 
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.testcontainers:testcontainers-postgresql")
+    testImplementation("org.testcontainers:testcontainers-kafka")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
 }
 
