@@ -29,9 +29,10 @@ internal class IdempotencyService(
         payload: Any,
         responseType: TypeReference<T>,
         files: List<ByteArray> = emptyList(),
+        responseStatus: Int = HttpStatus.CREATED.value(),
         action: (Completion) -> T,
     ): T {
-        if (key == null) return action(Completion(null))
+        if (key == null) return action(Completion(null, responseStatus))
         if (key.isEmpty() || key.length > 255 || key.any { it.code !in 32..126 }) {
             throw IdempotencyException(HttpStatus.BAD_REQUEST, "invalid_idempotency_key")
         }
@@ -44,13 +45,16 @@ internal class IdempotencyService(
             val existing = commands.findCommand(actorId, operation.name, key)
             if (existing.fingerprint != fingerprint) conflict("idempotency_key_reused")
             when (existing.state) {
-                "SUCCEEDED" -> return mapper.readValue(requireNotNull(existing.responseJson), responseType)
+                "SUCCEEDED" -> {
+                    if (existing.responseStatus != responseStatus) conflict("idempotency_api_version_conflict")
+                    return mapper.readValue(requireNotNull(existing.responseJson), responseType)
+                }
                 "FAILED" -> conflict("idempotency_failed")
                 else -> conflict("idempotency_in_progress")
             }
         }
 
-        val completion = Completion(claimed.id)
+        val completion = Completion(claimed.id, responseStatus)
         try {
             val result = action(completion)
             check(completion.completed) { "Idempotent action did not commit a result" }
@@ -76,7 +80,7 @@ internal class IdempotencyService(
 
     private fun conflict(code: String): Nothing = throw IdempotencyException(HttpStatus.CONFLICT, code)
 
-    inner class Completion internal constructor(private val commandId: Long?) {
+    inner class Completion internal constructor(private val commandId: Long?, private val responseStatus: Int) {
         internal var completed = false
             private set
 
@@ -85,7 +89,7 @@ internal class IdempotencyService(
             if (commandId == null) return save()
             val result = transaction.execute {
                 val saved = save()
-                check(commands.succeed(commandId, mapper.writeValueAsString(saved)) == 1)
+                check(commands.succeed(commandId, mapper.writeValueAsString(saved), responseStatus) == 1)
                 saved
             }
             completed = true

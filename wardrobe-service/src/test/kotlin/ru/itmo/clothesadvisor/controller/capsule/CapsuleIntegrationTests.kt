@@ -224,7 +224,7 @@ class CapsuleIntegrationTests : AccountBackedIntegrationTest() {
                 mockingDetails(call.mock).mockCreationSettings.defaultAnswer.answer(call)
                 throw failure
             }.`when`(composition).insertAll(any<Iterable<CapsuleItem>>() ?: emptyList())
-        } else doThrow(failure).`when`(commands).succeed(anyLong(), anyString())
+        } else doThrow(failure).`when`(commands).succeed(anyLong(), anyString(), org.mockito.ArgumentMatchers.eq(201))
 
         // when
         val failed = http("POST", owner, request, key = "failed")

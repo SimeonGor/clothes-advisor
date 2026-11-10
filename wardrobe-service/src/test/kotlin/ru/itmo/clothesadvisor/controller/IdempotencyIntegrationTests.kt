@@ -278,7 +278,7 @@ class IdempotencyIntegrationTests : AccountBackedIntegrationTest() {
     fun `result persistence failure rolls back created resource and records terminal failure`() {
         // given
         val owner = jdbc.insertUser("user", "hash", UserRole.USER).id
-        doThrow(IllegalStateException("snapshot unavailable")).`when`(commands).succeed(anyLong(), anyString())
+        doThrow(IllegalStateException("snapshot unavailable")).`when`(commands).succeed(anyLong(), anyString(), org.mockito.ArgumentMatchers.eq(201))
 
         // when
         val first = post(owner, "/api/wardrobe/items", "key", itemBody)

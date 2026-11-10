@@ -45,7 +45,7 @@ class IdempotencyServiceTests {
                 val entry = rows.entries.single { it.value.id == call.getArgument<Long>(0) }
                 if (entry.value.state != "RUNNING") 0 else {
                     entry.setValue(if (call.method.name == "fail") entry.value.copy(state = "FAILED")
-                        else entry.value.copy(state = "SUCCEEDED", responseJson = call.getArgument(1), responseStatus = 201))
+                        else entry.value.copy(state = "SUCCEEDED", responseJson = call.getArgument(1), responseStatus = call.getArgument(2)))
                     1
                 }
             }

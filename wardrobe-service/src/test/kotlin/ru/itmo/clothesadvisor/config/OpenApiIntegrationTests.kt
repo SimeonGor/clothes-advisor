@@ -81,7 +81,14 @@ class OpenApiIntegrationTests : PostgresIntegrationTest() {
         val capsules = "$.paths['/api/me/capsules']"
         assertThat(paths.getValue("/api/me/capsules").keys).containsExactlyInAnyOrder("get", "post")
         assertThat(paths.getValue("/api/me/capsules/{id}").keys).containsExactlyInAnyOrder("get", "delete")
-        assertThat(paths.keys.filter { "capsules" in it }).containsExactlyInAnyOrder("/api/me/capsules", "/api/me/capsules/{id}", "/api/me/capsules/ai")
+        assertThat(paths.keys.filter { "capsules" in it }).containsExactlyInAnyOrder(
+            "/api/me/capsules", "/api/me/capsules/{id}", "/api/me/capsules/ai", "/api/v2/me/capsules/ai",
+        )
+        for (path in listOf("/api/v2/outfits/ai", "/api/v2/outfits/{id}/ai-replacements", "/api/v2/me/capsules/ai")) {
+            val response = "$.paths['$path'].post.responses['202']"
+            assertThat(spec.read<String>("$response.headers.Location.schema.format")).isEqualTo("uri")
+            assertThat(spec.read<List<String>>("$response.content.*.schema['\$ref']")).containsExactly("#/components/schemas/JobAccepted")
+        }
         assertThat(spec.read<Map<String, Any?>>("$capsules.post.responses").keys)
             .contains("201", "400", "403", "404", "409", "503").doesNotContain("200")
         assertThat(spec.read<String>("$capsules.post.responses['201'].headers.Location.schema.format")).isEqualTo("uri")

@@ -300,7 +300,7 @@ class AiCapsuleIntegrationTests : AccountBackedIntegrationTest() {
         if (stage == "key") doAnswer {
             mockingDetails(commands).mockCreationSettings.defaultAnswer.answer(it)
             throw DataIntegrityViolationException("injected key failure")
-        }.`when`(commands).succeed(anyLong(), anyString())
+        }.`when`(commands).succeed(anyLong(), anyString(), org.mockito.ArgumentMatchers.eq(201))
 
         // when
         val response = http("POST", owner, body(), key = "atomic")
