@@ -7,8 +7,9 @@ import java.util.UUID
 import org.apache.kafka.clients.consumer.ConsumerRecord
 import org.springframework.context.annotation.Profile
 import org.springframework.kafka.annotation.KafkaListener
-import org.springframework.r2dbc.core.DatabaseClient
 import org.springframework.stereotype.Component
+import ru.itmo.clothesadvisor.recommendationservice.request.RecommendationFinalization
+import ru.itmo.clothesadvisor.recommendationservice.request.RecommendationRequestStore
 import tools.jackson.core.JacksonException
 import tools.jackson.core.StreamReadFeature
 import tools.jackson.databind.DeserializationFeature
@@ -17,7 +18,9 @@ import tools.jackson.databind.json.JsonMapper
 
 @Component
 @Profile("kafka")
-internal class AiJobFinalizedListener(private val database: DatabaseClient) {
+internal class AiJobFinalizedListener(
+    private val store: RecommendationRequestStore, private val rejections: DeliveryRejections,
+) {
     private val mapper = JsonMapper.builder().enable(StreamReadFeature.STRICT_DUPLICATE_DETECTION)
         .enable(DeserializationFeature.FAIL_ON_TRAILING_TOKENS).build()
 
@@ -26,28 +29,13 @@ internal class AiJobFinalizedListener(private val database: DatabaseClient) {
         val ack = try {
             decode(record)
         } catch (_: InvalidAcknowledgement) {
-            reject(record, "invalid_finalization")
+            rejections.record(record, "invalid_finalization").block()
             return
         }
-        val identity = "request_month=:month AND request_id=:id AND owner_id=:owner"
-        val compatible = "(state=:outcome OR (state='SUCCEEDED' AND :outcome='FAILED'))"
-        fun DatabaseClient.GenericExecuteSpec.bindAck() = bind("month", ack.month).bind("id", ack.id)
-            .bind("owner", ack.owner).bind("outcome", ack.outcome)
-        val updated = database.sql(
-            """UPDATE recommendation_request SET applied_at=COALESCE(applied_at,clock_timestamp()),
-               application_outcome=:outcome,version=version+1,modified_at=clock_timestamp()
-               WHERE $identity AND $compatible AND application_outcome IS NULL""",
-        ).bindAck().fetch().rowsUpdated().block()
-        if (updated == 0L) {
-            val alreadyApplied = database.sql(
-                """SELECT EXISTS(SELECT FROM recommendation_request WHERE $identity AND $compatible
-                   AND applied_at IS NOT NULL AND application_outcome=:outcome)""",
-            ).bindAck().map { row, _ -> row.get(0, Boolean::class.javaObjectType)!! }.one().block()
-            if (alreadyApplied != true) reject(record, "finalization_conflict")
-        }
+        if (store.applyFinalization(ack).block() != true) rejections.record(record, "finalization_conflict").block()
     }
 
-    private fun decode(record: ConsumerRecord<String, ByteArray>): Acknowledgement {
+    private fun decode(record: ConsumerRecord<String, ByteArray>): RecommendationFinalization {
         fun invalid(): Nothing = throw InvalidAcknowledgement()
         fun JsonNode.text(name: String) = path(name).takeIf { it.isString }?.stringValue() ?: invalid()
         fun uuid(text: String) = UUID.fromString(text).also { if (it.toString() != text) invalid() }
@@ -69,7 +57,7 @@ internal class AiJobFinalizedListener(private val database: DatabaseClient) {
             if (!owner.isIntegralNumber || !owner.canConvertToLong() || owner.longValue() <= 0) invalid()
             val outcome = payload.text("applicationOutcome")
             if (outcome !in setOf("SUCCEEDED", "FAILED", "UNKNOWN")) invalid()
-            return Acknowledgement(id, month, owner.longValue(), outcome)
+            return RecommendationFinalization(id, month, owner.longValue(), outcome)
         } catch (_: JacksonException) {
             invalid()
         } catch (_: DateTimeParseException) {
@@ -79,14 +67,5 @@ internal class AiJobFinalizedListener(private val database: DatabaseClient) {
         }
     }
 
-    private fun reject(record: ConsumerRecord<*, *>, reason: String) {
-        database.sql(
-            """INSERT INTO kafka_delivery_rejection (topic,partition_id,record_offset,reason)
-               VALUES (:topic,:partition,:offset,:reason) ON CONFLICT DO NOTHING""",
-        ).bind("topic", record.topic()).bind("partition", record.partition()).bind("offset", record.offset())
-            .bind("reason", reason).fetch().rowsUpdated().block()
-    }
-
-    private data class Acknowledgement(val id: UUID, val month: LocalDate, val owner: Long, val outcome: String)
     private class InvalidAcknowledgement : RuntimeException()
 }

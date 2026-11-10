@@ -3,6 +3,7 @@ package ru.itmo.clothesadvisor.recommendationservice.request
 import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.time.ZoneOffset
+import java.util.UUID
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty
 import org.springframework.r2dbc.core.DatabaseClient
 import org.springframework.stereotype.Repository
@@ -10,6 +11,8 @@ import org.springframework.transaction.ReactiveTransactionManager
 import org.springframework.transaction.reactive.TransactionalOperator
 import reactor.core.publisher.Mono
 import ru.itmo.clothesadvisor.recommendationservice.config.SelectionJsonConfiguration
+
+internal data class RecommendationFinalization(val id: UUID, val month: LocalDate, val owner: Long, val outcome: String)
 
 @Repository
 @ConditionalOnProperty("spring.r2dbc.url")
@@ -19,6 +22,50 @@ class RecommendationRequestStore(
 ) {
     private val transaction = TransactionalOperator.create(transactionManager)
     private val json = SelectionJsonConfiguration.mapper()
+
+    // The outer transaction keeps the shared retention lock from admission through terminal replay.
+    internal fun acceptDelivery(
+        command: RecommendationRequested, onRejected: (RequestAcceptance) -> Mono<Void>,
+    ): Mono<Void> = accept(command).flatMap { decision ->
+        when (decision) {
+            RequestAcceptance.ACCEPTED -> Mono.empty()
+            RequestAcceptance.DUPLICATE -> requestReplay(command)
+            else -> onRejected(decision)
+        }
+    }.let(transaction::transactional)
+
+    private fun requestReplay(command: RecommendationRequested): Mono<Void> = database.sql(
+        """
+        INSERT INTO outbox_event (event_id, type, schema_version, aggregate_id, payload, created_at)
+        SELECT result_event_id, 'RecommendationFinished', 1, request_id::text,
+            jsonb_build_object('requestId', request_id, 'requestMonth', request_month, 'ownerId', owner_id, 'outcome', state)
+            || CASE WHEN state = 'SUCCEEDED'
+                THEN jsonb_build_object('itemIds', result->'itemIds', 'explanation', result->'explanation')
+                ELSE jsonb_build_object('errorCode', error_code) END,
+            completed_at
+        FROM recommendation_request
+        WHERE request_month = :month AND request_id = :id AND state IN ('SUCCEEDED','FAILED','UNKNOWN')
+        ON CONFLICT (event_id) DO UPDATE SET published_at = NULL, next_attempt_at = clock_timestamp()
+        WHERE outbox_event.published_at IS NOT NULL
+        """,
+    ).bind("month", command.requestMonth).bind("id", command.requestId).fetch().rowsUpdated().then()
+
+    internal fun applyFinalization(ack: RecommendationFinalization): Mono<Boolean> {
+        val identity = "request_month=:month AND request_id=:id AND owner_id=:owner"
+        val compatible = "(state=:outcome OR (state='SUCCEEDED' AND :outcome='FAILED'))"
+        fun DatabaseClient.GenericExecuteSpec.bindAck() = bind("month", ack.month).bind("id", ack.id)
+            .bind("owner", ack.owner).bind("outcome", ack.outcome)
+        return database.sql(
+            """UPDATE recommendation_request SET applied_at=COALESCE(applied_at,clock_timestamp()),
+               application_outcome=:outcome,version=version+1,modified_at=clock_timestamp()
+               WHERE $identity AND $compatible AND application_outcome IS NULL""",
+        ).bindAck().fetch().rowsUpdated().flatMap { updated ->
+            if (updated != 0L) Mono.just(true) else database.sql(
+                """SELECT EXISTS(SELECT FROM recommendation_request WHERE $identity AND $compatible
+                   AND applied_at IS NOT NULL AND application_outcome=:outcome)""",
+            ).bindAck().map { row, _ -> row.get(0, Boolean::class.javaObjectType)!! }.one()
+        }
+    }
 
     fun accept(command: RecommendationRequested): Mono<RequestAcceptance> = Mono.defer {
         if (command.inputVersion != 1) return@defer Mono.just(RequestAcceptance.UNSUPPORTED_INPUT_VERSION)
