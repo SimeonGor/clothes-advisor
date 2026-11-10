@@ -14,21 +14,27 @@ import org.springframework.test.context.ActiveProfiles
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
 import org.testcontainers.postgresql.PostgreSQLContainer
+import ru.itmo.clothesadvisor.recommendationservice.request.RecommendationRequestStore
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.NONE)
 @ActiveProfiles("test", "request-store-test")
 class AiJobFinalizedTests {
     @Autowired private lateinit var db: DatabaseClient
     @Autowired private lateinit var context: ApplicationContext
+    @Autowired private lateinit var store: RecommendationRequestStore
+    @Autowired private lateinit var rejections: DeliveryRejections
 
     @Test
     fun `ack applies once when provider success leads to wardrobe rejection`() {
+        // given
         assertThat(context.getBeansOfType(AiJobFinalizedListener::class.java)).isEmpty()
-        val listener = AiJobFinalizedListener(db)
+        val listener = AiJobFinalizedListener(store, rejections)
         val id = request("SUCCEEDED")
+        // when
         listener.receive(ack(id, "FAILED"))
         val first = value("SELECT applied_at::text || '/' || version::text FROM recommendation_request WHERE request_id='$id'")
         listener.receive(ack(id, "FAILED"))
+        // then
         assertThat(value("SELECT applied_at::text || '/' || version::text FROM recommendation_request WHERE request_id='$id'")).isEqualTo(first)
         val conflict = ack(id, "SUCCEEDED")
         listener.receive(conflict)
@@ -38,13 +44,16 @@ class AiJobFinalizedTests {
 
     @Test
     fun `wrong period ownership state and key never acknowledge another operation`() {
+        // given
         val id = request("UNKNOWN")
-        val listener = AiJobFinalizedListener(db)
+        val listener = AiJobFinalizedListener(store, rejections)
         for (bad in listOf(ack(id, "SUCCEEDED"), ack(id, "UNKNOWN", actor = 8),
             ack(id, "UNKNOWN", period = month().minusMonths(1)), ack(id, "UNKNOWN", key = "wrong"),
             ack(id, "UNKNOWN", version = 3),
         )) {
+            // when
             listener.receive(bad)
+            // then
             assertThat(reason(bad)).isIn("invalid_finalization", "finalization_conflict")
         }
         assertThat(value("SELECT count(applied_at) FROM recommendation_request WHERE request_id='$id'")).isEqualTo("0")
