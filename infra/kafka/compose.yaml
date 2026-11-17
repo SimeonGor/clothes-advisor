@@ -1,5 +1,7 @@
 x-kafka: &kafka
-  image: apache/kafka:4.1.2@sha256:5cc2a2fd93fa2687b44015eee04fb2c3edd9e526bd64bf8bec5ff1e268772e0e
+  image: clothes-advisor-kafka:4.1.2-kcat-1.7.1
+  build:
+    context: .
   user: "1000:1000"
   security_opt:
     - no-new-privileges:true
@@ -20,9 +22,9 @@ x-code: &code
 x-health: &health
   test:
     - CMD-SHELL
-    - KAFKA_HEAP_OPTS='-Xms64m -Xmx256m' /opt/kafka/bin/kafka-broker-api-versions.sh --bootstrap-server "$${HOSTNAME}:9094" --command-config /run/kafka-node/client.properties >/dev/null 2>&1
+    - bash /opt/kafka-local/healthcheck.sh >/dev/null 2>&1
   interval: 30s
-  timeout: 30s
+  timeout: 20s
   start_period: 90s
   retries: 12
 
