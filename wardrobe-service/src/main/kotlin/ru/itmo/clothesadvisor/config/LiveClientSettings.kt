@@ -20,6 +20,13 @@ internal data class RecommendationClientProperties(
     val writeTimeout: Duration = Duration.ofSeconds(30),
 )
 
+@ConfigurationProperties("app.file-client")
+internal data class FileClientProperties(
+    val connectTimeout: Duration = Duration.ofSeconds(5),
+    val writeTimeout: Duration = Duration.ofSeconds(30),
+    val readTimeout: Duration = Duration.ofSeconds(90),
+)
+
 internal data class ClientBreakerPolicy(
     val slidingWindowType: CircuitBreakerConfig.SlidingWindowType,
     val slidingWindowSize: Int,
@@ -72,20 +79,23 @@ internal data class ClientBreakerOverrides(
 internal class LiveClientSettings(
     initialAccount: AccountClientProperties,
     initialRecommendation: RecommendationClientProperties,
+    initialFile: FileClientProperties,
     private val accountClient: ReloadableAccountClient,
     private val accountFactory: AccountClientFactory,
     private val breakers: CircuitBreakerRegistry,
 ) {
     private var account = initialAccount
     @Volatile private var recommendation = initialRecommendation
+    @Volatile private var file = initialFile
     private val bootstrapBreakers = BREAKER_NAMES.associateWith { breakers.circuitBreaker(it).circuitBreakerConfig }
     private var policies = bootstrapBreakers.mapValues { ClientBreakerPolicy.from(it.value) }
 
     init {
-        validate(initialAccount, initialRecommendation)
+        validate(initialAccount, initialRecommendation, initialFile)
     }
 
     fun recommendationProperties() = recommendation
+    fun fileProperties() = file
 
     @Synchronized
     fun apply(source: PropertySource<*>): Boolean {
@@ -99,7 +109,8 @@ internal class LiveClientSettings(
         val nextRecommendation = binder.bind(
             "app.recommendation-client", RecommendationClientProperties::class.java,
         ).get()
-        validate(nextAccount, nextRecommendation)
+        val nextFile = binder.bind("app.file-client", FileClientProperties::class.java).get()
+        validate(nextAccount, nextRecommendation, nextFile)
         val common = binder.bind("$BREAKER_PREFIX.configs.remote-service", ClientBreakerPolicy::class.java).get()
         common.configure(CircuitBreakerConfig.ofDefaults())
         val overrides = binder.bind(
@@ -115,20 +126,27 @@ internal class LiveClientSettings(
             CircuitBreaker.of(name, configs.getValue(name), breakers.circuitBreaker(name).tags)
         }
         val nextTarget = if (nextAccount != account) accountFactory.create(nextAccount) else null
-        val changed = nextTarget != null || nextRecommendation != recommendation || replacements.isNotEmpty()
+        val changed = nextTarget != null || nextRecommendation != recommendation || nextFile != file ||
+            replacements.isNotEmpty()
 
         // All binding, validation and target construction succeeded before any working state changes.
         replacements.forEach { (name, breaker) -> breakers.replace(name, breaker) }
         if (nextTarget != null) accountClient.target = nextTarget
         account = nextAccount
         recommendation = nextRecommendation
+        file = nextFile
         policies = nextPolicies
         return changed
     }
 
-    private fun validate(account: AccountClientProperties, recommendation: RecommendationClientProperties) {
+    private fun validate(
+        account: AccountClientProperties,
+        recommendation: RecommendationClientProperties,
+        file: FileClientProperties,
+    ) {
         listOf(account.connectTimeout, account.readTimeout, recommendation.connectTimeout,
-            recommendation.readTimeout, recommendation.writeTimeout)
+            recommendation.readTimeout, recommendation.writeTimeout,
+            file.connectTimeout, file.writeTimeout, file.readTimeout)
             .forEach { require(it.toMillis() in 1..Int.MAX_VALUE.toLong()) }
         require(account.maxResponseSize.toBytes() in 1..Int.MAX_VALUE.toLong())
     }
@@ -148,6 +166,7 @@ internal class LiveClientSettings(
             "app.account-client.connect-timeout", "app.account-client.read-timeout", "app.account-client.max-response-size",
             "app.recommendation-client.connect-timeout", "app.recommendation-client.read-timeout",
             "app.recommendation-client.write-timeout",
+            "app.file-client.connect-timeout", "app.file-client.write-timeout", "app.file-client.read-timeout",
         ) + POLICY_KEYS.map { "$BREAKER_PREFIX.configs.remote-service.$it" }
     }
 }

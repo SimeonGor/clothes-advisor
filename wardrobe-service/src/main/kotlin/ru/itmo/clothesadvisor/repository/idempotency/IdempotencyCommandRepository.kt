@@ -22,10 +22,10 @@ internal interface IdempotencyCommandRepository : Repository<IdempotencyCommand,
     @Modifying
     @Query("""
         UPDATE idempotency_command SET state = 'SUCCEEDED', response_json = :json,
-            response_status = 201, modified_at = CURRENT_TIMESTAMP
+            response_status = :status, modified_at = CURRENT_TIMESTAMP
         WHERE id = :id AND state = 'RUNNING'
     """)
-    fun succeed(id: Long, json: String): Int
+    fun succeed(id: Long, json: String, status: Int): Int
 
     @Modifying
     @Query("""

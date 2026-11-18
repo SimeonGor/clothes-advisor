@@ -85,6 +85,7 @@ internal fun securityError(exchange: ServerWebExchange, status: Int): Mono<Void>
     val error = when (status) {
         401 -> "unauthorized"
         403 -> "forbidden"
+        503 -> if (exchange.request.path.pathWithinApplication().value().startsWith("/api/v2/")) "ai_unavailable" else "service_unavailable"
         else -> "service_unavailable"
     }
     return response.writeWith(Mono.just(response.bufferFactory()

@@ -99,6 +99,15 @@ a.card { color: inherit; text-decoration: none; }
 .preferencesReadOnly dd { margin: 8px 0 28px; white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.6; }
 .photoCaption { padding: 8px 10px; color: #898a7e; font-size: 10px; }
 .photoSection { max-width: 900px; border-top: 1px solid #dedcd2; padding: 30px 0; }
+.aiJobList { display: grid; gap: 8px; margin: 18px 0; padding: 0; list-style: none; }
+.aiJobList button { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; align-items: center; border: 1px solid var(--line); border-radius: 8px; padding: 11px 14px; background: var(--surface); color: var(--ink); text-align: left; cursor: pointer; }
+.aiJobList button[aria-pressed="true"] { border-color: var(--olive); background: #f1f2eb; }
+.aiJobList time, .aiJobPages { color: var(--muted); font-size: 12px; }
+.aiJobPages { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 14px 0; }
+.aiJobPages button { border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px; background: var(--surface); color: var(--ink); cursor: pointer; }
+.aiJobDetail { margin-top: 16px; border-left: 2px solid var(--olive); padding: 4px 14px; }
+.aiJobDetail h3 { margin: 0 0 6px; font-size: 16px; }
+.aiJobDetail a { color: var(--accent); }
 .photoSection .muted { margin: 6px 0 20px; font-size: 12px; }
 .photoSection > .nameField { max-width: 440px; margin-top: 22px; }
 .replacementChoices { display: flex; flex-wrap: wrap; gap: 10px 20px; margin: 22px 0; border: 0; padding: 0; color: #59604a; font-size: 13px; }
@@ -162,4 +171,7 @@ a.card { color: inherit; text-decoration: none; }
   .main { margin: 0; padding: 0 18px calc(92px + env(safe-area-inset-bottom)); }
   .contextHeader { margin: 0; padding: 24px 18px 0; }
   .dialog { margin: auto 0 0; width: 100%; max-width: none; max-height: 82vh; border-radius: 20px 20px 0 0; padding-bottom: max(22px, env(safe-area-inset-bottom)); }
+  .aiJobList button { grid-template-columns: minmax(0, 1fr) auto; gap: 5px 10px; }
+  .aiJobList time { grid-column: 1 / -1; }
+  .aiJobPages { font-size: 11px; }
 }

@@ -38,6 +38,8 @@ import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.TransactionSynchronizationManager
 import org.springframework.transaction.support.TransactionTemplate
+import reactor.core.publisher.Mono
+import ru.itmo.clothesadvisor.client.file.anyFileId
 import ru.itmo.clothesadvisor.config.AccountBackedIntegrationTest
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
 import ru.itmo.clothesadvisor.config.insertAccessGrant
@@ -54,7 +56,7 @@ import ru.itmo.clothesadvisor.repository.outfit.OutfitRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemService
 import ru.itmo.clothesadvisor.storage.wardrobe.PhotoStorageUnavailableException
-import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
+import ru.itmo.clothesadvisor.client.file.FileClient
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(TestTimeConfiguration::class)
@@ -65,20 +67,20 @@ internal class AdminModerationIntegrationTests : AccountBackedIntegrationTest() 
     @Autowired private lateinit var transactionManager: PlatformTransactionManager
     @MockitoSpyBean private lateinit var itemRepository: WardrobeItemRepository
     @MockitoSpyBean private lateinit var outfitRepository: OutfitRepository
-    @MockitoBean private lateinit var storage: S3PhotoStorage
+    @MockitoBean private lateinit var fileClient: FileClient
     private val client = HttpClient.newHttpClient()
     private val passwordHash = "!"
-    private val objects = ConcurrentHashMap<String, ByteArray>()
+    private val objects = ConcurrentHashMap<UUID, ByteArray>()
     private val image = byteArrayOf(0x89.toByte(), 0x50, 0x4e, 0x47)
 
     @BeforeEach
     fun prepare() {
         doAnswer { call ->
                 assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
-                objects.getValue(call.getArgument(0))
+                Mono.just(objects.getValue(call.getArgument(0)))
             }
-            .`when`(storage)
-            .get(anyString(), anyLong())
+            .`when`(fileClient)
+            .get(anyFileId(), anyString(), anyLong())
     }
 
     @AfterEach fun closeClient() = client.close()
@@ -204,7 +206,7 @@ internal class AdminModerationIntegrationTests : AccountBackedIntegrationTest() 
 
         // given: preserve all current and historical versions before deletion
         val expectedHistory = allRatingVersions(fixtureState)
-        clearInvocations(storage)
+        clearInvocations(fileClient)
 
         // when
         val deletedPhoto = request("DELETE", photoPath(fixtureState), actorId)
@@ -262,7 +264,7 @@ internal class AdminModerationIntegrationTests : AccountBackedIntegrationTest() 
         assertThat(preservedItem).isEqualTo(item)
         assertThat(count("wardrobe_item_history")).isZero()
         assertThat(count("wardrobe_item_photo")).isZero()
-        verifyNoInteractions(storage)
+        verifyNoInteractions(fileClient)
     }
 
     @Test
@@ -335,7 +337,7 @@ internal class AdminModerationIntegrationTests : AccountBackedIntegrationTest() 
                 assertThat(invalidPageStatus).`as`("$path?$query").isEqualTo(400)
             }
         }
-        verifyNoInteractions(storage)
+        verifyNoInteractions(fileClient)
     }
 
     @ParameterizedTest
@@ -410,7 +412,7 @@ internal class AdminModerationIntegrationTests : AccountBackedIntegrationTest() 
         assertThat(restoredAdminStatus).isEqualTo(200)
         assertThat(count("wardrobe_item_photo")).isEqualTo(1)
         assertThat(count("outfit")).isEqualTo(1)
-        verifyNoInteractions(storage)
+        verifyNoInteractions(fileClient)
     }
 
     @Test
@@ -506,7 +508,7 @@ internal class AdminModerationIntegrationTests : AccountBackedIntegrationTest() 
         }
         assertThat(count("wardrobe_item_photo")).isEqualTo(2)
         assertThat(count("outfit")).isEqualTo(2)
-        verifyNoInteractions(storage)
+        verifyNoInteractions(fileClient)
     }
 
     @ParameterizedTest
@@ -524,10 +526,10 @@ internal class AdminModerationIntegrationTests : AccountBackedIntegrationTest() 
 
                 // given: the actor or owner has the next role and status
                 jdbc.updateUserRoleAndStatus(fixtureState.admin.id, role, status)
-                image
+                Mono.just(image)
             }
-            .`when`(storage)
-            .get(anyString(), anyLong())
+            .`when`(fileClient)
+            .get(anyFileId(), anyString(), anyLong())
 
         // when
         val response = request("GET", photoPath(fixtureState) + "/content", actorId)
@@ -547,8 +549,8 @@ internal class AdminModerationIntegrationTests : AccountBackedIntegrationTest() 
                 assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
                 throw PhotoStorageUnavailableException()
             }
-            .`when`(storage)
-            .get(anyString(), anyLong())
+            .`when`(fileClient)
+            .get(anyFileId(), anyString(), anyLong())
 
         // when
         val unavailableDownload = request("GET", photoPath(fixtureState) + "/content", actorId)
@@ -565,10 +567,10 @@ internal class AdminModerationIntegrationTests : AccountBackedIntegrationTest() 
 
                 // then
                 assertEmpty(deletionDuringDownload, 204)
-                image
+                Mono.just(image)
             }
-            .`when`(storage)
-            .get(anyString(), anyLong())
+            .`when`(fileClient)
+            .get(anyFileId(), anyString(), anyLong())
 
         // when
         val revokedDownload = request("GET", photoPath(fixtureState) + "/content", actorId)
@@ -680,7 +682,7 @@ internal class AdminModerationIntegrationTests : AccountBackedIntegrationTest() 
         } else {
             assertDeletedOutfit(fixtureState, beforeHistory + beforeCurrent)
         }
-        verifyNoInteractions(storage)
+        verifyNoInteractions(fileClient)
     }
 
     @Test
@@ -736,7 +738,7 @@ internal class AdminModerationIntegrationTests : AccountBackedIntegrationTest() 
             }
         }
         assertDeletedOutfit(fixtureState, expectedHistory)
-        verifyNoInteractions(storage)
+        verifyNoInteractions(fileClient)
     }
 
     @Test
@@ -780,7 +782,7 @@ internal class AdminModerationIntegrationTests : AccountBackedIntegrationTest() 
         assertThat(count("outfit_weather")).isEqualTo(1)
         assertThat(ratingRows("outfit_rating", fixtureState)).isEqualTo(beforeCurrent)
         assertThat(ratingRows("outfit_rating_history", fixtureState)).isEqualTo(beforeHistory)
-        verifyNoInteractions(storage)
+        verifyNoInteractions(fileClient)
     }
 
     private fun assertDatabaseLockWait(table: String) {
@@ -806,12 +808,12 @@ internal class AdminModerationIntegrationTests : AccountBackedIntegrationTest() 
     private fun fixture(): Fixture {
         val owner = user()
         val item = item(owner)
-        val key = UUID.randomUUID().toString()
+        val key = UUID.randomUUID()
         objects[key] = image
         val photo =
             jdbc.queryForObject(
                 """INSERT INTO wardrobe_item_photo
-            (wardrobe_item_id, s3_key, content_type, size_bytes, created_at) VALUES (?, ?, 'image/png', ?, ?) RETURNING id""",
+            (wardrobe_item_id, file_id, content_type, size_bytes, created_at) VALUES (?, ?, 'image/png', ?, ?) RETURNING id""",
                 Long::class.java,
                 item,
                 key,

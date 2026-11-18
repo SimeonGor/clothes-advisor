@@ -20,7 +20,7 @@ import ru.itmo.clothesadvisor.client.ai.OpenAiSelectionClient
 import tools.jackson.databind.json.JsonMapper
 
 @Configuration
-@Import(SelectionPromptPollingConfiguration::class)
+@Import(SelectionPromptRefreshConfiguration::class)
 internal class OpenAiConfiguration {
     @Bean
     fun outfitPromptSettings(environment: ConfigurableEnvironment) = SelectionPromptSettings(

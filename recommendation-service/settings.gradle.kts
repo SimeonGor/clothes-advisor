@@ -12,3 +12,6 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "recommendation-service"
+
+include(":observability")
+project(":observability").projectDir = file("../observability")

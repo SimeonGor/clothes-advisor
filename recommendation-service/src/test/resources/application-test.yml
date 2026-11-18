@@ -13,3 +13,14 @@ app:
   openai:
     credentials-directory: ""
     model: ""
+
+---
+spring:
+  config:
+    activate:
+      on-profile: "!request-store-test"
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.r2dbc.autoconfigure.R2dbcAutoConfiguration
+      - org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration
+      - org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration

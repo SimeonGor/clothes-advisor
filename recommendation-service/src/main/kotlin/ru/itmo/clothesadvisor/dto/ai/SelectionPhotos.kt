@@ -9,6 +9,8 @@ import java.util.Base64
 import tools.jackson.core.JsonGenerator
 import tools.jackson.databind.SerializationContext
 import tools.jackson.databind.ValueSerializer
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.AiSelectionException
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.AiSelectionFailure
 
 /** Owned by the synchronous selection operation, including its request-body writer. */
 class SelectionPhotos : AutoCloseable {
@@ -50,13 +52,11 @@ class SelectionImageDeserializer : tools.jackson.databind.ValueDeserializer<Sele
         if (bytes.size !in 1..10_000_000 || Base64.getEncoder().encodeToString(bytes) != text) invalidImage()
         val photos = context.getAttribute(SelectionPhotos::class.java) as SelectionPhotos
         return try { photos.add(bytes) } catch (_: java.io.IOException) {
-            throw ru.itmo.clothesadvisor.client.ai.AiSelectionException(
-                ru.itmo.clothesadvisor.client.ai.AiSelectionFailure.UNAVAILABLE)
+            throw AiSelectionException(AiSelectionFailure.UNAVAILABLE)
         } catch (_: IllegalArgumentException) { invalidImage() }
     }
 
-    private fun invalidImage(): Nothing = throw ru.itmo.clothesadvisor.client.ai.AiSelectionException(
-        ru.itmo.clothesadvisor.client.ai.AiSelectionFailure.INVALID_REQUEST)
+    private fun invalidImage(): Nothing = throw AiSelectionException(AiSelectionFailure.INVALID_REQUEST)
 }
 
 class SelectionImage internal constructor(internal val path: Path) : AutoCloseable {

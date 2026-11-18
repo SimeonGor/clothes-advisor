@@ -47,6 +47,7 @@ function fixture(handler: (call: Call) => Response | Promise<Response>) {
   vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL, init?: RequestInit) => {
     const call = { url: String(input), init };
     calls.push(call);
+    if (call.url === "/api/me/notifications/unread-count" && (init?.method ?? "GET") === "GET") return ok({ count: 0 });
     return handler(call);
   }));
   return calls;
@@ -186,7 +187,7 @@ describe("Предпочтения владельца", () => {
     fireEvent.click(screen.getByRole("link", { name: "Гардероб" }));
     expect(screen.getByRole("heading", { name: "Предпочтения" })).toBeTruthy();
     expect((screen.getByRole("button", { name: "Выйти" }) as HTMLButtonElement).disabled).toBe(true);
-    expect(calls.filter(({ init }) => !init?.method)).toHaveLength(2);
+    expect(calls.filter(({ url, init }) => url === ownPath && (init?.method ?? "GET") === "GET")).toHaveLength(2);
     await act(async () => finishReload?.(ok(latest)));
     await screen.findByText("Данные обновлены.");
     expect(field().value).toBe("Новый профиль сервера");
@@ -289,7 +290,8 @@ describe("Предпочтения владельца", () => {
     expect(screen.queryByDisplayValue("Личный текст первого")).toBeNull();
     await act(async () => finish(ok(profile(2, "Текст второго"))));
     await screen.findByDisplayValue("Текст второго");
-    expect(calls.map(({ init }) => new Headers(init?.headers).get("Authorization"))).toEqual(["Bearer test-token-11", "Bearer test-token-12"]);
+    expect(calls.filter(({ url }) => url === ownPath).map(({ init }) => new Headers(init?.headers).get("Authorization")))
+      .toEqual(["Bearer test-token-11", "Bearer test-token-12"]);
   });
 });
 
@@ -391,7 +393,9 @@ describe("Предпочтения клиента и маршруты ролей
     await screen.findByRole("alert");
 
     // then
-    expect(calls.every(({ url }) => url.startsWith("/api/stylist/clients?"))).toBe(true);
+    expect(calls.some(({ url }) => url.startsWith("/api/stylist/clients?"))).toBe(true);
+    expect(calls.every(({ url, init }) => (init?.method ?? "GET") === "GET"
+      && (url.startsWith("/api/stylist/clients?") || url === "/api/me/notifications/unread-count"))).toBe(true);
     expect(screen.queryByRole("textbox")).toBeNull();
   });
 

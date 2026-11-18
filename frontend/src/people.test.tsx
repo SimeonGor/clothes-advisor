@@ -406,15 +406,21 @@ describe("Рабочие пространства ролей", () => {
 
   it("не открывает содержимое отсутствующего в списке клиента", async () => {
     // given: доступ отозван, список клиентов пуст.
-    const calls: string[] = [];
-    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL) => { calls.push(String(input)); return ok([]); }));
+    const calls: Call[] = [];
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      calls.push({ url, init });
+      return ok(url === "/api/me/notifications/unread-count" ? { count: 0 } : []);
+    }));
     const view = mount(stylist, "/clients/99/wardrobe/1");
     // when: открыт прямой адрес бывшего клиента.
     expect((await screen.findByRole("alert")).textContent).toContain("доступ к ним отозван");
     // then: нет запросов чужих или собственных вещей; некорректный ID тоже не запрашивается.
-    expect(calls.every((url) => url.startsWith("/api/stylist/clients?"))).toBe(true);
     view.go("/clients/0/wardrobe");
     expect(await screen.findByText("Некорректный номер владельца.")).toBeTruthy();
+    expect(calls.some(({ url }) => url.startsWith("/api/stylist/clients?"))).toBe(true);
+    expect(calls.every(({ url, init }) => (init?.method ?? "GET") === "GET"
+      && (url.startsWith("/api/stylist/clients?") || url === "/api/me/notifications/unread-count"))).toBe(true);
   });
 
   it("сохраняет версию черновика администратора при фоновом обновлении и требует обновления после 409", async () => {

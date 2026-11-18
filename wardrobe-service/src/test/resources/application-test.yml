@@ -24,9 +24,8 @@ springdoc:
   paths-to-match: /api/**
   override-with-generic-response: false
 
+AI_VALIDATION_PASSWORD_FILE: src/test/resources/ai-validation-test-password
+
 app:
-  s3:
-    endpoint: http://127.0.0.1:1
-    bucket: test-photos
-  iam:
-    service-account-key-file: /nonexistent/test-service-account-key.json
+  file-client:
+    password-file: src/test/resources/file-wardrobe-test-password

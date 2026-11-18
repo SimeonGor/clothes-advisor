@@ -3,7 +3,10 @@ package ru.itmo.clothesadvisor.service.wardrobe
 import java.awt.image.BufferedImage
 import java.io.ByteArrayOutputStream
 import java.time.Instant
+import java.util.UUID
 import javax.imageio.ImageIO
+import ru.itmo.clothesadvisor.client.file.anyFileId
+import ru.itmo.clothesadvisor.client.file.confirmedUpload
 import ru.itmo.clothesadvisor.config.idempotencyService
 import org.assertj.core.api.Assertions.assertThat
 import org.assertj.core.api.Assertions.catchThrowable
@@ -20,9 +23,9 @@ import org.mockito.Mockito.verify
 import org.mockito.Mockito.verifyNoInteractions
 import org.mockito.Mockito.verifyNoMoreInteractions
 import org.mockito.Mockito.`when`
-import org.springframework.http.HttpStatus
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.SimpleTransactionStatus
+import reactor.core.publisher.Mono
 import ru.itmo.clothesadvisor.dto.user.CurrentUser
 import ru.itmo.clothesadvisor.dto.wardrobe.CreateWardrobeItemRequest
 import ru.itmo.clothesadvisor.model.AccessDeniedException
@@ -30,21 +33,23 @@ import ru.itmo.clothesadvisor.model.EntityNotFoundException
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeCategory
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItem
+import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItemPhoto
+import ru.itmo.clothesadvisor.model.wardrobe.PhotoRequestException
+import ru.itmo.clothesadvisor.model.wardrobe.PhotoRequestFailure
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemPhotoRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.service.user.CurrentUserService
-import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
 
 class WardrobeItemPhotoServiceTests {
     private val items = mock(WardrobeItemRepository::class.java)
     private val photos = mock(WardrobeItemPhotoRepository::class.java)
-    private val storage = mock(S3PhotoStorage::class.java)
+    private val fileClient = mock(PhotoFiles::class.java)
     private val users = mock(CurrentUserService::class.java)
     private val transactions =
         mock(PlatformTransactionManager::class.java).also {
             `when`(it.getTransaction(any())).thenAnswer { SimpleTransactionStatus() }
         }
-    private val service = WardrobeItemPhotoService(items, photos, storage, users, idempotencyService(transactions), transactions)
+    private val service = WardrobeItemPhotoService(items, photos, fileClient, users, idempotencyService(transactions), transactions)
     private val png =
         ByteArrayOutputStream()
             .also { ImageIO.write(BufferedImage(1, 1, BufferedImage.TYPE_INT_RGB), "png", it) }
@@ -77,7 +82,7 @@ class WardrobeItemPhotoServiceTests {
 
         // then
         assertThat(failure).isInstanceOf(AccessDeniedException::class.java)
-        verifyNoInteractions(items, photos, storage, transactions, itemService, categories)
+        verifyNoInteractions(items, photos, fileClient, transactions, itemService, categories)
     }
 
     @Test
@@ -99,19 +104,38 @@ class WardrobeItemPhotoServiceTests {
             .thenReturn(CurrentUser(7, "owner", UserRole.USER))
             .thenThrow(AccessDeniedException())
 
+        `when`(fileClient.put(anyFileId(), anyString(), any(ByteArray::class.java) ?: png)).thenAnswer(::confirmedUpload)
+
         // when
         val failure = catchThrowable { service.add(7, 11, listOf(png)) }
 
         // then
         assertThat(failure).isInstanceOf(AccessDeniedException::class.java)
-        val order = inOrder(users, items, storage)
+        val order = inOrder(users, items, fileClient)
         order.verify(users).requireActive(7)
         order.verify(items).findByIdAndOwnerId(11, 7)
-        order.verify(storage).put(anyString(), anyString(), any(ByteArray::class.java) ?: png)
+        order.verify(fileClient).put(anyFileId(), anyString(), any(ByteArray::class.java) ?: png)
         order.verify(users).requireActive(7)
         verify(items, never()).lockOwned(11, 7)
         verify(photos).countByItemId(11)
         verifyNoMoreInteractions(photos)
+    }
+
+    @Test
+    fun `download discards bytes if the public photo was rebound during GET`() {
+
+        // given
+        val stored = WardrobeItemPhoto(11, UUID.randomUUID(), "image/png", png.size.toLong(), Instant.EPOCH)
+        val replacement = WardrobeItemPhoto(11, UUID.randomUUID(), "image/png", png.size.toLong(), Instant.EPOCH)
+        `when`(photos.findByIdAndItemIdAndItemOwnerId(13, 11, 7)).thenReturn(stored, replacement)
+        `when`(fileClient.get(stored.fileId, stored.contentType, stored.sizeBytes)).thenReturn(Mono.just(png))
+
+        // when
+        val failure = catchThrowable { service.getContent(7, 11, 13) }
+
+        // then
+        assertThat(failure).isInstanceOf(EntityNotFoundException::class.java)
+        verify(fileClient).get(stored.fileId, stored.contentType, stored.sizeBytes)
     }
 
     @ParameterizedTest(name = "{0} existing photos reject {1} additional photos before storage")
@@ -137,9 +161,9 @@ class WardrobeItemPhotoServiceTests {
 
         // then
         assertThat(failure).isInstanceOfSatisfying(PhotoRequestException::class.java) {
-            assertThat(it.status).isEqualTo(HttpStatus.CONFLICT)
+            assertThat(it.failure).isEqualTo(PhotoRequestFailure.CAPACITY_EXCEEDED)
         }
-        verifyNoInteractions(storage)
+        verifyNoInteractions(fileClient)
         verify(items, never()).lockOwned(11, 7)
         verify(photos).countByItemId(11)
         verifyNoMoreInteractions(photos)
@@ -166,6 +190,6 @@ class WardrobeItemPhotoServiceTests {
 
         // then
         assertThat(failure).isInstanceOf(EntityNotFoundException::class.java)
-        verifyNoInteractions(storage, itemService, items, photos)
+        verifyNoInteractions(fileClient, itemService, items, photos)
     }
 }

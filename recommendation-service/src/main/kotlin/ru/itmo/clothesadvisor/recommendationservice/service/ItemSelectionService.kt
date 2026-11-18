@@ -1,16 +1,17 @@
 package ru.itmo.clothesadvisor.recommendationservice.service
 
 import org.springframework.stereotype.Service
-import ru.itmo.clothesadvisor.client.ai.AiSelectionException
-import ru.itmo.clothesadvisor.client.ai.AiSelectionFailure
-import ru.itmo.clothesadvisor.client.ai.OpenAiSelectionClient
-import ru.itmo.clothesadvisor.client.ai.SelectionGoal
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.AiSelectionException
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.AiSelectionFailure
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.SelectionGoal
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionCandidate
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionRequest
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionResponse
 
 @Service
-class ItemSelectionService(private val provider: OpenAiSelectionClient) {
+class ItemSelectionService(
+    @org.springframework.beans.factory.annotation.Qualifier("syncSelectionProvider") private val provider: ItemSelectionProvider,
+) {
     fun selectOutfit(request: ItemSelectionRequest): ItemSelectionResponse = select(request, SelectionGoal.OUTFIT)
 
     fun selectCapsule(request: ItemSelectionRequest): ItemSelectionResponse {

@@ -47,7 +47,7 @@ import ru.itmo.clothesadvisor.repository.capsule.CapsuleItemRepository
 import ru.itmo.clothesadvisor.repository.capsule.CapsuleRepository
 import ru.itmo.clothesadvisor.repository.idempotency.IdempotencyCommandRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
-import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
+import ru.itmo.clothesadvisor.client.file.FileClient
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Import(TestTimeConfiguration::class)
@@ -59,13 +59,13 @@ class CapsuleIntegrationTests : AccountBackedIntegrationTest() {
     @MockitoSpyBean private lateinit var composition: CapsuleItemRepository
     @MockitoSpyBean private lateinit var wardrobe: WardrobeItemRepository
     @MockitoSpyBean private lateinit var commands: IdempotencyCommandRepository
-    @MockitoBean private lateinit var storage: S3PhotoStorage
+    @MockitoBean private lateinit var fileClient: FileClient
     private val client = HttpClient.newHttpClient()
     private val path = "/api/me/capsules"
 
     @AfterEach fun closeClientAndCheckStorage() {
         client.close()
-        verifyNoInteractions(storage)
+        verifyNoInteractions(fileClient)
     }
 
     @ParameterizedTest
@@ -224,7 +224,7 @@ class CapsuleIntegrationTests : AccountBackedIntegrationTest() {
                 mockingDetails(call.mock).mockCreationSettings.defaultAnswer.answer(call)
                 throw failure
             }.`when`(composition).insertAll(any<Iterable<CapsuleItem>>() ?: emptyList())
-        } else doThrow(failure).`when`(commands).succeed(anyLong(), anyString())
+        } else doThrow(failure).`when`(commands).succeed(anyLong(), anyString(), org.mockito.ArgumentMatchers.eq(201))
 
         // when
         val failed = http("POST", owner, request, key = "failed")
@@ -426,8 +426,8 @@ class CapsuleIntegrationTests : AccountBackedIntegrationTest() {
     private fun user(role: UserRole = UserRole.USER) = jdbc.insertUser(UUID.randomUUID().toString(), "!", role).id
     private fun item(owner: Long) = jdbc.insertItem(owner, CreateWardrobeItemRequest("Shirt", 1, "blue", "cotton")).id
     private fun photo(item: Long) = jdbc.queryForObject("""INSERT INTO wardrobe_item_photo
-        (wardrobe_item_id, s3_key, content_type, size_bytes) VALUES (?, ?, 'image/png', 1) RETURNING id""",
-        Long::class.java, item, UUID.randomUUID().toString())!!
+        (wardrobe_item_id, file_id, content_type, size_bytes) VALUES (?, ?, 'image/png', 1) RETURNING id""",
+        Long::class.java, item, UUID.randomUUID())!!
     private fun count(table: String) = jdbc.queryForObject("SELECT count(*) FROM $table", Long::class.java)!!
     private fun itemIds(response: HttpResponse<String>) = JsonPath.parse(response.body()).read<List<Number>>("$.itemIds").map { it.toLong() }
     private fun id(response: HttpResponse<String>): Long {

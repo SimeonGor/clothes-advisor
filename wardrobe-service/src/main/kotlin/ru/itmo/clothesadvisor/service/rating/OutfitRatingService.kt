@@ -17,6 +17,7 @@ import ru.itmo.clothesadvisor.model.rating.OutfitRating
 import ru.itmo.clothesadvisor.model.rating.OutfitRatingHistory
 import ru.itmo.clothesadvisor.model.rating.OutfitRatingId
 import ru.itmo.clothesadvisor.repository.outfit.OutfitRepository
+import ru.itmo.clothesadvisor.repository.messaging.WardrobeEventOutbox
 import ru.itmo.clothesadvisor.repository.rating.OutfitRatingHistoryRepository
 import ru.itmo.clothesadvisor.repository.rating.OutfitRatingRepository
 import ru.itmo.clothesadvisor.repository.rating.RatingCounts
@@ -29,6 +30,7 @@ internal class OutfitRatingService(
     private val accounts: BlockingAccountClient,
     private val ratings: OutfitRatingRepository,
     private val history: OutfitRatingHistoryRepository,
+    private val outbox: WardrobeEventOutbox,
     transactionManager: PlatformTransactionManager,
 ) {
     private val writeTransaction = TransactionTemplate(transactionManager)
@@ -50,6 +52,7 @@ internal class OutfitRatingService(
             val key = OutfitRatingId(outfitId, stylistId)
             val version = (history.maxVersion(outfitId, stylistId) ?: 0) + 1
             val rating = ratings.insert(key, request.vote, version) ?: throw RatingConflictException()
+            outbox.outfit("OutfitRatingChanged", outfitId, ownerId)
             rating.toResponse()
         }
     }
@@ -73,6 +76,7 @@ internal class OutfitRatingService(
             rating.version += 1
             val saved = ratings.update(rating, request.version)
             history.insert(previous)
+            if (previous.vote != saved.vote) outbox.outfit("OutfitRatingChanged", outfitId, ownerId)
             saved.toResponse()
         }
     }
@@ -89,6 +93,7 @@ internal class OutfitRatingService(
             val previous = OutfitRatingHistory(rating)
             ratings.delete(rating)
             history.insert(previous)
+            outbox.outfit("OutfitRatingWithdrawn", outfitId, ownerId)
         }
     }
 

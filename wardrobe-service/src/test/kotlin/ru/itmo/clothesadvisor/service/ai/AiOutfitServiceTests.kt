@@ -1,5 +1,6 @@
 package ru.itmo.clothesadvisor.service.ai
 
+import java.util.UUID
 import ru.itmo.clothesadvisor.config.idempotencyService
 
 import io.micrometer.core.instrument.simple.SimpleMeterRegistry
@@ -128,7 +129,7 @@ internal class AiOutfitServiceTests : ru.itmo.clothesadvisor.dto.recommendation.
     private val item =
         WardrobeItem(7, WardrobeCategory("TOP", "Top"), "Shirt", "White", "Cotton", storedAt)
             .apply { id = 11 }
-    private val photo = WardrobeItemPhoto(11, "key", "image/png", 3, storedAt).apply { id = 21 }
+    private val photo = WardrobeItemPhoto(11, UUID.randomUUID(), "image/png", 3, storedAt).apply { id = 21 }
 
     private fun request(ids: List<Long?>? = null) = CreateAiOutfitRequest("Daily", weather, ids)
 
@@ -852,7 +853,7 @@ internal class AiOutfitServiceTests : ru.itmo.clothesadvisor.dto.recommendation.
             .`when`(outfits).get(7, 80)
         val added = WardrobeItem(7, item.category, "New", "Black", "Wool", storedAt).apply { id = 12 }
         val removed = WardrobeItem(7, item.category, "Old", "Grey", "Wool", storedAt).apply { id = 13 }
-        val addedPhoto = WardrobeItemPhoto(12, "new", "image/png", 3, storedAt).apply { id = 22 }
+        val addedPhoto = WardrobeItemPhoto(12, UUID.randomUUID(), "image/png", 3, storedAt).apply { id = 22 }
         doReturn(listOf(added, removed)).`when`(items).findAllByOwnerIdAndIdInOrderByIdAsc(7, listOf(12, 13))
         doReturn(listOf(item)).`when`(items).findAllByOwnerIdAndIdInOrderByIdAsc(7, setOf(11L))
         doReturn(listOf(added, item)).`when`(items).lockOwnedItemsForShare(7, listOf(12, 11))

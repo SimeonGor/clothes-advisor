@@ -1,0 +1,56 @@
+otelcol.receiver.otlp "applications" {
+  http { endpoint = "0.0.0.0:4318" }
+  output {
+    logs    = [otelcol.processor.memory_limiter.applications.input]
+    traces  = [otelcol.processor.memory_limiter.applications.input]
+    metrics = [otelcol.processor.memory_limiter.applications.input]
+  }
+}
+
+otelcol.processor.memory_limiter "applications" {
+  check_interval = "1s"
+  limit          = "192MiB"
+
+  output {
+    logs    = [otelcol.processor.batch.applications.input]
+    traces  = [otelcol.processor.batch.applications.input]
+    metrics = [otelcol.processor.batch.applications.input]
+  }
+}
+
+otelcol.processor.batch "applications" {
+  output {
+    logs    = [otelcol.exporter.otlphttp.grafana.input]
+    traces  = [otelcol.exporter.otlphttp.grafana.input]
+    metrics = [otelcol.exporter.otlphttp.grafana.input]
+  }
+}
+
+otelcol.exporter.otlphttp "grafana" {
+  client { endpoint = "http://grafana:4318" }
+}
+
+prometheus.exporter.blackbox "services" {
+  config = "{modules: {ready: {prober: http, timeout: 4s, http: {preferred_ip_protocol: ip4}}}}"
+  targets = [
+    {name = "frontend", service = "frontend", module = "ready", address = "http://frontend:8080/app/"},
+    {name = "config-server", service = "config-server", module = "ready", address = "http://config-server:8888/actuator/health"},
+    {name = "discovery-server", service = "discovery-server", module = "ready", address = "http://discovery-server:8761/actuator/health"},
+    {name = "api-gateway", service = "api-gateway", module = "ready", address = "http://api-gateway:8080/actuator/health/readiness"},
+    {name = "wardrobe-service", service = "wardrobe-service", module = "ready", address = "http://app:8080/actuator/health/readiness"},
+    {name = "account-service", service = "account-service", module = "ready", address = "http://account-service:8080/actuator/health/readiness"},
+    {name = "recommendation-service", service = "recommendation-service", module = "ready", address = "http://recommendation-service:8080/actuator/health/readiness"},
+    {name = "file-service", service = "file-service", module = "ready", address = "http://file-service:8080/actuator/health/readiness"},
+    {name = "notification-service", service = "notification-service", module = "ready", address = "http://notification-service:8080/actuator/health/readiness"},
+  ]
+}
+
+prometheus.scrape "readiness" {
+  targets         = prometheus.exporter.blackbox.services.targets
+  scrape_interval = "15s"
+  forward_to      = [prometheus.remote_write.grafana.receiver]
+}
+
+prometheus.remote_write "grafana" {
+  endpoint { url = "http://grafana:9090/api/v1/write" }
+}

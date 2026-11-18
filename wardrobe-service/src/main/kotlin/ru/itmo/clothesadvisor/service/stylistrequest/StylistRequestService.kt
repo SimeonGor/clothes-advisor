@@ -28,6 +28,7 @@ import ru.itmo.clothesadvisor.model.stylistrequest.StylistRequestStatus
 import ru.itmo.clothesadvisor.model.stylistrequest.StylistRequestWeather
 import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.repository.stylistrequest.StylistRequestRepository
+import ru.itmo.clothesadvisor.repository.messaging.WardrobeEventOutbox
 import ru.itmo.clothesadvisor.repository.stylistrequest.StylistRequestAnswerRepository
 import ru.itmo.clothesadvisor.repository.weather.PrecipitationTypeRepository
 import ru.itmo.clothesadvisor.service.idempotency.IdempotencyService
@@ -45,6 +46,7 @@ internal class StylistRequestService(
     private val accounts: BlockingAccountClient,
     private val validator: Validator,
     private val idempotency: IdempotencyService,
+    private val outbox: WardrobeEventOutbox,
     transactionManager: PlatformTransactionManager,
 ) {
     private val writeTransaction = TransactionTemplate(transactionManager)
@@ -70,6 +72,7 @@ internal class StylistRequestService(
                     requests.insertWeather(id, StylistRequestWeather(
                         request.weather.temperatureC, request.weather.precipitationTypeId, request.weather.windSpeedMps,
                     ))
+                    outbox.stylistRequest("StylistRequestCreated", id, user.id, request.stylistId)
                     response(find(id, user.id))
                 }
             }
@@ -108,6 +111,7 @@ internal class StylistRequestService(
             if (previous.status != StylistRequestStatus.PENDING) throw conflict(id)
             if (requests.archive(id, user.id, request.version) != 1) throw conflict(id)
             if (requests.cancel(id, user.id, request.version) != 1) throw conflict(id)
+            outbox.stylistRequest("StylistRequestCancelled", id, user.id, previous.stylistId)
             response(find(id, user.id))
         }
     }
@@ -139,6 +143,7 @@ internal class StylistRequestService(
                     )
                     answers.insert(id, outfit.id)
                     if (requests.answer(id, ownerId, user.id, request.version) != 1) throw conflict(id)
+                    outbox.stylistRequest("StylistRequestAnswered", id, ownerId, user.id)
                     response(find(id, ownerId, user.id))
                 }
             }

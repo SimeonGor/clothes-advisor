@@ -1,0 +1,39 @@
+server:
+  port: ${APP_PORT:8080}
+
+app:
+  s3:
+    endpoint: ${S3_ENDPOINT:https://storage.yandexcloud.net}
+    bucket: ${S3_BUCKET:}
+
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_SERVER_URL:http://localhost:8761/eureka/}
+    healthcheck:
+      enabled: true
+    timeout:
+      connect-timeout: 2000
+      connect-request-timeout: 2000
+      socket-timeout: 5000
+  instance:
+    prefer-ip-address: true
+    health-check-url-path: /actuator/health
+    status-page-url-path: /actuator/health
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+  endpoint:
+    health:
+      show-details: never
+      probes:
+        enabled: true
+      group:
+        readiness:
+          include: readinessState,r2dbc
+  health:
+    config:
+      enabled: false

@@ -41,7 +41,7 @@ class OutfitRatingServiceTests {
     private val ratings = mock(OutfitRatingRepository::class.java)
     private val history = mock(OutfitRatingHistoryRepository::class.java)
     private val transactions = mock(PlatformTransactionManager::class.java)
-    private val service = OutfitRatingService(outfits, access, ratings, history, transactions)
+    private val service = OutfitRatingService(outfits, access, ratings, history, mock(), transactions)
     private val storedAt = Instant.parse("2026-01-01T00:00:00Z")
     private val key = OutfitRatingId(11, 2)
 

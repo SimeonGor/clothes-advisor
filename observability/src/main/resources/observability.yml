@@ -1,0 +1,12 @@
+management:
+  metrics:
+    distribution:
+      slo:
+        http.server.requests: 10ms,25ms,50ms,100ms,250ms,500ms,1s,2500ms,5s,10s,30s,60s
+  otlp:
+    metrics:
+      export:
+        enabled: false
+  tracing:
+    baggage:
+      enabled: false

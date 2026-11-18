@@ -1,4 +1,6 @@
 spring:
+  config:
+    import: "classpath:observability.yml"
   application:
     name: discovery-server
 

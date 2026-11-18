@@ -9,6 +9,7 @@ group = "ru.itmo"
 version = "0.0.1-SNAPSHOT"
 
 dependencies {
+    implementation(project(":observability"))
     implementation(platform("org.springframework.boot:spring-boot-dependencies:4.1.1"))
     implementation(platform("org.springframework.cloud:spring-cloud-dependencies:2025.1.3"))
     implementation("org.springframework.cloud:spring-cloud-starter-gateway-server-webflux")
@@ -17,8 +18,6 @@ dependencies {
     implementation("org.springframework.cloud:spring-cloud-starter-netflix-eureka-client")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("org.springdoc:springdoc-openapi-starter-webflux-ui:3.1.1")
-    implementation("org.springframework.boot:spring-boot-micrometer-tracing-opentelemetry")
-    implementation("io.micrometer:micrometer-tracing-bridge-otel")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")

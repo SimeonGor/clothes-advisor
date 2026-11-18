@@ -6,14 +6,13 @@ import {
   ApiError,
   mutationErrorMessage,
   resourceErrorMessage,
-  outfitsPath,
   type Actor,
   type Outfit,
   type WardrobeItem,
   availabilityLabel,
   itemAvailability,
 } from "./api";
-import { createRequest, NewAttempt } from "./idempotency";
+import { AiJobStatus, ambiguousAiPostFailure, useAiJob } from "./ai-jobs";
 import styles from "./site.module.css";
 
 export function OutfitReplacement({ actor, outfit, sourceItems, onPending, pending }: {
@@ -25,14 +24,22 @@ export function OutfitReplacement({ actor, outfit, sourceItems, onPending, pendi
 }) {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
-  const path = `${outfitsPath({ kind: "own" })}/${outfit.id}/ai-replacements`;
   const sourceIds = new Set(outfit.itemIds);
   const [name, setName] = React.useState(outfit.name);
   const [replaced, setReplaced] = React.useState<number[]>([]);
   const [manual, setManual] = React.useState(false);
   const [candidates, setCandidates] = React.useState<number[]>([]);
   const [failure, setFailure] = React.useState("");
+  const [frozenBody, setFrozenBody] = React.useState<string | null>(null);
   const busy = React.useRef(false);
+  const ai = useAiJob(actor.id, "replacement", outfit.id);
+  React.useEffect(() => {
+    if (ai.resultPath) {
+      void queryClient.invalidateQueries({ queryKey: ["outfits", actor.id, "own"] });
+      ai.clearTerminal();
+      navigate(ai.resultPath);
+    }
+  }, [ai.resultPath, actor.id, navigate, queryClient]);
   const items = useQuery({
     queryKey: ["outfit-replacement-candidates", actor.id],
     enabled: manual,
@@ -47,40 +54,47 @@ export function OutfitReplacement({ actor, outfit, sourceItems, onPending, pendi
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (busy.current || pending) return;
-    if (unavailableSources.some((item) => !replaced.includes(item.id))) {
+    if (busy.current || pending || ai.active) return;
+    if (frozenBody === null && unavailableSources.some((item) => !replaced.includes(item.id))) {
       setFailure("Отметьте недоступные вещи исходного образа к замене.");
       return;
     }
-    if (manual && selectedUnavailable.length) {
+    if (frozenBody === null && manual && selectedUnavailable.length) {
       setFailure("Снимите выбор с вещей-кандидатов, которые сейчас в стирке или убраны.");
       return;
     }
 
     const cleanName = name.trim();
-    if (!cleanName || cleanName.length > 300 || replaced.length === 0) {
+    if (frozenBody === null && (!cleanName || cleanName.length > 300 || replaced.length === 0)) {
       setFailure("Укажите название до 300 символов и отметьте хотя бы одну вещь для замены.");
       return;
     }
-    if (manual && candidates.length === 0) {
+    if (frozenBody === null && manual && candidates.length === 0) {
       setFailure("Для ручного выбора отметьте хотя бы одну вещь-кандидат.");
       return;
     }
-    if (manual && !items.data) return;
+    if (frozenBody === null && manual && !items.data) return;
 
-    const body: { name: string; replaceItemIds: number[]; candidateItemIds?: number[] } = {
-      name: cleanName,
-      replaceItemIds: replaced,
-    };
-    if (manual) body.candidateItemIds = candidates;
+    let body = frozenBody;
+    if (!body) {
+      const request: { name: string; replaceItemIds: number[]; candidateItemIds?: number[] } = {
+        name: cleanName,
+        replaceItemIds: replaced,
+      };
+      if (manual) request.candidateItemIds = candidates;
+      body = JSON.stringify(request);
+    }
 
     busy.current = true;
     onPending(true);
     setFailure("");
     try {
-      const saved = await createRequest<Outfit>(path, actor.id, JSON.stringify(body));
-      await queryClient.invalidateQueries({ queryKey: ["outfits", actor.id, "own"] });
-      navigate(`/outfits/${saved.id}`);
+      const outcome = await ai.submit(body);
+      if (outcome === false) return;
+      if (outcome !== true) {
+        if (ambiguousAiPostFailure(outcome.error)) setFrozenBody(body);
+        throw outcome.error;
+      }
     } catch (error) {
       setFailure(error instanceof ApiError && error.status === 400
         ? "Проверьте название, выбор вещей и наличие фото. Для образа доступно не более 20 вещей с фото."
@@ -91,15 +105,22 @@ export function OutfitReplacement({ actor, outfit, sourceItems, onPending, pendi
     }
   }
 
+  function beginNewAttempt() {
+    if (ai.startNewAttempt()) {
+      setFrozenBody(null);
+      setFailure("");
+    }
+  }
+
   return (
     <section className={styles.photoSection} aria-labelledby="replacement-heading">
       <h2 id="replacement-heading">Заменить вещи через AI</h2>
       <p className={styles.muted}>Отметьте вещи, которые нужно заменить. Остальные останутся в образе. Предел — 20 вещей с фото.</p>
       <form onSubmit={(event) => void submit(event)}>
         <label className={styles.nameField}>НАЗВАНИЕ НОВОГО ОБРАЗА
-          <input required maxLength={300} value={name} onChange={(event) => setName(event.target.value)} disabled={pending} />
+          <input required maxLength={300} value={name} onChange={(event) => setName(event.target.value)} disabled={pending || frozenBody !== null} />
         </label>
-        <fieldset className={styles.replacementChoices} disabled={pending}>
+        <fieldset className={styles.replacementChoices} disabled={pending || frozenBody !== null}>
           <legend>Что заменить</legend>
           {sourceItems.map((item) => (
             <label key={item.id}>
@@ -115,7 +136,7 @@ export function OutfitReplacement({ actor, outfit, sourceItems, onPending, pendi
           ))}
         </fieldset>
         <label className={styles.replacementMode}>
-          <input type="checkbox" checked={manual} onChange={(event) => setManual(event.target.checked)} disabled={pending} />
+          <input type="checkbox" checked={manual} onChange={(event) => setManual(event.target.checked)} disabled={pending || frozenBody !== null} />
           Выбрать вещи-кандидаты вручную
         </label>
         {manual && <div className={styles.replacementCandidates}>
@@ -131,7 +152,7 @@ export function OutfitReplacement({ actor, outfit, sourceItems, onPending, pendi
               <input
                 type="checkbox"
                 checked={candidates.includes(item.id)}
-                disabled={pending || (!candidates.includes(item.id) && itemAvailability(item) !== "AVAILABLE")}
+                disabled={pending || frozenBody !== null || (!candidates.includes(item.id) && itemAvailability(item) !== "AVAILABLE")}
                 onChange={() => setCandidates((old) => old.includes(item.id)
                   ? old.filter((id) => id !== item.id)
                   : [...old, item.id])}
@@ -141,11 +162,11 @@ export function OutfitReplacement({ actor, outfit, sourceItems, onPending, pendi
           ))}
         </div>}
         {failure && <div role="alert" className={styles.error}>{failure}</div>}
-        {failure && <NewAttempt actorId={actor.id} path={path} disabled={pending} onReset={() => setFailure("")} />}
+        <AiJobStatus job={ai.job} failure={ai.active ? ai.failure : ""} active={Boolean(ai.active)} canStartNew={ai.canStartNew} canRetryPolling={ai.canRetryPolling} resultPath={ai.resultPath} onRetry={ai.retryPolling} onUnknown={beginNewAttempt} />
         <div className={styles.submitRow}>
           <p>Исходный образ останется без изменений. Запрос не повторяется автоматически.</p>
-          <button className={styles.create} type="submit" disabled={pending || !sourceItems.length || (manual && !items.data)}>
-            Создать новый образ <span>↗</span>
+          <button className={styles.create} type="submit" disabled={pending || ai.busy || ai.active !== null || !sourceItems.length || (frozenBody === null && manual && !items.data)}>
+            {frozenBody === null ? "Создать новый образ" : "Повторить ту же попытку"} <span>↗</span>
           </button>
         </div>
       </form>

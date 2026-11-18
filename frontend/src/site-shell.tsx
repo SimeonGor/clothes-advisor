@@ -4,6 +4,7 @@ import type { Actor, WorkspaceContext } from "./api";
 import styles from "./site.module.css";
 import { Dialog } from "./dialog";
 import { Icon } from "./icons";
+import { NotificationsHeader } from "./notifications";
 
 type Active = "today" | "wardrobe" | "outfits" | "capsules" | "access" | "clients" | "accounts" | "preferences" | "calendar" | "requests";
 type Entry = { key: Active; path: string; label: string };
@@ -53,6 +54,7 @@ export function SiteShell({ account, onLogout, pending, active, children }: {
         <button className={styles.textButton} disabled={pending} onClick={exitAccount}>Выйти</button>
       </div>
     </aside>
+    <NotificationsHeader actor={account} pending={pending} />
     {children}
     <Dialog open={moreOpen} title="Ещё" onClose={() => setMoreOpen(false)}>
       <nav className={styles.dialogNav} aria-label="Дополнительная навигация">

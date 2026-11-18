@@ -20,6 +20,10 @@ spring:
               uri: lb://account-service
               predicates:
                 - Path=/api/auth/**,/api/stylists,/api/admin/users,/api/admin/users/*,/api/admin/users/*/password,/api/me/stylist-access,/api/me/stylist-access/*,/api/stylist/clients
+            - id: notification-api
+              uri: lb://notification-service
+              predicates:
+                - Path=/api/me/notifications,/api/me/notifications/**
             - id: wardrobe-api
               uri: lb://wardrobe-service
               predicates:
@@ -34,6 +38,12 @@ spring:
               uri: lb://wardrobe-service
               predicates:
                 - Path=/v3/api-docs/wardrobe
+              filters:
+                - SetPath=/v3/api-docs
+            - id: notification-docs
+              uri: lb://notification-service
+              predicates:
+                - Path=/v3/api-docs/notification
               filters:
                 - SetPath=/v3/api-docs
             - id: frontend-ui
@@ -55,6 +65,8 @@ springdoc:
         url: /v3/api-docs/account
       - name: Wardrobe
         url: /v3/api-docs/wardrobe
+      - name: Notification
+        url: /v3/api-docs/notification
     urls-primary-name: Wardrobe
     disable-swagger-default-url: true
     validator-url: ""

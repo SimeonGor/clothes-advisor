@@ -18,10 +18,11 @@ import org.junit.jupiter.params.provider.ValueSource
 import org.springframework.boot.convert.ApplicationConversionService
 import org.springframework.boot.test.context.runner.ApplicationContextRunner
 import org.springframework.core.env.MapPropertySource
-import ru.itmo.clothesadvisor.client.ai.AiSelectionException
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.AiSelectionFailure
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.AiSelectionException
 import ru.itmo.clothesadvisor.client.ai.ChatGptCredentialFixture
 import ru.itmo.clothesadvisor.client.ai.OpenAiSelectionClient
-import ru.itmo.clothesadvisor.client.ai.SelectionGoal
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.SelectionGoal
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionRequest
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionWeather
 import tools.jackson.databind.json.JsonMapper
@@ -157,7 +158,7 @@ class OpenAiConfigurationTests {
 
                 // then
                 assertThat(failure).isInstanceOfSatisfying(AiSelectionException::class.java) {
-                    assertThat(it.status).isEqualTo(503)
+                    assertThat(it.failure).isEqualTo(AiSelectionFailure.UNAVAILABLE)
                     assertThat(it.message).isNull()
                     assertThat(it.cause).isNull()
                 }

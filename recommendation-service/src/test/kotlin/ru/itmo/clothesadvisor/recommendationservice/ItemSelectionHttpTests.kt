@@ -40,7 +40,7 @@ import org.springframework.test.context.DynamicPropertySource
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
 import ru.itmo.clothesadvisor.client.ai.ChatGptCredentialFixture
 import ru.itmo.clothesadvisor.client.ai.OpenAiSelectionClient
-import ru.itmo.clothesadvisor.client.ai.SelectionGoal
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.SelectionGoal
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionCandidate
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionRequest
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionWeather
@@ -48,7 +48,7 @@ import tools.jackson.databind.node.ObjectNode
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @ActiveProfiles("test")
-@Import(ItemSelectionHttpTests.FixedClock::class)
+@Import(ItemSelectionHttpTests.FixedClock::class, TransportTestConfiguration::class)
 class ItemSelectionHttpTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhotoFixture() {
     @TestConfiguration
     class FixedClock {

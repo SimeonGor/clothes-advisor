@@ -59,7 +59,7 @@ class StylistRequestServiceTests {
     private val transactions = mock(PlatformTransactionManager::class.java)
     private val validation = Validation.buildDefaultValidatorFactory()
     private val service = StylistRequestService(
-        requests, answers, outfits, precipitation, accounts, validation.validator, idempotencyService(transactions), transactions,
+        requests, answers, outfits, precipitation, accounts, validation.validator, idempotencyService(transactions), mock(), transactions,
     )
     private val owner = CurrentUser(7, "owner", UserRole.USER)
     private val stylist = CurrentUser(8, "stylist", UserRole.STYLIST)

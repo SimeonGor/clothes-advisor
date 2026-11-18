@@ -7,6 +7,7 @@ import java.net.http.HttpRequest
 import java.net.http.HttpResponse
 import java.sql.Timestamp
 import java.time.Duration
+import java.util.UUID
 import java.util.concurrent.Callable
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors
@@ -33,7 +34,9 @@ import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.bean.override.mockito.MockitoBean
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
 import org.springframework.transaction.support.TransactionSynchronizationManager
+import reactor.core.publisher.Mono
 import reactor.core.scheduler.Schedulers
+import ru.itmo.clothesadvisor.client.file.anyFileId
 import ru.itmo.clothesadvisor.client.recommendation.RecommendationClient
 import ru.itmo.clothesadvisor.config.AccountBackedIntegrationTest
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
@@ -50,7 +53,7 @@ import ru.itmo.clothesadvisor.model.user.UserRole
 import ru.itmo.clothesadvisor.repository.capsule.CapsuleItemRepository
 import ru.itmo.clothesadvisor.repository.capsule.CapsuleWeatherRepository
 import ru.itmo.clothesadvisor.repository.idempotency.IdempotencyCommandRepository
-import ru.itmo.clothesadvisor.storage.wardrobe.S3PhotoStorage
+import ru.itmo.clothesadvisor.client.file.FileClient
 import java.math.BigDecimal
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
@@ -58,7 +61,7 @@ import java.math.BigDecimal
 class AiCapsuleIntegrationTests : AccountBackedIntegrationTest() {
     @LocalServerPort private var port = 0
     @Autowired private lateinit var jdbc: JdbcTemplate
-    @MockitoBean private lateinit var storage: S3PhotoStorage
+    @MockitoBean private lateinit var fileClient: FileClient
     @MockitoBean private lateinit var provider: RecommendationClient
     @MockitoSpyBean private lateinit var weather: CapsuleWeatherRepository
     @MockitoSpyBean private lateinit var composition: CapsuleItemRepository
@@ -79,8 +82,8 @@ class AiCapsuleIntegrationTests : AccountBackedIntegrationTest() {
             assertThat(Schedulers.isInNonBlockingThread()).isFalse()
             downloads++
             onDownload()
-            byteArrayOf(1, 2, 3)
-        }.`when`(storage).get(anyString(), anyLong())
+            Mono.just(byteArrayOf(1, 2, 3))
+        }.`when`(fileClient).get(anyFileId(), anyString(), anyLong())
         doAnswer {
             assertThat(TransactionSynchronizationManager.isActualTransactionActive()).isFalse()
             assertThat(Schedulers.isInNonBlockingThread()).isFalse()
@@ -194,7 +197,7 @@ class AiCapsuleIntegrationTests : AccountBackedIntegrationTest() {
         val old = JsonPath.read<Map<String, Any?>>(replay.body(), "$")
         assertThat(old.keys).containsExactlyInAnyOrder("id", "ownerId", "name", "itemIds", "createdAt")
         assertThat(JsonPath.read<Map<String, Any?>>(detail.body(), "$")).containsAllEntriesOf(old).containsEntry("source", "USER")
-        verifyNoInteractions(provider, storage)
+        verifyNoInteractions(provider, fileClient)
     }
 
     @ParameterizedTest
@@ -232,7 +235,7 @@ class AiCapsuleIntegrationTests : AccountBackedIntegrationTest() {
         // then
         assertThat(response.statusCode()).isEqualTo(if (actor == "disconnected") 503 else 403)
         assertNoCapsule()
-        verifyNoInteractions(provider, storage)
+        verifyNoInteractions(provider, fileClient)
     }
 
     @Test
@@ -256,7 +259,7 @@ class AiCapsuleIntegrationTests : AccountBackedIntegrationTest() {
         assertEmpty(foreignResult, 404)
         assertEmpty(missing, 404)
         assertNoCapsule()
-        verifyNoInteractions(provider, storage)
+        verifyNoInteractions(provider, fileClient)
     }
 
     @ParameterizedTest
@@ -297,7 +300,7 @@ class AiCapsuleIntegrationTests : AccountBackedIntegrationTest() {
         if (stage == "key") doAnswer {
             mockingDetails(commands).mockCreationSettings.defaultAnswer.answer(it)
             throw DataIntegrityViolationException("injected key failure")
-        }.`when`(commands).succeed(anyLong(), anyString())
+        }.`when`(commands).succeed(anyLong(), anyString(), org.mockito.ArgumentMatchers.eq(201))
 
         // when
         val response = http("POST", owner, body(), key = "atomic")
@@ -369,8 +372,8 @@ class AiCapsuleIntegrationTests : AccountBackedIntegrationTest() {
 
     private fun item(owner: Long, photo: Boolean = true): Long {
         val id = jdbc.insertItem(owner, CreateWardrobeItemRequest("Shirt", 1, "White", "Cotton")).id
-        if (photo) jdbc.update("""INSERT INTO wardrobe_item_photo (wardrobe_item_id, s3_key, content_type, size_bytes, created_at)
-            VALUES (?, ?, 'image/png', 3, CURRENT_TIMESTAMP)""", id, "photo-$id")
+        if (photo) jdbc.update("""INSERT INTO wardrobe_item_photo (wardrobe_item_id, file_id, content_type, size_bytes, created_at)
+            VALUES (?, ?, 'image/png', 3, CURRENT_TIMESTAMP)""", id, UUID.randomUUID())
         return id
     }
 

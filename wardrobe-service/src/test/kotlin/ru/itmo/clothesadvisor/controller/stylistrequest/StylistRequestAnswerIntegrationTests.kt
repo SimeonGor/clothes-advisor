@@ -37,6 +37,7 @@ import org.springframework.dao.DataIntegrityViolationException
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
 import ru.itmo.clothesadvisor.config.AccountBackedIntegrationTest
+import ru.itmo.clothesadvisor.config.assertDomainEvents
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
 import ru.itmo.clothesadvisor.config.insertAccessGrant
 import ru.itmo.clothesadvisor.config.insertItem
@@ -149,6 +150,10 @@ class StylistRequestAnswerIntegrationTests : AccountBackedIntegrationTest() {
             .containsExactlyInAnyOrder("id", "ownerId", "stylistId", "wishes", "weather", "status", "version", "createdAt", "modifiedAt")
         assertThat(changed.statusCode()).isEqualTo(409)
         assertThat(changed.body()).contains("idempotency_key_reused")
+        jdbc.assertDomainEvents(
+            f.id, """{"requestId":${f.id},"ownerId":${f.owner},"stylistId":${f.stylist}}""",
+            "StylistRequestCreated", "StylistRequestAnswered",
+        )
         assertThat(count("outfit")).isEqualTo(1)
         assertThat(count("stylist_request_answer")).isEqualTo(1)
         assertThat(count("stylist_request_history")).isEqualTo(1)
@@ -240,7 +245,7 @@ class StylistRequestAnswerIntegrationTests : AccountBackedIntegrationTest() {
             "composition" -> doThrow(failure).`when`(composition).insertAll(anyList())
             "answer" -> doThrow(failure).`when`(answers).insert(anyLong(), anyLong())
             "state" -> doThrow(failure).`when`(requests).answer(f.id, f.owner, f.stylist, 1)
-            "result" -> doThrow(failure).`when`(commands).succeed(anyLong(), anyString())
+            "result" -> doThrow(failure).`when`(commands).succeed(anyLong(), anyString(), org.mockito.ArgumentMatchers.eq(201))
         }
         val body = payload(listOf(f.item))
 
@@ -252,6 +257,8 @@ class StylistRequestAnswerIntegrationTests : AccountBackedIntegrationTest() {
         assertThat(failed.statusCode()).isEqualTo(409)
         assertThat(retry.statusCode()).isEqualTo(409)
         assertThat(retry.body()).contains("idempotency_failed")
+        assertThat(jdbc.queryForList("SELECT type FROM outbox_event", String::class.java))
+            .containsExactly("StylistRequestCreated")
         assertThat(current(f.id)).isEqualTo(previous)
         for (table in listOf("stylist_request_history", "stylist_request_answer", "outfit", "outfit_weather", "outfit_item")) {
             assertThat(count(table)).`as`(table).isZero()

@@ -1,0 +1,24 @@
+@startuml layers
+!pragma layout smetana
+skinparam backgroundColor #FFFFFF
+skinparam defaultFontName SansSerif
+skinparam defaultFontSize 15
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam nodesep 40
+skinparam ranksep 50
+skinparam ArrowColor #52677F
+rectangle "notification-service" {
+  component "NotificationController\nЛента и отметка о прочтении" as http #FFF5DF
+  component "KafkaEvents\nДоставка одной записи" as listener #FFF5DF
+  component "ActiveAccount\nПроверка пользователя" as account #EDF4FB
+  component "DomainEvents\nРазбор события и выбор адресата" as events #DDF0E5
+  interface "Notifications" as storage
+  component "PostgresNotifications\nSQL через R2DBC" as repo #EDF4FB
+}
+http --> account : проверяет статус
+http --> storage : читает или отмечает
+listener --> events : определяет уведомление
+listener --> storage : сохраняет или отклоняет
+repo ..|> storage
+@enduml

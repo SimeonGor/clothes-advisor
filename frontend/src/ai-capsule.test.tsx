@@ -11,10 +11,18 @@ const user: Actor = { id: 11, login: "user", role: "USER" };
 const item = (id: number): WardrobeItem => ({ id, name: `Вещь ${id}`, categoryId: 1, color: "оливковый", material: "хлопок", version: 1, createdAt: "2026-01-01T00:00:00Z", modifiedAt: "2026-01-01T00:00:00Z", availability: "AVAILABLE" });
 const unavailableItem = (id: number, availability: "IN_LAUNDRY" | "STORED"): WardrobeItem => ({ ...item(id), availability });
 const capsule = (extra: Partial<Capsule> = {}): Capsule => ({ id: 5, ownerId: user.id, name: "На каждый день", itemIds: [1], createdAt: "2026-01-01T00:00:00Z", source: "AI", weather: { temperatureC: 15, windSpeedMps: 0, precipitationTypeId: 1 }, explanation: "Сочетание подходит для прохладной погоды.", ...extra });
-const ok = (data: unknown, status = 200) => ({ ok: true, status, headers: new Headers(), json: async () => data } as Response);
+const ok = (data: unknown, status = 200) => ({ ok: true, status: status === 201 ? 202 : status,
+  headers: new Headers(status === 201 ? { Location: "/api/v2/me/ai-jobs/550e8400-e29b-41d4-a716-446655440000" } : {}),
+  json: async () => status === 201 ? { jobId: "550e8400-e29b-41d4-a716-446655440000", status: "QUEUED" } : data } as Response);
 const fail = (status: number, error?: string) => ({ ok: false, status, headers: new Headers(), json: async () => error ? { error } : {} } as Response);
 
-function mount() {
+function mount(jobResponse: Response | (() => Response) = ok({ jobId: "550e8400-e29b-41d4-a716-446655440000",
+  type: "CAPSULE_SELECTION", status: "SUCCEEDED", result: { type: "CAPSULE", id: 5, url: "/api/me/capsules/5" }, error: null })) {
+  const originalFetch = globalThis.fetch;
+  vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).startsWith("/api/v2/me/ai-jobs/")) return typeof jobResponse === "function" ? jobResponse() : jobResponse;
+    return originalFetch(input, init);
+  }));
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const onPending = vi.fn();
   const view = render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/capsules/ai"]}><Routes>
@@ -63,7 +71,7 @@ describe("AI-капсулы", () => {
         return new Promise<Response>((resolve) => { finishRetry = resolve; });
       }
       if (path.startsWith("/api/wardrobe/items?page=")) return Promise.resolve(ok([item(1)]));
-      if (path === "/api/me/capsules/ai" && init?.method === "POST") {
+      if (path === "/api/v2/me/capsules/ai" && init?.method === "POST") {
         posts.push(JSON.parse(String(init.body)));
         return Promise.resolve(ok(capsule(), 201));
       }
@@ -94,6 +102,27 @@ describe("AI-капсулы", () => {
     expect(onPending).toHaveBeenCalledWith(false);
   });
 
+  it("показывает ошибку проверки принятого задания и позволяет восстановить форму", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input);
+      if (path.startsWith("/api/weather/precipitation-types?")) return ok([{ id: 1, name: "Дождь", code: "RAIN" }]);
+      if (path.startsWith("/api/wardrobe/items?page=")) return ok([item(1)]);
+      if (path === "/api/v2/me/capsules/ai" && init?.method === "POST") return ok(capsule(), 201);
+      return fail(404);
+    }));
+    mount(fail(404));
+    await screen.findByRole("option", { name: "Дождь" });
+    fireEvent.change(screen.getByLabelText("НАЗВАНИЕ КАПСУЛЫ"), { target: { value: "На каждый день" } });
+    fireEvent.change(screen.getByLabelText("ОСАДКИ"), { target: { value: "1" } });
+    fireEvent.click(screen.getByRole("button", { name: /Создать AI-капсулу/ }));
+
+    expect(await screen.findByText(/Не удалось проверить задание \(404\)/)).toBeTruthy();
+    const retry = await screen.findByRole("button", { name: "Новая попытка" });
+    fireEvent.click(retry);
+    expect((screen.getByLabelText("НАЗВАНИЕ КАПСУЛЫ") as HTMLInputElement).disabled).toBe(false);
+  });
+
   it("отправляет весь гардероб без candidateItemIds и открывает сохранённое объяснение", async () => {
     // given
     const posts: Array<{ body: unknown; key: string | null }> = [];
@@ -103,7 +132,7 @@ describe("AI-капсулы", () => {
       paths.push(path);
       if (path.startsWith("/api/weather/precipitation-types?")) return ok([{ id: 1, name: "Дождь", code: "RAIN" }]);
       if (path.startsWith("/api/wardrobe/items?page=")) return ok([item(1)]);
-      if (path === "/api/me/capsules/ai" && init?.method === "POST") {
+      if (path === "/api/v2/me/capsules/ai" && init?.method === "POST") {
         posts.push({ body: JSON.parse(String(init.body)), key: new Headers(init.headers).get("Idempotency-Key") });
         return ok(capsule(), 201);
       }
@@ -140,7 +169,7 @@ describe("AI-капсулы", () => {
       const path = String(input);
       if (path.startsWith("/api/weather/precipitation-types?")) return ok([{ id: reads ? 2 : 1, name: reads ? "Снег" : "Дождь", code: "RAIN" }]);
       if (path.startsWith("/api/wardrobe/items?page=")) return ok([item(reads ? 2 : 1)]);
-      if (path === "/api/me/capsules/ai" && init?.method === "POST") {
+      if (path === "/api/v2/me/capsules/ai" && init?.method === "POST") {
         posts.push({ body: JSON.parse(String(init.body)), key: new Headers(init.headers).get("Idempotency-Key") });
         return posts.length === 1 ? fail(503) : ok(capsule({ itemIds: [1] }), 201);
       }
@@ -181,7 +210,7 @@ describe("AI-капсулы", () => {
       const path = String(input);
       if (path.startsWith("/api/weather/precipitation-types?")) return ok([{ id: 1, name: "Дождь", code: "RAIN" }]);
       if (path.startsWith("/api/wardrobe/items?page=")) return ok([item(1)]);
-      if (path === "/api/me/capsules/ai" && init?.method === "POST") {
+      if (path === "/api/v2/me/capsules/ai" && init?.method === "POST") {
         posts.push({ body: JSON.parse(String(init.body)), key: new Headers(init.headers).get("Idempotency-Key") });
         if (posts.length === 1) return fail(status);
         if (posts.length === 2) return fail(409, "idempotency_failed");
@@ -245,7 +274,7 @@ describe("AI-капсулы", () => {
         wardrobeReads += 1;
         return wardrobeReads === 3 ? fail(503) : ok([item(wardrobeReads === 1 ? 1 : 2)]);
       }
-      if (path === "/api/me/capsules/ai" && init?.method === "POST") {
+      if (path === "/api/v2/me/capsules/ai" && init?.method === "POST") {
         posts.push({ body: JSON.parse(String(init.body)), key: new Headers(init.headers).get("Idempotency-Key") });
         return posts.length === 1 ? fail(409) : ok(capsule({ itemIds: [2] }), 201);
       }

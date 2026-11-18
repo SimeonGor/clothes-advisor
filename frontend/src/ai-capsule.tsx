@@ -2,7 +2,7 @@ import React from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate } from "react-router-dom";
 import { allPages, ApiError, itemAvailability, resourceErrorMessage, type Actor, type Capsule, type Precipitation, type WardrobeItem, wardrobeItemsPath } from "./api";
-import { createRequest, NewAttempt } from "./idempotency";
+import { AiJobStatus, useAiJob } from "./ai-jobs";
 import { WardrobeItemPicker } from "./wardrobe-item-picker";
 import styles from "./site.module.css";
 
@@ -44,6 +44,14 @@ export function AiCapsuleEditor({ actor, onPending, pending }: { actor: Actor; o
   const [weatherReloading, setWeatherReloading] = React.useState(false);
   const attemptBody = React.useRef<AiCapsuleBody | null>(null);
   const busy = React.useRef(false);
+  const ai = useAiJob(actor.id, "capsule");
+  React.useEffect(() => {
+    if (ai.resultPath) {
+      void queryClient.invalidateQueries({ queryKey: capsulesKey(actor.id) });
+      ai.clearTerminal();
+      navigate(ai.resultPath);
+    }
+  }, [ai.resultPath, actor.id, navigate, queryClient]);
   const types = useQuery({
     queryKey: ["precipitation", actor.id],
     enabled: actor.role === "USER",
@@ -126,7 +134,7 @@ export function AiCapsuleEditor({ actor, onPending, pending }: { actor: Actor; o
 
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    if (busy.current || pending || !readsReady || wardrobeReloadRequired) return;
+    if (busy.current || pending || ai.active || !readsReady || wardrobeReloadRequired) return;
     if (!attemptBody.current) {
       const body = buildBody();
       if (!body) return;
@@ -136,10 +144,9 @@ export function AiCapsuleEditor({ actor, onPending, pending }: { actor: Actor; o
     onPending(true);
     setFailure("");
     try {
-      const saved = await createRequest<Capsule>("/api/me/capsules/ai", actor.id, JSON.stringify(attemptBody.current));
-      queryClient.setQueryData(["capsule", actor.id, saved.id], saved);
-      await queryClient.invalidateQueries({ queryKey: capsulesKey(actor.id) });
-      navigate(`/capsules/${saved.id}`);
+      const outcome = await ai.submit(JSON.stringify(attemptBody.current));
+      if (outcome === false) return;
+      if (outcome !== true) throw outcome.error;
     } catch (error) {
       const domainConflict = error instanceof ApiError && error.status === 409 && !error.code?.startsWith("idempotency_");
       if (domainConflict) {
@@ -225,11 +232,10 @@ export function AiCapsuleEditor({ actor, onPending, pending }: { actor: Actor; o
           actor={actor} context={{ kind: "own" }} items={items.data.filter((item) => itemAvailability(item) === "AVAILABLE")} selected={selected} onSelectedChange={setSelected}
           maxItems={20} disabled={pending || attemptFailed || !readsReady} />}
       </section>
-      {failure && <div role="alert" className={styles.error}>{failure}
-        {attemptFailed && <NewAttempt actorId={actor.id} path="/api/me/capsules/ai" disabled={!newAttemptReady} onReset={beginNewAttempt} />}
-      </div>}
+      {failure && <div role="alert" className={styles.error}>{failure}</div>}
+      <AiJobStatus job={ai.job} failure={ai.active ? ai.failure : ""} active={Boolean(ai.active)} canStartNew={ai.canStartNew} canRetryPolling={ai.canRetryPolling} newAttemptDisabled={!newAttemptReady} resultPath={ai.resultPath} onRetry={ai.retryPolling} onUnknown={() => { if (ai.startNewAttempt()) beginNewAttempt(); }} />
       <div className={styles.submitRow}><p>Запрос не повторяется автоматически.</p>
-        <button className={styles.create} type="submit" disabled={pending || !readsReady || wardrobeReloadRequired}>
+        <button className={styles.create} type="submit" disabled={pending || ai.busy || ai.active !== null || !readsReady || wardrobeReloadRequired}>
           {attemptFailed ? "Повторить ту же попытку" : "Создать AI-капсулу"} <span>↗</span>
         </button>
       </div>

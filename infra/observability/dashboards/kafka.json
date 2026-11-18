@@ -1,0 +1,169 @@
+{
+  "uid": "ca-kafka",
+  "title": "Clothes Advisor · Kafka",
+  "description": "Сначала ищите растущее отставание, затем проверьте число участников группы, состояние реплик и перекос между партициями.",
+  "tags": ["clothes-advisor"],
+  "schemaVersion": 39,
+  "editable": false,
+  "timezone": "browser",
+  "time": {"from": "now-30m","to": "now"},
+  "refresh": "15s",
+  "links": [
+    {
+      "type": "dashboards",
+      "title": "Дашборды Clothes Advisor",
+      "tags": ["clothes-advisor"],
+      "asDropdown": true,
+      "includeVars": false,
+      "keepTime": true
+    }
+  ],
+  "templating": {
+    "list": [
+      {
+        "name": "group",
+        "label": "Группа",
+        "type": "query",
+        "datasource": {"type": "prometheus","uid": "prometheus"},
+        "query": {"query": "label_values(kafka_consumergroup_members, consumergroup)","refId": "variable"},
+        "definition": "label_values(kafka_consumergroup_members, consumergroup)",
+        "refresh": 1,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".+",
+        "current": {"text": "All","value": "$__all"}
+      },
+      {
+        "name": "topic",
+        "label": "Топик",
+        "type": "query",
+        "datasource": {"type": "prometheus","uid": "prometheus"},
+        "query": {"query": "label_values(kafka_topic_partitions, topic)","refId": "variable"},
+        "definition": "label_values(kafka_topic_partitions, topic)",
+        "refresh": 1,
+        "sort": 1,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".+",
+        "current": {"text": "All","value": "$__all"}
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "type": "timeseries",
+      "title": "Lag · всего по группе и топику",
+      "description": "Сколько смещений разделяет конец лога и сохранённый offset группы, в сумме по партициям. Группа остаётся видимой и после остановки. Партиции без commit исключены; отсутствие серии не означает нулевой lag.",
+      "gridPos": {"x": 0,"y": 0,"w": 12,"h": 8},
+      "datasource": {"type": "prometheus","uid": "prometheus"},
+      "targets": [
+        {"refId": "A","expr": "sum by (consumergroup, topic) (kafka_consumergroup_uncommitted_offsets{consumergroup=~\"$group\",topic=~\"$topic\"} >= 0)","legendFormat": "{{consumergroup}} · {{topic}}"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "short"},
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list","placement": "bottom"},
+        "tooltip": {"mode": "multi","sort": "desc"}
+      }
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Lag · самая отстающая партиция",
+      "description": "Максимальное отставание отдельной партиции в каждой паре группа/топик. Сравните с суммой слева, чтобы обнаружить неравномерную обработку.",
+      "gridPos": {"x": 12,"y": 0,"w": 12,"h": 8},
+      "datasource": {"type": "prometheus","uid": "prometheus"},
+      "targets": [
+        {"refId": "A","expr": "max by (consumergroup, topic) (kafka_consumergroup_uncommitted_offsets{consumergroup=~\"$group\",topic=~\"$topic\"} >= 0)","legendFormat": "{{consumergroup}} · {{topic}}"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "short"},
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list","placement": "bottom"},
+        "tooltip": {"mode": "multi","sort": "desc"}
+      }
+    },
+    {
+      "id": 3,
+      "type": "timeseries",
+      "title": "Активные участники группы",
+      "description": "Число участников, видимых координатору. Ноль при растущем lag означает, что некому обрабатывать записи; при ребалансировке возможен короткий провал.",
+      "gridPos": {"x": 0,"y": 8,"w": 12,"h": 8},
+      "datasource": {"type": "prometheus","uid": "prometheus"},
+      "targets": [
+        {"refId": "A","expr": "kafka_consumergroup_members{consumergroup=~\"$group\"}","legendFormat": "{{consumergroup}}"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "short"},
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list","placement": "bottom"},
+        "tooltip": {"mode": "multi","sort": "desc"}
+      }
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Партиции с неполной репликацией",
+      "description": "Число партиций, в которых меньше синхронных реплик, чем назначено. Рост указывает на отставание или потерю брокера, независимо от скорости consumer.",
+      "gridPos": {"x": 12,"y": 8,"w": 12,"h": 8},
+      "datasource": {"type": "prometheus","uid": "prometheus"},
+      "targets": [
+        {"refId": "A","expr": "sum by (topic) (kafka_topic_partition_under_replicated_partition{topic=~\"$topic\"})","legendFormat": "{{topic}}"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "short"},
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list","placement": "bottom"},
+        "tooltip": {"mode": "multi","sort": "desc"}
+      }
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Брокеры в метаданных Kafka",
+      "description": "В штатной топологии три брокера. Это данные из метаданных, а не независимая проверка доступности каждого брокера.",
+      "gridPos": {"x": 0,"y": 16,"w": 12,"h": 8},
+      "datasource": {"type": "prometheus","uid": "prometheus"},
+      "targets": [
+        {"refId": "A","expr": "kafka_brokers","legendFormat": "брокеры"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "short"},
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list","placement": "bottom"},
+        "tooltip": {"mode": "multi","sort": "desc"}
+      }
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Партиции по топикам",
+      "description": "Число партиций в топиках приложения. Полезно при сравнении параллелизма обработки с количеством участников группы.",
+      "gridPos": {"x": 12,"y": 16,"w": 12,"h": 8},
+      "datasource": {"type": "prometheus","uid": "prometheus"},
+      "targets": [
+        {"refId": "A","expr": "kafka_topic_partitions{topic=~\"$topic\"}","legendFormat": "{{topic}}"}
+      ],
+      "fieldConfig": {
+        "defaults": {"unit": "short"},
+        "overrides": []
+      },
+      "options": {
+        "legend": {"displayMode": "list","placement": "bottom"},
+        "tooltip": {"mode": "multi","sort": "desc"}
+      }
+    }
+  ]
+}

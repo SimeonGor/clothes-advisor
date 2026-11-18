@@ -36,6 +36,7 @@ import org.springframework.dao.OptimisticLockingFailureException
 import org.springframework.jdbc.core.JdbcTemplate
 import org.springframework.test.context.bean.override.mockito.MockitoSpyBean
 import ru.itmo.clothesadvisor.config.AccountBackedIntegrationTest
+import ru.itmo.clothesadvisor.config.assertDomainEvents
 import ru.itmo.clothesadvisor.config.TestTimeConfiguration
 import ru.itmo.clothesadvisor.config.insertAccessGrant
 import ru.itmo.clothesadvisor.config.insertUser
@@ -221,6 +222,10 @@ class StylistRequestIntegrationTests : AccountBackedIntegrationTest() {
         // then
         assertThat(cancelled.statusCode()).isEqualTo(200)
         assertThat(noOp.body()).isEqualTo(cancelled.body())
+        jdbc.assertDomainEvents(
+            id, """{"requestId":$id,"ownerId":$owner,"stylistId":${previous["stylist_id"]}}""",
+            "StylistRequestCreated", "StylistRequestCancelled",
+        )
         assertThat(stale.statusCode()).isEqualTo(409)
         val archived = jdbc.queryForMap("SELECT * FROM stylist_request_history WHERE request_id = ?", id)
         assertThat(archived - setOf("request_id", "archived_at")).isEqualTo(previous - "id")
@@ -293,6 +298,10 @@ class StylistRequestIntegrationTests : AccountBackedIntegrationTest() {
         assertThat(replay.statusCode()).isEqualTo(201)
         assertThat(replay.body()).isEqualTo(created.body())
         assertThat(conflict.statusCode()).isEqualTo(409)
+        jdbc.assertDomainEvents(
+            id(created), """{"requestId":${id(created)},"ownerId":$owner,"stylistId":$stylist}""",
+            "StylistRequestCreated", "StylistRequestCancelled",
+        )
         assertThat(count("stylist_request")).isEqualTo(1)
         assertThat(count("stylist_request_weather")).isEqualTo(1)
         assertThat(jdbc.queryForObject("SELECT state FROM idempotency_command", String::class.java)).isEqualTo("SUCCEEDED")
@@ -306,7 +315,7 @@ class StylistRequestIntegrationTests : AccountBackedIntegrationTest() {
         val stylist = user(UserRole.STYLIST)
         jdbc.insertAccessGrant(owner, stylist)
         val request = CreateStylistRequest(stylist, OutfitWeatherDto(BigDecimal.TEN, 1, BigDecimal.ZERO))
-        if (failResult) doThrow(DataIntegrityViolationException("forced")).`when`(commands).succeed(anyLong(), anyString())
+        if (failResult) doThrow(DataIntegrityViolationException("forced")).`when`(commands).succeed(anyLong(), anyString(), org.mockito.ArgumentMatchers.eq(201))
         else doThrow(DataIntegrityViolationException("forced")).`when`(repository).insertWeather(
             1L, StylistRequestWeather(BigDecimal.TEN, 1, BigDecimal.ZERO),
         )
@@ -318,6 +327,7 @@ class StylistRequestIntegrationTests : AccountBackedIntegrationTest() {
         // then
         assertThat(failure).isInstanceOf(DataIntegrityViolationException::class.java)
         assertThat(replay).hasMessage("idempotency_failed")
+        assertThat(count("outbox_event")).isZero()
         assertThat(count("stylist_request")).isZero()
         assertThat(count("stylist_request_weather")).isZero()
         assertThat(jdbc.queryForObject("SELECT state FROM idempotency_command", String::class.java)).isEqualTo("FAILED")

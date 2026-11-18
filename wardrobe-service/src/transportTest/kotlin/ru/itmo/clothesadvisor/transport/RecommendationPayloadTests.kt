@@ -8,6 +8,7 @@ import java.util.Base64
 import java.nio.file.Files
 import java.net.InetSocketAddress
 import com.sun.net.httpserver.HttpServer
+import java.util.UUID
 import org.junit.jupiter.api.AfterAll
 import org.springframework.test.context.DynamicPropertyRegistry
 import org.springframework.test.context.DynamicPropertySource
@@ -35,7 +36,7 @@ import org.springframework.test.context.ActiveProfiles
 import org.springframework.transaction.PlatformTransactionManager
 import org.springframework.transaction.support.SimpleTransactionStatus
 import ru.itmo.clothesadvisor.client.ai.OpenAiSelectionClient
-import ru.itmo.clothesadvisor.client.ai.SelectionGoal
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.SelectionGoal
 import ru.itmo.clothesadvisor.client.recommendation.RecommendationClient
 import ru.itmo.clothesadvisor.config.ExternalClientsConfiguration
 import ru.itmo.clothesadvisor.dto.ai.CreateAiOutfitRequest
@@ -57,6 +58,7 @@ import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItem
 import ru.itmo.clothesadvisor.model.wardrobe.WardrobeItemPhoto
 import ru.itmo.clothesadvisor.model.weather.PrecipitationType
 import ru.itmo.clothesadvisor.recommendationservice.RecommendationServiceApplication
+import ru.itmo.clothesadvisor.recommendationservice.service.ItemSelectionProvider
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemPhotoRepository
 import ru.itmo.clothesadvisor.repository.wardrobe.WardrobeItemRepository
 import ru.itmo.clothesadvisor.repository.weather.PrecipitationTypeRepository
@@ -76,6 +78,9 @@ import ru.itmo.clothesadvisor.service.wardrobe.WardrobeItemPhotoService
 class RecommendationPayloadTests {
     @TestConfiguration
     class TransportSecurity {
+        @Bean("syncSelectionProvider")
+        fun selectionProvider(client: OpenAiSelectionClient) = ItemSelectionProvider(client::select)
+
         @Bean
         fun transportSecurity(http: org.springframework.security.config.web.server.ServerHttpSecurity) =
             http.csrf { it.disable() }.authorizeExchange { it.anyExchange().permitAll() }.build()
@@ -123,7 +128,7 @@ class RecommendationPayloadTests {
         candidateIds.forEach { id ->
             val photoId = id + 100
             val photo = WardrobeItemPhoto(
-                id, "photo-$id", "image/jpeg", 10_000_000, storedAt,
+                id, UUID.randomUUID(), "image/jpeg", 10_000_000, storedAt,
             ).apply { this.id = photoId }
             `when`(photos.findFirstByItemIdOrderByIdAsc(id)).thenReturn(photo)
             `when`(photos.findByIdAndItemIdAndItemOwnerId(photoId, id, 7)).thenReturn(photo)

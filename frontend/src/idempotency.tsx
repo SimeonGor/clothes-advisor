@@ -1,5 +1,5 @@
 import { ApiError, request } from "./api";
-import { getSessionEpoch } from "./auth";
+import { authenticatedFetch, getSessionEpoch } from "./auth";
 
 const storageKey = (actorId: number, path: string) => `creation:${actorId}:POST:${path}`;
 
@@ -47,7 +47,7 @@ async function fingerprint(body: string | FormData): Promise<string> {
   return digest(new TextEncoder().encode(JSON.stringify(parts)).buffer);
 }
 
-export async function createRequest<T>(path: string, actorId: number, body: string | FormData): Promise<T> {
+export async function createRequest<T>(path: string, actorId: number, body: string | FormData, retainKey = false): Promise<T> {
   const epoch = getSessionEpoch();
   const hash = await fingerprint(body);
   if (epoch !== getSessionEpoch()) throw new ApiError(401);
@@ -60,8 +60,43 @@ export async function createRequest<T>(path: string, actorId: number, body: stri
   const result = await request<T>(path, actorId, {
     method: "POST", body, headers: { "Idempotency-Key": key },
   });
-  removeAttempt(slot, hash, key);
+  if (!retainKey) removeAttempt(slot, hash, key);
   return result;
+}
+
+export async function requestKey(path: string, actorId: number, body: string | FormData): Promise<string | undefined> {
+  const hash = await fingerprint(body);
+  return readRecord(storageKey(actorId, path)).attempts[hash];
+}
+
+export function forgetRequestKey(path: string, actorId: number, key: string) {
+  const slot = storageKey(actorId, path);
+  const saved = readRecord(slot);
+  for (const [hash, savedKey] of Object.entries(saved.attempts)) {
+    if (savedKey === key) removeAttempt(slot, hash, key);
+  }
+}
+
+export async function createAcceptedAiRequest(path: string, actorId: number, body: string, signal?: AbortSignal): Promise<{ receipt: { jobId: string; status: string }; key: string }> {
+  const epoch = getSessionEpoch();
+  const hash = await fingerprint(body);
+  if (epoch !== getSessionEpoch()) throw new ApiError(401);
+  const slot = storageKey(actorId, path);
+  const saved = readRecord(slot);
+  const key = saved.attempts[hash] ?? crypto.randomUUID();
+  saved.attempts[hash] = key;
+  saved.latestFingerprint = hash;
+  sessionStorage.setItem(slot, JSON.stringify(saved));
+  const response = await authenticatedFetch(path, actorId, {
+    method: "POST", body, signal, headers: { "Content-Type": "application/json", "Idempotency-Key": key },
+  });
+  const receipt = await response.json() as { jobId?: unknown; status?: unknown };
+  const location = response.headers.get("Location");
+  if (epoch !== getSessionEpoch()) throw new ApiError(401);
+  if (response.status !== 202 || typeof receipt.jobId !== "string" || !/^[0-9a-f-]{36}$/i.test(receipt.jobId)
+    || !["QUEUED", "RUNNING"].includes(String(receipt.status))
+    || location !== `/api/v2/me/ai-jobs/${receipt.jobId}`) throw new Error("Invalid AI job receipt");
+  return { receipt: receipt as { jobId: string; status: string }, key };
 }
 
 export function NewAttempt({ actorId, path, disabled, onReset }: {

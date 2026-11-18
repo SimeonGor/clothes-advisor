@@ -1,0 +1,47 @@
+@startuml components
+!pragma layout smetana
+skinparam backgroundColor white
+skinparam defaultFontName SansSerif
+skinparam shadowing false
+skinparam componentStyle rectangle
+skinparam nodesep 35
+skinparam ranksep 42
+skinparam ArrowColor #41576B
+
+actor "Браузер" as browser
+component "API Gateway\n127.0.0.1:8080" as gw #DEEAF6
+component "Frontend\nCaddy · React" as ui #DEEAF6
+component "Account\nаккаунты, права · account_db" as account #E5F3EB
+component "Wardrobe\nгардероб, задания · clothes_advisor" as wardrobe #E5F3EB
+component "Notification\nлента · notification_db" as notice #E5F3EB
+queue "Kafka KRaft\n3 брокера · 7 топиков" as kafka #FFF1D6
+component "Recommendation\nисполнение AI · recommendation_db" as rec #E5F3EB
+component "File\nметаданные · file_db" as file #E5F3EB
+component "Token refresher" as refresh #EEE8F7
+cloud "OpenAI" as ai
+cloud "Yandex Object Storage" as s3
+
+browser --> gw : HTTP
+gw --> ui : /app
+gw --> account : /api/auth, доступ
+gw --> wardrobe : гардероб, AI v2
+gw --> notice : уведомления
+wardrobe ..> account : права
+notice ..> account : активность
+account --> kafka : доступ
+wardrobe <--> kafka : команды, события
+kafka --> notice : события
+kafka <--> rec : команды, исходы
+wardrobe --> file : запись, чтение
+rec --> file : чтение
+rec ..> wardrobe : validate-input
+wardrobe ..> rec : синхронный подбор
+file --> s3 : HTTPS
+rec --> ai : HTTPS
+refresh ..> rec : access token через том
+
+note top of gw
+  Config Server отдаёт настройки.
+  Eureka разрешает имена сервисов.
+end note
+@enduml

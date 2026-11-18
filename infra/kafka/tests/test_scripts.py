@@ -1,0 +1,456 @@
+"""Kafka CLI regression scenarios with disposable credentials and a broker CLI double."""
+import json
+import os
+from pathlib import Path
+import shutil
+import stat
+import subprocess
+import sys
+import tempfile
+import unittest
+
+
+KAFKA = Path(__file__).resolve().parents[1]
+
+
+def run(*args, env=None):
+    return subprocess.run(args, text=True, capture_output=True, env=env)
+
+
+class PreparationCliTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        cls.workspace = tempfile.TemporaryDirectory()
+        cls.base = Path(cls.workspace.name)
+        cls.credentials = cls.base / "credentials"
+        cls.first = run(sys.executable, str(KAFKA / "prepare.py"), "--secrets-dir", str(cls.credentials))
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.workspace.cleanup()
+
+    def copy_credentials(self, name):
+        target = self.base / name
+        shutil.copytree(self.credentials, target)
+        return target
+
+    def prepare(self, path):
+        return run(sys.executable, str(KAFKA / "prepare.py"), "--secrets-dir", str(path))
+
+    def snapshot(self, directory):
+        return {p.relative_to(directory): (p.read_bytes() if p.is_file() else None, p.stat().st_mtime_ns)
+                for p in (directory, *directory.rglob("*"))}
+
+    def test_first_preparation_private_scoped_credentials_and_distinct_identities(self):
+        # Given a new absolute directory outside the repository.
+        # When setUpClass prepares the shared credentials through the CLI.
+        self.assertEqual(self.first.returncode, 0, self.first.stderr)
+
+        # Then credentials are private at the host boundary and readable in scoped mounts.
+        self.assertEqual(stat.S_IMODE(self.credentials.stat().st_mode), 0o700)
+        self.assertEqual(stat.S_IMODE((self.credentials / "private/ca.key").stat().st_mode), 0o600)
+        passwords, keys, clusters = set(), set(), set()
+        for principal in ("bootstrap-admin", "account-service", "wardrobe-service",
+                          "recommendation-service", "notification-service"):
+            directory = self.credentials / principal
+            self.assertEqual(stat.S_IMODE(directory.stat().st_mode), 0o755)
+            self.assertEqual(list(p.name for p in directory.iterdir()), ["client.properties"])
+            client = (directory / "client.properties").read_text()
+            self.assertIn('username="' + principal + '"', client)
+            passwords.add(client.split('password="')[1].split('"')[0])
+        self.assertEqual(len(passwords), 5)
+        for node in range(1, 4):
+            directory = self.credentials / f"kafka-{node}"
+            self.assertEqual(stat.S_IMODE(directory.stat().st_mode), 0o755)
+            self.assertEqual(stat.S_IMODE((directory / "key.pem").stat().st_mode), 0o444)
+            keys.add((directory / "key.pem").read_text())
+            clusters.add((directory / "cluster.id").read_text())
+            self.assertFalse((directory / "ca.key").exists())
+            verified = run("openssl", "verify", "-CAfile", str(self.credentials / "private/ca.pem"),
+                           str(directory / "certificate.pem"))
+            self.assertEqual(verified.returncode, 0, verified.stderr)
+            for password in passwords:
+                self.assertNotIn(password, (directory / "scram.txt").read_text())
+                self.assertNotIn(password, self.first.stdout + self.first.stderr)
+        self.assertEqual(len(keys), 3)
+        self.assertEqual(len(clusters), 1)
+
+    def test_repeat_does_not_modify_any_file(self):
+        # Given complete credentials.
+        before = {str(p): (p.read_bytes(), p.stat().st_mtime_ns)
+                  for p in self.credentials.rglob("*") if p.is_file()}
+
+        # When preparation repeats.
+        repeated = self.prepare(self.credentials)
+
+        # Then even mtimes stay fixed.
+        self.assertEqual(repeated.returncode, 0, repeated.stderr)
+        after = {str(p): (p.read_bytes(), p.stat().st_mtime_ns)
+                 for p in self.credentials.rglob("*") if p.is_file()}
+        self.assertEqual(before, after)
+
+    def test_legacy_upgrade_and_repeat_keep_broker_and_monitor_credentials_immutable(self):
+        # Given the hashed v1 directory alone, as on a pre-monitor installation.
+        directory = self.copy_credentials("upgrade")
+        before = self.snapshot(directory)
+        monitor = self.base / "upgrade.monitor"
+
+        # When two upgrades race to issue a client identity.
+        command = [sys.executable, str(KAFKA / "prepare.py"), "--secrets-dir", str(directory)]
+        processes = [subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE) for _ in range(2)]
+        for process in processes:
+            _, stderr = process.communicate()
+            self.assertEqual(process.returncode, 0, stderr)
+
+        # Then both accept a single private, client-only mount signed by the original CA.
+        self.assertEqual(self.snapshot(directory), before)
+        self.assertEqual(stat.S_IMODE(monitor.stat().st_mode), 0o700)
+        self.assertEqual({p.name for p in monitor.iterdir()}, {"ca.pem", "certificate.pem", "key.pem"})
+        for path in monitor.iterdir():
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o444)
+        self.assertEqual((monitor / "ca.pem").read_bytes(), (directory / "private/ca.pem").read_bytes())
+        cert = str(monitor / "certificate.pem")
+        for purpose, allowed in (("sslclient", True), ("sslserver", False)):
+            result = run("openssl", "verify", "-trusted", str(directory / "private/ca.pem"), "-purpose", purpose, cert)
+            self.assertEqual(result.returncode == 0, allowed, result.stderr)
+        subject = run("openssl", "x509", "-in", cert, "-noout", "-subject", "-nameopt", "RFC2253")
+        self.assertEqual(subject.stdout.strip(), "subject=CN=kafka-monitor")
+        published = self.snapshot(monitor)
+        repeated = self.prepare(directory)
+        self.assertEqual(repeated.returncode, 0, repeated.stderr)
+        self.assertEqual(self.snapshot(monitor), published)
+        self.assertEqual(self.snapshot(directory), before)
+
+    def test_monitor_mismatch_partial_and_unsafe_files_refused(self):
+        source = self.base / "credentials.monitor"
+        for kind in ("missing", "extra", "key", "subject", "ca", "file-link", "directory-link", "permissions"):
+            with self.subTest(kind=kind):
+                # Given an existing sibling with incomplete, conflicting or unsafe material.
+                directory = self.copy_credentials("monitor-" + kind)
+                monitor = directory.with_name(directory.name + ".monitor")
+                if kind == "directory-link":
+                    monitor.symlink_to(source)
+                else:
+                    shutil.copytree(source, monitor)
+                if kind == "missing":
+                    (monitor / "key.pem").unlink()
+                elif kind == "extra":
+                    (monitor / "unexpected").touch()
+                elif kind == "key":
+                    (monitor / "key.pem").unlink()
+                    shutil.copy2(directory / "kafka-1/key.pem", monitor / "key.pem")
+                elif kind == "subject":
+                    for name in ("key.pem", "certificate.pem"):
+                        (monitor / name).unlink()
+                        shutil.copy2(directory / "kafka-1" / name, monitor / name)
+                elif kind == "ca":
+                    (monitor / "ca.pem").unlink()
+                    shutil.copy2(directory / "kafka-1/certificate.pem", monitor / "ca.pem")
+                elif kind == "file-link":
+                    (monitor / "key.pem").unlink()
+                    (monitor / "key.pem").symlink_to(source / "key.pem")
+                elif kind == "permissions":
+                    monitor.chmod(0o755)
+                before = self.snapshot(monitor)
+
+                # When preparation repeats, then nothing is replaced or rotated.
+                result = self.prepare(directory)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(self.snapshot(monitor), before)
+
+    def test_config_server_upgrade_preserves_core_and_monitor_and_verifies_client_identity(self):
+        directory = self.copy_credentials("bus-upgrade")
+        monitor = directory.with_name(directory.name + ".monitor")
+        shutil.copytree(self.base / "credentials.monitor", monitor)
+        before, monitor_before = self.snapshot(directory), self.snapshot(monitor)
+        target = directory.with_name(directory.name + ".config-server")
+        upgraded = self.prepare(directory)
+        self.assertEqual(upgraded.returncode, 0, upgraded.stderr)
+        self.assertEqual(self.snapshot(directory), before)
+        self.assertEqual(self.snapshot(monitor), monitor_before)
+        self.assertEqual(stat.S_IMODE(target.stat().st_mode), 0o700)
+        self.assertEqual({p.name for p in target.iterdir()}, {"ca.pem", "certificate.pem", "key.pem"})
+        for path in target.iterdir():
+            self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o444)
+        cert = target / "certificate.pem"
+        subject = run("openssl", "x509", "-in", cert, "-noout", "-subject", "-nameopt", "RFC2253")
+        self.assertEqual(subject.stdout.strip(), "subject=CN=config-server")
+        for purpose, allowed in (("sslclient", True), ("sslserver", False)):
+            verified = run("openssl", "verify", "-trusted", directory / "private/ca.pem", "-purpose", purpose, cert)
+            self.assertEqual(verified.returncode == 0, allowed, verified.stderr)
+        self.assertTrue((target / "key.pem").read_text().startswith("-----BEGIN PRIVATE KEY-----"))
+        issued = self.snapshot(target)
+        self.assertEqual(self.prepare(directory).returncode, 0)
+        self.assertEqual(self.snapshot(target), issued)
+
+        # A valid monitor cert with its matching key must never stand in for the publisher.
+        for name in ("certificate.pem", "key.pem"):
+            (target / name).unlink()
+            shutil.copy2(monitor / name, target / name)
+        wrong_identity = self.snapshot(target)
+        self.assertNotEqual(self.prepare(directory).returncode, 0)
+        self.assertEqual(self.snapshot(target), wrong_identity)
+
+    def test_monitor_wrong_issuer_or_purpose_refused(self):
+        for kind in ("wrong-issuer", "wrong-purpose"):
+            with self.subTest(kind=kind):
+                # Given the correct CN and matching key, but a foreign issuer or server-only EKU.
+                directory = self.copy_credentials(kind)
+                monitor = directory.with_name(kind + ".monitor")
+                shutil.copytree(self.base / "credentials.monitor", monitor)
+                cert, key = monitor / "certificate.pem", monitor / "key.pem"
+                cert.unlink()
+                if kind == "wrong-issuer":
+                    generated = run("openssl", "req", "-new", "-x509", "-subj", "/CN=kafka-monitor",
+                                    "-key", key, "-out", cert, "-addext", "basicConstraints=CA:FALSE",
+                                    "-addext", "extendedKeyUsage=clientAuth")
+                else:
+                    csr = self.base / "wrong-purpose.csr"
+                    generated = run("openssl", "req", "-new", "-subj", "/CN=kafka-monitor", "-key", key, "-out", csr)
+                    self.assertEqual(generated.returncode, 0, generated.stderr)
+                    ext = self.base / "wrong-purpose.extensions"
+                    ext.write_text("basicConstraints=CA:FALSE\nextendedKeyUsage=serverAuth\n")
+                    generated = run("openssl", "x509", "-req", "-in", csr, "-extfile", ext, "-out", cert,
+                                    "-CA", directory / "private/ca.pem", "-CAkey", directory / "private/ca.key",
+                                    "-set_serial", "42")
+                self.assertEqual(generated.returncode, 0, generated.stderr)
+                cert.chmod(0o444)
+                before = self.snapshot(monitor)
+
+                # When even the host OpenSSL CAfile trusts the supplied certificate.
+                result = run(sys.executable, str(KAFKA / "prepare.py"), "--secrets-dir", directory,
+                             env=dict(os.environ, SSL_CERT_FILE=str(cert)))
+
+                # Then only the original Kafka CA and client purpose are accepted.
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(self.snapshot(monitor), before)
+
+    def test_monitor_signing_failure_leaves_legacy_installation_retryable(self):
+        # Given a legacy installation and a signing command that fails.
+        directory = self.copy_credentials("signing-failure")
+        before = self.snapshot(directory)
+        fake_bin = self.base / "failing-openssl"
+        fake_bin.mkdir()
+        wrapper = fake_bin / "openssl"
+        wrapper.write_text('#!/bin/sh\nif [ "$1" = req ]; then exit 1; fi\nexec "$REAL_OPENSSL" "$@"\n')
+        wrapper.chmod(0o700)
+        env = dict(os.environ, PATH=str(fake_bin) + os.pathsep + os.environ["PATH"],
+                   REAL_OPENSSL=shutil.which("openssl"))
+
+        # When monitor issuance fails.
+        result = run(sys.executable, str(KAFKA / "prepare.py"), "--secrets-dir", directory, env=env)
+
+        # Then no partial bundle is published, and retry succeeds with the same core.
+        self.assertNotEqual(result.returncode, 0)
+        self.assertFalse(os.path.lexists(directory.with_name(directory.name + ".monitor")))
+        retried = self.prepare(directory)
+        self.assertEqual(retried.returncode, 0, retried.stderr)
+        self.assertEqual(self.snapshot(directory), before)
+
+    def test_partial_state_refused_without_deletion(self):
+        # Given an interrupted preparation.
+        directory = self.base / "partial"
+        directory.mkdir(mode=0o700)
+        marker = directory / "keep"
+        marker.write_text("existing-data")
+
+        # When preparation is retried.
+        result = self.prepare(directory)
+
+        # Then its existing content survives.
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(marker.read_text(), "existing-data")
+        self.assertEqual(len(list(directory.iterdir())), 1)
+
+    def test_config_mismatch_and_tampering_refused(self):
+        for kind in ("config", "key"):
+            with self.subTest(kind=kind):
+                # Given mismatched metadata or a changed key.
+                directory = self.copy_credentials(kind)
+                if kind == "config":
+                    path = directory / "manifest.json"
+                    content = json.loads(path.read_text())
+                    content["config"]["version"] = 99
+                    path.write_text(json.dumps(content))
+                else:
+                    path = directory / "kafka-1/key.pem"
+                    path.chmod(0o600)
+                    path.write_text("changed-key")
+                before = path.read_bytes()
+
+                # When preparation is retried.
+                result = self.prepare(directory)
+
+                # Then no repair or rotation occurs.
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(before, path.read_bytes())
+
+    def test_relative_repository_symlink_and_nonprivate_paths_rejected(self):
+        # Given unsafe destinations.
+        link = self.base / "link"
+        link.symlink_to(self.credentials)
+        nonprivate = self.base / "nonprivate"
+        nonprivate.mkdir(mode=0o755)
+        for path in (Path("relative"), KAFKA / "forbidden-credentials", link, nonprivate):
+            with self.subTest(path=path):
+                # When preparation is called.
+                result = self.prepare(path)
+
+                # Then the destination is rejected.
+                self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((KAFKA / "forbidden-credentials").exists())
+
+
+class KafkaShellCliTest(unittest.TestCase):
+    def setUp(self):
+        self.workspace = tempfile.TemporaryDirectory()
+        self.addCleanup(self.workspace.cleanup)
+        self.base = Path(self.workspace.name)
+        (self.base / "bin").mkdir()
+        for name in ("kafka-storage.sh", "kafka-server-start.sh", "kafka-topics.sh",
+                     "kafka-acls.sh", "kafka-broker-api-versions.sh"):
+            path = self.base / "bin" / name
+            shutil.copyfile(KAFKA / "tests/fixtures/kafka_cli.py", path)
+            path.chmod(0o755)
+        self.state = self.base / "state.json"
+        self.calls = self.base / "calls.jsonl"
+        self.env = dict(os.environ, KAFKA_HOME=str(self.base), FAKE_STATE=str(self.state),
+                        FAKE_CALLS=str(self.calls))
+        self.credentials = self.base / "credentials"
+        self.credentials.mkdir()
+        for name, content in {"node.id": "1\n", "cluster.id": "A" * 22 + "\n",
+                              "scram.txt": "SCRAM-SHA-512=[name=fixture,saltedpassword=fixture]\n",
+                              "server.properties": "node.id=1\n"}.items():
+            (self.credentials / name).write_text(content)
+        self.data = self.base / "data"
+
+    def start(self):
+        return run("bash", str(KAFKA / "start.sh"), str(self.credentials), str(self.data), "1", env=self.env)
+
+    def provision(self):
+        return run("bash", str(KAFKA / "provision.sh"), "/fixture/admin.properties", env=self.env)
+
+    def test_storage_first_start_repeat_and_diagnostics(self):
+        # Given storage initialized from an empty directory.
+        first = self.start()
+        self.assertEqual(first.returncode, 0, first.stderr)
+        (self.data / "message").write_text("retained")
+
+        # When the node starts again.
+        repeated = self.start()
+
+        # Then format ran once and data survives.
+        self.assertEqual(repeated.returncode, 0, repeated.stderr)
+        calls = [json.loads(line) for line in self.calls.read_text().splitlines()]
+        self.assertEqual(sum(call[0] == "kafka-storage.sh" for call in calls), 1)
+        self.assertEqual((self.data / "message").read_text(), "retained")
+        self.assertIn("Kafka server fixture started", first.stdout)
+        self.assertFalse((self.data / "server.log").exists())
+
+    def test_storage_mismatch_and_partial_refused_without_format(self):
+        # Given incompatible or partial persistent state.
+        self.data.mkdir()
+        marker = self.data / "message"
+        marker.write_text("retained")
+        meta = self.data / "meta.properties"
+        for metadata in (None, "cluster.id=wrong\nnode.id=1\n", "cluster.id=" + "A" * 22 + "\nnode.id=2\n"):
+            with self.subTest(metadata=metadata):
+                if metadata:
+                    meta.write_text(metadata)
+
+                # When the node starts.
+                result = self.start()
+
+                # Then nothing is reformatted.
+                self.assertNotEqual(result.returncode, 0)
+                self.assertFalse(self.calls.exists())
+                self.assertEqual(marker.read_text(), "retained")
+
+    def test_topology_repeat_exact_topics_groups_and_no_deletion(self):
+        # Given a cluster provisioned from an empty state.
+        first = self.provision()
+        self.assertEqual(first.returncode, 0, first.stderr)
+        before = self.state.read_bytes()
+
+        # When provisioning repeats.
+        second = self.provision()
+
+        # Then its logical ACL and topic set is stable.
+        self.assertEqual(second.returncode, 0, second.stderr)
+        self.assertEqual(before, self.state.read_bytes())
+        state = json.loads(before)
+        self.assertEqual(set(state["topics"]), {"stylist-access.events", "stylist-requests.events",
+                         "stylist-outfits.events", "outfit-ratings.events", "ai-jobs.events",
+                         "ai-selection.requests", "ai-selection.execution-events", "config.refresh.events"})
+        groups = {acl[acl.index("--group") + 1] for acl in state["acls"] if "--group" in acl}
+        self.assertEqual(groups, {"notification-service.events", "recommendation-service.ai-jobs",
+                                 "recommendation-service.ai-selection", "wardrobe-service.ai-selection",
+                                 "config-bus.config-server.", "config-bus.recommendation-service.",
+                                 "config-bus.wardrobe-service."})
+        monitor = [acl for acl in state["acls"] if "User:CN=kafka-monitor" in acl]
+        self.assertEqual(len(monitor), 1)
+        options = set(zip(monitor[0][::2], monitor[0][1::2]))
+        self.assertEqual(options, {("--allow-principal", "User:CN=kafka-monitor"),
+                                   ("--operation", "Describe"), ("--resource-pattern-type", "literal")}
+                         | {("--topic", topic) for topic in state["topics"] if topic != "config.refresh.events"}
+                         | {("--group", group) for group in groups if not group.startswith("config-bus.")})
+        self.assertEqual(len(monitor[0]) % 2, 0)
+        calls = [json.loads(line) for line in self.calls.read_text().splitlines()]
+        for call in calls:
+            self.assertFalse({"--delete", "--remove", "--alter", "--producer", "*"} & set(call))
+
+    def test_bus_only_config_server_can_write_and_each_instance_has_its_own_group(self):
+        result = self.provision()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        state = json.loads(self.state.read_text())
+        topic = state["topics"]["config.refresh.events"]
+        self.assertEqual(topic["replicas"], 3)
+        self.assertIn("min.insync.replicas=2", topic["config"])
+        bus_acls = [acl for acl in state["acls"] if "config.refresh.events" in acl
+                    or any(value.startswith("config-bus.") for value in acl) or "User:CN=config-server" in acl]
+        expected = [["--allow-principal", "User:CN=config-server", "--operation", "Write",
+                     "--topic", "config.refresh.events", "--resource-pattern-type", "literal"]]
+        for service in ("config-server", "wardrobe-service", "recommendation-service"):
+            principal = "User:CN=config-server" if service == "config-server" else "User:" + service
+            expected += [
+                ["--allow-principal", principal, "--operation", "Read", "--operation", "Describe",
+                 "--topic", "config.refresh.events", "--resource-pattern-type", "literal"],
+                ["--allow-principal", principal, "--operation", "Read", "--group", "config-bus." + service + ".",
+                 "--resource-pattern-type", "prefixed"],
+            ]
+        self.assertCountEqual(bus_acls, expected)
+
+    def test_topology_mismatch_refuses_destructive_repair(self):
+        # Given existing topics.
+        self.assertEqual(self.provision().returncode, 0)
+        original = json.loads(self.state.read_text())
+        for field, invalid in (("partitions", 1), ("replicas", 1), ("config", ["min.insync.replicas=1"])):
+            state = json.loads(json.dumps(original))
+            state["topics"]["ai-jobs.events"][field] = invalid
+            self.state.write_text(json.dumps(state, sort_keys=True))
+            before = self.state.read_bytes()
+
+            # When provisioning encounters incompatible partitions, replicas or config.
+            result = self.provision()
+
+            # Then it fails without destructive repair.
+            self.assertNotEqual(result.returncode, 0)
+            self.assertEqual(before, self.state.read_bytes())
+
+    def test_failed_commands_do_not_echo_secret_output(self):
+        for command, invoke in (("kafka-storage.sh", self.start), ("kafka-topics.sh", self.provision),
+                                ("kafka-acls.sh", self.provision)):
+            with self.subTest(command=command):
+                # Given a CLI failing with sensitive diagnostic text.
+                self.env["FAKE_FAIL"] = command
+
+                # When its caller invokes it.
+                result = invoke()
+
+                # Then only safe messages are emitted.
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("SECRET_FROM_FAILED_COMMAND", result.stdout + result.stderr)
+
+
+if __name__ == "__main__":
+    unittest.main()

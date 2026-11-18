@@ -1,5 +1,6 @@
 package ru.itmo.clothesadvisor.repository.wardrobe
 
+import java.util.UUID
 import org.springframework.data.jdbc.repository.query.Modifying
 import org.springframework.data.jdbc.repository.query.Query
 import org.springframework.data.repository.Repository
@@ -22,11 +23,11 @@ internal interface WardrobeItemPhotoRepository : Repository<WardrobeItemPhoto, L
 
     @Query(
         """
-        INSERT INTO wardrobe_item_photo (wardrobe_item_id, s3_key, content_type, size_bytes)
-        VALUES (:itemId, :s3Key, :contentType, :sizeBytes) RETURNING *
+        INSERT INTO wardrobe_item_photo (wardrobe_item_id, file_id, content_type, size_bytes)
+        VALUES (:itemId, :fileId, :contentType, :sizeBytes) RETURNING *
     """,
     )
-    fun create(itemId: Long, s3Key: String, contentType: String, sizeBytes: Long): WardrobeItemPhoto
+    fun create(itemId: Long, fileId: UUID, contentType: String, sizeBytes: Long): WardrobeItemPhoto
 
     @Modifying
     @Query("DELETE FROM wardrobe_item_photo WHERE id = :#{#photo.id}")

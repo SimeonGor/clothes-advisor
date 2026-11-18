@@ -16,6 +16,7 @@ import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicBoolean
 import org.assertj.core.api.Assertions.assertThat
+import org.awaitility.Awaitility.await
 import org.assertj.core.api.Assertions.catchThrowable
 import org.junit.jupiter.api.Test
 import org.junit.jupiter.api.io.TempDir
@@ -28,15 +29,20 @@ import org.springframework.boot.builder.SpringApplicationBuilder
 import org.springframework.boot.env.YamlPropertySourceLoader
 import org.springframework.boot.test.context.TestConfiguration
 import org.springframework.cloud.config.client.ConfigClientProperties
+import org.springframework.cloud.bus.event.PathDestinationFactory
+import org.springframework.cloud.bus.event.RefreshRemoteApplicationEvent
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Import
+import org.springframework.scheduling.annotation.EnableScheduling
 import org.springframework.core.env.MapPropertySource
 import org.springframework.core.io.FileSystemResource
-import ru.itmo.clothesadvisor.client.ai.AiSelectionException
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.AiSelectionException
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.AiSelectionFailure
 import ru.itmo.clothesadvisor.client.ai.ChatGptCredentialFixture
 import ru.itmo.clothesadvisor.client.ai.ChatGptCredentials
 import ru.itmo.clothesadvisor.client.ai.OpenAiSelectionClient
-import ru.itmo.clothesadvisor.client.ai.SelectionGoal
+import ru.itmo.clothesadvisor.recommendationservice.model.ai.SelectionGoal
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionCandidate
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionRequest
 import ru.itmo.clothesadvisor.dto.ai.ItemSelectionWeather
@@ -145,7 +151,7 @@ class SelectionPromptSettingsTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhot
 
                 // then
                 assertThat(failure).isInstanceOfSatisfying(AiSelectionException::class.java) {
-                    assertThat(it.status).isEqualTo(503)
+                    assertThat(it.failure).isEqualTo(AiSelectionFailure.UNAVAILABLE)
                     assertThat(it.message).isNull()
                     assertThat(it.cause).isNull()
                 }
@@ -241,15 +247,20 @@ class SelectionPromptSettingsTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhot
     }
 
     @TestConfiguration(proxyBeanMethods = false)
-    @EnableAutoConfiguration
-    @Import(OpenAiConfiguration::class)
+    @EnableAutoConfiguration(excludeName = [
+        "org.springframework.boot.r2dbc.autoconfigure.R2dbcAutoConfiguration",
+        "org.springframework.boot.jdbc.autoconfigure.DataSourceAutoConfiguration",
+        "org.springframework.boot.flyway.autoconfigure.FlywayAutoConfiguration",
+    ])
+    @EnableScheduling
+    @Import(OpenAiConfiguration::class, SelectionPromptRefresh::class)
     class PromptApplication {
         @Bean fun clock(): Clock = Clock.systemUTC()
     }
 
     @ParameterizedTest
     @ValueSource(strings = ["local", "default"])
-    fun `scheduled refresh recovers missing startup prompt and retains imported connection settings`(profile: String) {
+    fun `refresh event recovers missing startup prompt and retains imported connection settings`(profile: String) {
         // given
         val remote = RemoteConfiguration()
         val executor = Executors.newVirtualThreadPerTaskExecutor()
@@ -267,7 +278,6 @@ class SelectionPromptSettingsTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhot
                     it.responseHeaders.add("Content-Type", "application/json")
                     it.sendResponseHeaders(response.status, body.size.toLong())
                     it.responseBody.write(body)
-                    remote.polls.countDown()
                 }
             }
             start()
@@ -277,6 +287,7 @@ class SelectionPromptSettingsTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhot
             SpringApplicationBuilder(PromptApplication::class.java).web(WebApplicationType.NONE).run(
                 "--spring.profiles.active=$profile",
                 "--spring.config.import=configserver:$uri",
+                "--management.endpoint.health.group.readiness.include=readinessState",
                 "--CONFIG_SERVER_URL=$uri",
                 "--spring.cloud.config.uri=http://127.0.0.1:1",
                 "--spring.cloud.config.enabled=true",
@@ -284,8 +295,10 @@ class SelectionPromptSettingsTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhot
                 "--spring.cloud.config.password=synthetic-password",
                 "--eureka.client.enabled=false",
                 "--app.openai.model=test-model",
-                "--app.openai.prompt.poll-interval=100ms",
             ).use { context ->
+                remote.publisher = context
+                remote.paths.clear()
+                remote.authorization.clear()
                 val settings = context.getBean("outfitPromptSettings", SelectionPromptSettings::class.java)
                 val capsule = context.getBean("capsulePromptSettings", SelectionPromptSettings::class.java)
                 val client = context.getBean(OpenAiSelectionClient::class.java)
@@ -299,7 +312,7 @@ class SelectionPromptSettingsTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhot
                 assertThat(settings.snapshot()).isNull()
                 assertThat(capsule.snapshot()).isNull()
                 assertThat(failure).isInstanceOfSatisfying(AiSelectionException::class.java) {
-                    assertThat(it.status).isEqualTo(503)
+                    assertThat(it.failure).isEqualTo(AiSelectionFailure.UNAVAILABLE)
                 }
 
                 // when
@@ -312,14 +325,14 @@ class SelectionPromptSettingsTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhot
                 assertThat(imported.profile).isEqualTo(originalProfile)
                 assertThat(imported.requestConnectTimeout).isEqualTo(2_000)
                 assertThat(imported.requestReadTimeout).isEqualTo(5_000)
-                assertThat(remote.paths.takeLast(2)).containsOnly("/recommendation-service/$profile")
-                assertThat(remote.authorization.takeLast(2)).containsOnly(
+                assertThat(remote.paths).containsExactly("/recommendation-service/$profile")
+                assertThat(remote.authorization).containsExactly(
                     "Basic c3ludGhldGljLXVzZXI6c3ludGhldGljLXBhc3N3b3Jk",
                 )
                 assertThat(context.environment.getProperty("app.openai.prompt.text")).isNull()
 
                 listOf(
-                    Response(status = 503), Response(),
+                    Response(),
                     Response(values = mapOf("app.openai.prompt.version" to "3")),
                     Response(values = values("bad", "Rejected instructions")),
                     Response(values = values("3", " ")),
@@ -332,10 +345,14 @@ class SelectionPromptSettingsTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhot
                 }
 
                 // when
-                remote.publish(Response(values = values("1", "Recovered instructions")))
+                remote.publish(Response(status = 503))
+                assertThat(settings.snapshot()).isEqualTo(SelectionPrompt(2, "Working instructions"))
+                remote.response = Response(values = values("1", "Recovered instructions"))
 
                 // then
-                assertThat(settings.snapshot()).isEqualTo(SelectionPrompt(1, "Recovered instructions"))
+                await().atMost(Duration.ofSeconds(15)).untilAsserted {
+                    assertThat(settings.snapshot()).isEqualTo(SelectionPrompt(1, "Recovered instructions"))
+                }
                 assertThat(context.getBean(OpenAiSelectionClient::class.java)).isSameAs(client)
 
                 // when: invalid outfit update must not block capsule recovery
@@ -417,15 +434,15 @@ class SelectionPromptSettingsTests : ru.itmo.clothesadvisor.dto.ai.SelectionPhot
 
     private class RemoteConfiguration {
         @Volatile var response = Response()
-        @Volatile var polls = CountDownLatch(0)
+        lateinit var publisher: ApplicationEventPublisher
         val paths = CopyOnWriteArrayList<String>()
         val authorization = CopyOnWriteArrayList<String>()
 
         fun publish(next: Response) {
             response = next
-            // A later poll proves the preceding synchronous application has finished.
-            polls = CountDownLatch(3)
-            assertThat(polls.await(10, TimeUnit.SECONDS)).isTrue()
+            publisher.publishEvent(RefreshRemoteApplicationEvent(
+                this, "config-server:test", PathDestinationFactory().getDestination("recommendation-service"),
+            ))
         }
     }
 }
